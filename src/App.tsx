@@ -2,6 +2,7 @@ import { useState } from "react";
 import reactLogo from "./assets/react.svg";
 import { invoke } from "@tauri-apps/api/core";
 import "./App.css";
+import { Button, Input } from "@heroui/react";
 
 function App() {
   const [greetMsg, setGreetMsg] = useState("");
@@ -13,10 +14,10 @@ function App() {
   }
 
   return (
-    <main className="container">
+    <main className="flex flex-col items-center justify-center py-30">
       <h1>Welcome to Tauri + React</h1>
 
-      <div className="row">
+      <div className="flex justify-center">
         <a href="https://vite.dev" target="_blank">
           <img src="/vite.svg" className="logo vite" alt="Vite logo" />
         </a>
@@ -30,18 +31,14 @@ function App() {
       <p>Click on the Tauri, Vite, and React logos to learn more.</p>
 
       <form
-        className="row"
+        className="flex justify-center gap-2 my-4"
         onSubmit={(e) => {
           e.preventDefault();
           greet();
         }}
       >
-        <input
-          id="greet-input"
-          onChange={(e) => setName(e.currentTarget.value)}
-          placeholder="Enter a name..."
-        />
-        <button type="submit">Greet</button>
+        <Input placeholder="Enter a name..." onChange={(e) => setName(e.currentTarget.value)} />
+        <Button type="submit">Greet</Button>
       </form>
       <p>{greetMsg}</p>
     </main>
