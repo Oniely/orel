@@ -1,50 +1,108 @@
-import { Button, Input } from "@heroui/react";
 import { createFileRoute } from "@tanstack/react-router";
-import { invoke } from "@tauri-apps/api/core";
 import { useState } from "react";
-import reactLogo from "../assets/react.svg";
+import { Button, Spinner } from "@heroui/react";
+import { ConnectionModal } from "../components/ConnectionModal";
+import { useSavedConnections } from "../hooks/useConnections";
+import { useConnectionStore } from "../stores/connection.store";
+import ConnectionRow from "../components/ConnectionManager/ConnectionRow";
 
 export const Route = createFileRoute("/")({
-  component: Home,
+  component: ConnectionManager,
 });
 
-function Home() {
-  const [greetMsg, setGreetMsg] = useState("");
-  const [name, setName] = useState("");
+export const DB_COLORS: Record<string, string> = {
+  postgres: "#378ADD",
+  mysql: "#EF9F27",
+};
 
-  async function greet() {
-    // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-    setGreetMsg(await invoke("greet", { name }));
-  }
+export const DB_LABELS: Record<string, string> = {
+  postgres: "PostgreSQL",
+  mysql: "MySQL",
+};
+
+function ConnectionManager() {
+  const [modalOpen, setModalOpen] = useState(false);
+  const { savedConnections } = useConnectionStore();
+  const { isLoading, error } = useSavedConnections();
 
   return (
-    <main className="flex flex-col items-center justify-center py-30">
-      <h1>Welcome to Tauri + React</h1>
+    <div className="min-h-screen bg-background">
+      <div className="max-w-xl mx-auto px-6 py-10">
+        {/* Header */}
+        <div className="flex items-start justify-between mb-8">
+          <div>
+            <h1 className="text-xl font-semibold text-foreground">Orel</h1>
+            <p className="text-sm text-default-400 mt-0.5">
+              {savedConnections.length === 0
+                ? "No connections yet"
+                : `${savedConnections.length} connection${savedConnections.length !== 1 ? "s" : ""}`}
+            </p>
+          </div>
+          <Button size="sm" variant="outline" onPress={() => setModalOpen(true)}>
+            <svg
+              className="w-3.5 h-3.5 mr-1"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+              strokeLinecap="round"
+            >
+              <path d="M12 5v14M5 12h14" />
+            </svg>
+            New connection
+          </Button>
+        </div>
 
-      <div className="flex justify-center">
-        <a href="https://vite.dev" target="_blank">
-          <img src="/vite.svg" className="logo vite" alt="Vite logo" />
-        </a>
-        <a href="https://tauri.app" target="_blank">
-          <img src="/tauri.svg" className="logo tauri" alt="Tauri logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
+        {/* Loading */}
+        {isLoading && (
+          <div className="flex justify-center py-16">
+            <Spinner size="sm" />
+          </div>
+        )}
+
+        {/* Error */}
+        {error && !isLoading && <p className="text-sm text-danger text-center py-8">Failed to load connections</p>}
+
+        {/* Empty state */}
+        {!isLoading && !error && savedConnections.length === 0 && (
+          <div className="flex flex-col items-center justify-center py-20 gap-3 text-center">
+            <div className="w-12 h-12 rounded-full bg-surface border border-separator flex items-center justify-center">
+              <svg
+                className="w-5 h-5 text-default-300"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={1.5}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <ellipse cx="12" cy="5" rx="9" ry="3" />
+                <path d="M3 5v14a9 3 0 0 0 18 0V5" />
+                <path d="M3 12a9 3 0 0 0 18 0" />
+              </svg>
+            </div>
+            <div>
+              <p className="text-sm font-medium text-foreground">No connections</p>
+              <p className="text-xs text-default-400 mt-1">Add your first database connection to get started</p>
+            </div>
+            <Button size="sm" variant="outline" onPress={() => setModalOpen(true)} className="mt-1">
+              Add connection
+            </Button>
+          </div>
+        )}
+
+        {/* Connection list */}
+        {!isLoading && savedConnections.length > 0 && (
+          <div className="flex flex-col gap-2">
+            <p className="text-xs font-medium text-default-400 uppercase tracking-wide mb-2">Saved connections</p>
+            {savedConnections.map((conn) => (
+              <ConnectionRow key={conn.id} connection={conn} />
+            ))}
+          </div>
+        )}
       </div>
-      <p>Click on the Tauri, Vite, and React logos to learn more.</p>
 
-      <form
-        className="flex justify-center gap-2 my-4"
-        onSubmit={(e) => {
-          e.preventDefault();
-          greet();
-        }}
-      >
-        <Input placeholder="Enter a name..." onChange={(e) => setName(e.currentTarget.value)} />
-        <Button type="submit">Greet</Button>
-      </form>
-      <p>{greetMsg}</p>
-    </main>
+      <ConnectionModal isOpen={modalOpen} onClose={() => setModalOpen(false)} />
+    </div>
   );
 }
