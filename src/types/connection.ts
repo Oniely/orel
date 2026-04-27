@@ -18,10 +18,11 @@ export const connectionSchema = z.object({
 
 export type ConnectionFormData = z.infer<typeof connectionSchema>;
 
-// A connection as saved to disk — includes the id and timestamps
+// A connection as saved to db — includes the id and timestamps
 export interface SavedConnection extends ConnectionFormData {
   id: string;
   createdAt: string;
+  updatedAt: string;
 }
 
 // Runtime state — what we track once a connection is active in the app

@@ -41,13 +41,12 @@ export function ConnectionModal({ isOpen, onClose }: ConnectionModalProps) {
   const testConnection = useTestConnection();
 
   const {
-    register,
     handleSubmit,
     control,
     watch,
     setValue,
     reset,
-    formState: { errors, isSubmitting },
+    formState: { isSubmitting },
   } = useForm<ConnectionFormData>({
     resolver: standardSchemaResolver(connectionSchema),
     defaultValues: {
@@ -70,7 +69,9 @@ export function ConnectionModal({ isOpen, onClose }: ConnectionModalProps) {
     try {
       const parsed = parseConnectionUrl(urlInput);
       Object.entries(parsed).forEach(([key, value]) => {
-        if (value !== undefined) setValue(key as keyof ConnectionFormData, value as never);
+        if (value !== undefined) {
+          setValue(key as keyof ConnectionFormData, value as never, { shouldDirty: true });
+        }
       });
       setUrlImported(true);
       setTimeout(() => setUrlImported(false), 3000);
@@ -97,6 +98,7 @@ export function ConnectionModal({ isOpen, onClose }: ConnectionModalProps) {
       ...data,
       id: uuidv4(),
       createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
     };
     await saveConnection.mutateAsync(connection);
     handleClose();
@@ -196,17 +198,22 @@ export function ConnectionModal({ isOpen, onClose }: ConnectionModalProps) {
                 </div>
 
                 {/* Connection name */}
-                <TextField isInvalid={!!errors.name}>
-                  <Label className="text-xs font-medium text-default-500">Connection name</Label>
-                  <Input
-                    placeholder="e.g. Work server"
-                    className="mt-1 border border-separator  px-3 py-1.5 w-full"
-                    {...register("name")}
-                  />
-                  <FieldError className="text-xs mt-1">{errors.name?.message}</FieldError>
-                </TextField>
+                <Controller
+                  name="name"
+                  control={control}
+                  render={({ field, fieldState }) => (
+                    <TextField isInvalid={!!fieldState.error} value={field.value ?? ""} onChange={field.onChange}>
+                      <Label className="text-xs font-medium text-default-500">Connection name</Label>
+                      <Input
+                        placeholder="e.g. Work server"
+                        className="mt-1 border border-separator px-3 py-1.5 w-full"
+                      />
+                      <FieldError className="text-xs mt-1">{fieldState.error?.message}</FieldError>
+                    </TextField>
+                  )}
+                />
 
-                {/* DB type — v3 Select compound component */}
+                {/* DB type */}
                 <Controller
                   name="type"
                   control={control}
@@ -218,7 +225,7 @@ export function ConnectionModal({ isOpen, onClose }: ConnectionModalProps) {
                         onChange={(key) => handleTypeChange(key as "postgres" | "mysql")}
                         aria-label="Database type"
                       >
-                        <Select.Trigger className="w-full border border-separator  px-3 py-1.5">
+                        <Select.Trigger className="w-full border border-separator px-3 py-1.5">
                           <Select.Value>
                             {(_) => {
                               const t = DB_TYPES.find((d) => d.id === field.value);
@@ -251,63 +258,99 @@ export function ConnectionModal({ isOpen, onClose }: ConnectionModalProps) {
 
                 {/* Host + Port */}
                 <div className="flex gap-3">
-                  <TextField className="flex-1" isInvalid={!!errors.host}>
-                    <Label className="text-xs font-medium text-default-500">Host</Label>
-                    <Input
-                      placeholder="localhost"
-                      className="mt-1 border border-separator px-3 py-1.5 w-full"
-                      {...register("host")}
-                    />
-                    <FieldError className="text-xs mt-1">{errors.host?.message}</FieldError>
-                  </TextField>
-                  <TextField className="w-24" isInvalid={!!errors.port}>
-                    <Label className="text-xs font-medium text-default-500">Port</Label>
-                    <Input
-                      type="number"
-                      className="mt-1 border border-separator px-3 py-1.5 w-full"
-                      {...register("port")}
-                    />
-                    <FieldError className="text-xs mt-1">{errors.port?.message}</FieldError>
-                  </TextField>
+                  <Controller
+                    name="host"
+                    control={control}
+                    render={({ field, fieldState }) => (
+                      <TextField
+                        className="flex-1"
+                        isInvalid={!!fieldState.error}
+                        value={field.value ?? ""}
+                        onChange={field.onChange}
+                      >
+                        <Label className="text-xs font-medium text-default-500">Host</Label>
+                        <Input placeholder="localhost" className="mt-1 border border-separator px-3 py-1.5 w-full" />
+                        <FieldError className="text-xs mt-1">{fieldState.error?.message}</FieldError>
+                      </TextField>
+                    )}
+                  />
+                  <Controller
+                    name="port"
+                    control={control}
+                    render={({ field, fieldState }) => (
+                      <TextField
+                        className="w-24"
+                        isInvalid={!!fieldState.error}
+                        value={String(field.value ?? "")}
+                        onChange={(v) => field.onChange(Number(v))}
+                      >
+                        <Label className="text-xs font-medium text-default-500">Port</Label>
+                        <Input type="number" className="mt-1 border border-separator px-3 py-1.5 w-full" />
+                        <FieldError className="text-xs mt-1">{fieldState.error?.message}</FieldError>
+                      </TextField>
+                    )}
+                  />
                 </div>
 
                 {/* Username + Password */}
                 <div className="grid grid-cols-2 gap-3">
-                  <TextField className="flex-1" isInvalid={!!errors.username}>
-                    <Label className="text-xs font-medium text-default-500">Username</Label>
-                    <Input
-                      placeholder={dbType === "postgres" ? "postgres" : "root"}
-                      className="mt-1 border border-separator px-3 py-1.5 w-full"
-                      {...register("username")}
-                    />
-                    <FieldError className="text-xs mt-1">{errors.username?.message}</FieldError>
-                  </TextField>
-                  <TextField className="flex-1" isInvalid={!!errors.password}>
-                    <Label className="text-xs font-medium text-default-500">Password</Label>
-                    <Input
-                      type="password"
-                      placeholder="••••••••"
-                      className="mt-1 border border-separator px-3 py-1.5 w-full"
-                      {...register("password")}
-                    />
-                    <FieldError className="text-xs mt-1">{errors.password?.message}</FieldError>
-                  </TextField>
+                  <Controller
+                    name="username"
+                    control={control}
+                    render={({ field, fieldState }) => (
+                      <TextField
+                        className="flex-1"
+                        isInvalid={!!fieldState.error}
+                        value={field.value ?? ""}
+                        onChange={field.onChange}
+                      >
+                        <Label className="text-xs font-medium text-default-500">Username</Label>
+                        <Input
+                          placeholder={dbType === "postgres" ? "postgres" : "root"}
+                          className="mt-1 border border-separator px-3 py-1.5 w-full"
+                        />
+                        <FieldError className="text-xs mt-1">{fieldState.error?.message}</FieldError>
+                      </TextField>
+                    )}
+                  />
+                  <Controller
+                    name="password"
+                    control={control}
+                    render={({ field, fieldState }) => (
+                      <TextField
+                        className="flex-1"
+                        isInvalid={!!fieldState.error}
+                        value={field.value ?? ""}
+                        onChange={field.onChange}
+                        type="password"
+                      >
+                        <Label className="text-xs font-medium text-default-500">Password</Label>
+                        <Input placeholder="••••••••" className="mt-1 border border-separator px-3 py-1.5 w-full" />
+                        <FieldError className="text-xs mt-1">{fieldState.error?.message}</FieldError>
+                      </TextField>
+                    )}
+                  />
                 </div>
 
-                {/* Default database — optional */}
-                <TextField isInvalid={!!errors.defaultDatabase}>
-                  <Label className="text-xs font-medium text-default-500">
-                    Default database <span className="text-[10px] text-default-400 font-normal">optional</span>
-                  </Label>
-                  <Input
-                    placeholder="Leave empty to browse all"
-                    className="mt-1 border border-separator  px-3 py-1.5 w-full"
-                    {...register("defaultDatabase")}
-                  />
-                  <FieldError className="text-xs mt-1">{errors.defaultDatabase?.message}</FieldError>
-                </TextField>
+                {/* Default database */}
+                <Controller
+                  name="defaultDatabase"
+                  control={control}
+                  render={({ field, fieldState }) => (
+                    <TextField isInvalid={!!fieldState.error} value={field.value ?? ""} onChange={field.onChange}>
+                      <Label className="text-xs font-medium text-default-500">
+                        Default database <span className="text-[10px] text-default-400 font-normal">optional</span>
+                      </Label>
+                      <Input
+                        placeholder="Leave empty to browse all"
+                        className="mt-1 border border-separator px-3 py-1.5 w-full"
+                      />
+                      <FieldError className="text-xs mt-1">{fieldState.error?.message}</FieldError>
+                    </TextField>
+                  )}
+                />
 
-                {/* SSL — v3 Switch compound */}
+                {/* SSL */}
                 <Controller
                   name="ssl"
                   control={control}
@@ -331,7 +374,6 @@ export function ConnectionModal({ isOpen, onClose }: ConnectionModalProps) {
                 )}
               </Modal.Body>
 
-              {/* Footer */}
               <Modal.Footer className="border-t border-separator pt-3 flex gap-2 shrink-0">
                 <Button
                   variant="outline"

@@ -46,6 +46,7 @@ export const useConnectionStore = create<ConnectionStore>((set) => ({
     set((state) => ({
       savedConnections: state.savedConnections.map((c) => (c.id === id ? { ...c, ...updates } : c)),
     })),
+  // End Persisted
 
   // Runtime
   activeConnections: {},

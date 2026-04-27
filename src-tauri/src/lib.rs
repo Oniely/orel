@@ -1,14 +1,48 @@
-// Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-#[tauri::command]
-fn greet(name: &str) -> String {
-    format!("Hello, {}! You've been greeted from Rust!", name)
-}
+mod commands;
+
+use std::{collections::HashMap, sync::Mutex};
+
+use commands::connection::{
+    connect, delete_connection, load_connections, save_connection, test_connection, AppState,
+};
+use sqlx::SqlitePool;
+use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![greet])
+        .setup(|app| {
+            let app_path = app.path().app_data_dir()?;
+            let db_path = app_path.join("orel_spacecraft.db");
+            let db = format!("sqlite:{}?mode=rwc", db_path.display());
+
+            let pool = tauri::async_runtime::block_on(async {
+                let pool = SqlitePool::connect(&db)
+                    .await
+                    .expect("Failed to connect to database.");
+                sqlx::migrate!("./migrations")
+                    .run(&pool)
+                    .await
+                    .expect("Failed to run migrations.");
+
+                pool // return the pool
+            });
+
+            app.manage(AppState {
+                db: pool,
+                pools: Mutex::new(HashMap::new()),
+            });
+
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![
+            load_connections,
+            save_connection,
+            delete_connection,
+            test_connection,
+            connect,
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
