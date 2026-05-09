@@ -5,6 +5,7 @@ use std::{collections::HashMap, sync::Mutex};
 use commands::connection::{
     connect, delete_connection, load_connections, save_connection, test_connection, AppState,
 };
+use commands::query::{fetch_rows, list_tables};
 use sqlx::SqlitePool;
 use tauri::Manager;
 
@@ -42,6 +43,8 @@ pub fn run() {
             delete_connection,
             test_connection,
             connect,
+            list_tables,
+            fetch_rows,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

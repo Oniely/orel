@@ -1,12 +1,21 @@
 import { useState } from "react";
-import { useDeleteConnection } from "../../hooks/useConnections";
+import { useNavigate } from "@tanstack/react-router";
+import { useDeleteConnection, useConnect } from "../../hooks/useConnections";
 import { SavedConnection } from "../../types/connection";
 import { DB_COLORS, DB_LABELS } from "../../routes";
 import { Button, Spinner } from "@heroui/react";
 
 export default function ConnectionRow({ connection }: { connection: SavedConnection }) {
+  const navigate = useNavigate();
   const deleteConnection = useDeleteConnection();
+  const connect = useConnect(connection.id);
   const [hovered, setHovered] = useState(false);
+
+  const handleConnect = () => {
+    connect.mutate(connection, {
+      onSuccess: () => navigate({ to: "/dashboard" }),
+    });
+  };
 
   return (
     <div
@@ -36,13 +45,25 @@ export default function ConnectionRow({ connection }: { connection: SavedConnect
           {DB_LABELS[connection.type]}
         </span>
 
+        {/* Connect button — visible on hover */}
+        <Button
+          size="sm"
+          variant="outline"
+          className={`min-w-0 px-2.5 h-7 text-xs transition-opacity ${hovered ? "opacity-100" : "opacity-0"}`}
+          onPress={handleConnect}
+          isDisabled={connect.isPending || deleteConnection.isPending}
+          aria-label="Connect"
+        >
+          {connect.isPending ? <Spinner size="sm" /> : "Connect"}
+        </Button>
+
         {/* Delete button — visible on hover */}
         <Button
           size="sm"
           variant="ghost"
           className={`min-w-0 px-2 h-7 text-danger transition-opacity ${hovered ? "opacity-100" : "opacity-0"}`}
           onPress={() => deleteConnection.mutate(connection.id)}
-          isDisabled={deleteConnection.isPending}
+          isDisabled={deleteConnection.isPending || connect.isPending}
           aria-label="Remove connection"
         >
           {deleteConnection.isPending ? (

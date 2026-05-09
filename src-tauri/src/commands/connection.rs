@@ -39,8 +39,8 @@ pub struct ConnectionConfig {
 }
 
 // Holds active DB connection pools keyed by connection id.
-// Fields will be used by query/schema commands in later phases.
 #[allow(dead_code)]
+#[derive(Clone)]
 pub enum DbPool {
     Postgres(PgPool),
     MySql(MySqlPool),

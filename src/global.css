@@ -115,3 +115,22 @@
     display: none;
   }
 }
+
+.border-b-hairline {
+  border-bottom: 1px solid color-mix(in oklch, var(--separator) 60%, transparent);
+}
+
+.db-select {
+  appearance: none;
+  background: transparent;
+  border: none;
+  font-family: ui-monospace, SF Mono, monospace;
+  font-size: 12px;
+  outline: none;
+  cursor: pointer;
+  padding: 0 22px 0 10px;
+  height: 100%;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='rgba(150,150,170,0.7)' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M6 9l6 6 6-6'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 6px center;
+}
