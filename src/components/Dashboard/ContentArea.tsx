@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useReactTable, getCoreRowModel, flexRender, type ColumnDef } from "@tanstack/react-table";
 import type { ColumnInfo, FilterOperator, FilterRow, QueryResult } from "../../types/database";
 import { KeyIcon } from "./icons";
@@ -215,8 +215,16 @@ interface DataGridProps {
 
 function DataGrid({ columns: colInfos, rows, selectedRowIndex, onRowClick, isLoading, activeTable }: DataGridProps) {
   const columns = useMemo<ColumnDef<Record<string, unknown>>[]>(
-    () =>
-      colInfos.map((c) => ({
+    () => [
+      {
+        id: "__row_number",
+        size: 52,
+        minSize: 52,
+        enableResizing: false,
+        header: () => null,
+        cell: ({ row }) => <span className="font-mono text-[11px] text-gray-600 select-none">{row.index + 1}</span>,
+      },
+      ...colInfos.map((c) => ({
         id: c.name,
         accessorKey: c.name,
         size: 210,
@@ -236,8 +244,9 @@ function DataGrid({ columns: colInfos, rows, selectedRowIndex, onRowClick, isLoa
             </span>
           </div>
         ),
-        cell: ({ getValue }) => <Cell value={getValue()} type={c.dataType} />,
+        cell: ({ getValue }: any) => <Cell value={getValue()} type={c.dataType} />,
       })),
+    ],
     [colInfos],
   );
 
@@ -341,9 +350,94 @@ function DataGrid({ columns: colInfos, rows, selectedRowIndex, onRowClick, isLoa
   );
 }
 
+// ── Pill Tab Bar ──────────────────────────────────────────────────────────────
+
+interface PillTabBarProps<T extends string> {
+  tabs: readonly T[];
+  active: T;
+  onChange: (tab: T) => void;
+}
+
+function PillTabBar<T extends string>({ tabs, active, onChange }: PillTabBarProps<T>) {
+  return (
+    <div className="flex p-0.5 rounded-[7px] border border-separator bg-surface-secondary">
+      {tabs.map((t) => (
+        <button
+          key={t}
+          onClick={() => onChange(t)}
+          className="px-2.5 py-[3px] rounded-[5px] text-[11px] transition-colors font-sans"
+          style={{
+            background: active === t ? "var(--surface)" : "transparent",
+            color: active === t ? "var(--foreground)" : "var(--muted)",
+            fontWeight: active === t ? 500 : 400,
+            boxShadow: active === t ? "0 1px 2px rgba(0,0,0,0.18)" : "none",
+          }}
+        >
+          {t}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// ── Structure Panel ────────────────────────────────────────────────────────────
+
+const STRUCTURE_TABS = ["Columns", "Indexes", "Foreign Keys", "DDL"] as const;
+type StructureTabType = (typeof STRUCTURE_TABS)[number];
+
+interface StructurePanelProps {
+  columns: ColumnInfo[];
+  activeTable: string | null;
+}
+
+function StructurePanel({ columns, activeTable }: StructurePanelProps) {
+  const [activeTab, setActiveTab] = useState<StructureTabType>("Columns");
+
+  if (!activeTable) {
+    return (
+      <div className="flex-1 flex items-center justify-center">
+        <p className="text-sm text-default-400">Select a table to view its structure</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex-1 flex flex-col min-h-0">
+      {/* Sub-tab strip */}
+      <div className="flex items-center px-4.5 h-10 border-b border-separator bg-surface shrink-0">
+        <PillTabBar tabs={STRUCTURE_TABS} active={activeTab} onChange={setActiveTab} />
+      </div>
+
+      {/* Tab content */}
+      <div className="flex-1 overflow-auto bg-background">
+        {activeTab === "Columns" && (
+          <div className="flex items-center justify-center h-full">
+            <p className="text-sm text-default-400">Columns — coming soon</p>
+          </div>
+        )}
+        {activeTab === "Indexes" && (
+          <div className="flex items-center justify-center h-full">
+            <p className="text-sm text-default-400">Indexes — coming soon</p>
+          </div>
+        )}
+        {activeTab === "Foreign Keys" && (
+          <div className="flex items-center justify-center h-full">
+            <p className="text-sm text-default-400">Foreign Keys — coming soon</p>
+          </div>
+        )}
+        {activeTab === "DDL" && (
+          <div className="flex items-center justify-center h-full">
+            <p className="text-sm text-default-400">DDL — coming soon</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Content Area (tabs + filter + grid + footer) ──────────────────────────────
 
-const VIEWS = ["Data", "Structure", "Indexes", "Foreign Keys"] as const;
+const VIEWS = ["Data", "Structure"] as const;
 type ViewType = (typeof VIEWS)[number];
 
 interface ContentAreaProps {
@@ -371,6 +465,11 @@ export function ContentArea({
     { col: queryResult?.columns[0]?.name ?? "", op: "equals", val: "", conjunction: "AND" },
   ]);
   const [activeView, setActiveView] = useState<ViewType>("Data");
+
+  // Reset to Data view whenever the active table changes
+  useEffect(() => {
+    setActiveView("Data");
+  }, [activeTable]);
 
   const columns = queryResult?.columns ?? [];
   const rows = queryResult?.rows ?? [];
@@ -417,73 +516,57 @@ export function ContentArea({
         </Button>
       </div>
 
-      {/* Filter bar */}
-      <FilterBar
-        filters={filters.map((f) => ({ ...f, col: f.col || firstCol }))}
-        columns={
-          columns.length > 0 ? columns : [{ name: "column", dataType: "text", isNullable: true, isPrimary: false }]
-        }
-        onFiltersChange={setFilters}
-        onApply={() => {
-          /* TODO: apply filters to query */
-        }}
-      />
-
-      {/* Data grid */}
-      <DataGrid
-        columns={columns}
-        rows={rows}
-        selectedRowIndex={selectedRowIndex}
-        onRowClick={onRowClick}
-        isLoading={isLoading}
-        activeTable={activeTable}
-      />
+      {/* Center content — swaps based on active view */}
+      {activeView === "Data" ? (
+        <>
+          <FilterBar
+            filters={filters.map((f) => ({ ...f, col: f.col || firstCol }))}
+            columns={
+              columns.length > 0 ? columns : [{ name: "column", dataType: "text", isNullable: true, isPrimary: false }]
+            }
+            onFiltersChange={setFilters}
+            onApply={() => {
+              /* TODO: apply filters to query */
+            }}
+          />
+          <DataGrid
+            columns={columns}
+            rows={rows}
+            selectedRowIndex={selectedRowIndex}
+            onRowClick={onRowClick}
+            isLoading={isLoading}
+            activeTable={activeTable}
+          />
+        </>
+      ) : (
+        <StructurePanel columns={columns} activeTable={activeTable} />
+      )}
 
       {/* Footer */}
-      <div className="flex items-center gap-4 px-[18px] border-t border-separator bg-surface shrink-0 font-mono text-default-400 h-[38px] text-[11px]">
-        {/* Row count + pagination */}
-        <span>
-          <span className="text-foreground">{rows.length}</span>
-          {totalEstimate !== null && <span> / {formatNum(totalEstimate)}</span>} rows
-        </span>
-        <div className="flex items-center gap-1">
-          <Button variant="ghost" className="size-[20px]" isIconOnly>
-            <CaretLeftIcon className="size-2.5" />
-          </Button>
-          <span>1</span>
-          <Button variant="ghost" className="size-[20px]" isIconOnly>
-            <CaretRightIcon className="size-2.5" />
-          </Button>
-        </div>
+      <div className="flex items-center justify-between gap-4 px-4.5 border-t border-separator bg-surface shrink-0 font-mono text-default-400 h-[38px] text-[11px]">
+        {/* View switcher */}
+        <PillTabBar tabs={VIEWS} active={activeView} onChange={setActiveView} />
 
-        <div className="flex-1" />
+        {/* Pagination — center, only in Data view */}
+        {activeView === "Data" && (
+          <div className="flex items-center gap-1">
+            <Button variant="ghost" className="size-[20px]" isIconOnly>
+              <CaretLeftIcon className="size-2.5" />
+            </Button>
+            <span>1</span>
+            <Button variant="ghost" className="size-[20px]" isIconOnly>
+              <CaretRightIcon className="size-2.5" />
+            </Button>
+          </div>
+        )}
 
-        {/* View tabs (Data / Structure / Indexes / FK) */}
-        <div className="flex p-0.5 rounded-[7px] border border-separator bg-[var(--surface-secondary)]">
-          {VIEWS.map((v) => (
-            <button
-              key={v}
-              onClick={() => setActiveView(v)}
-              className="px-2.5 py-[3px] rounded-[5px] text-[11px] transition-colors font-sans"
-              style={{
-                background: activeView === v ? "var(--surface)" : "transparent",
-                color: activeView === v ? "var(--foreground)" : "var(--muted)",
-                fontWeight: activeView === v ? 500 : 400,
-                boxShadow: activeView === v ? "0 1px 2px rgba(0,0,0,0.18)" : "none",
-              }}
-            >
-              {v}
-            </button>
-          ))}
-        </div>
-
-        <div className="flex-1" />
-
-        {/* Status */}
-        <span className="flex items-center gap-1.5">
-          <span className="w-1.5 h-1.5 rounded-full bg-[oklch(73%_0.18_153)]" />
-          ready
-        </span>
+        {/* Row count — right side, only in Data view */}
+        {activeView === "Data" && (
+          <span>
+            <span className="text-foreground">{rows.length}</span>
+            {totalEstimate !== null && <span> / {formatNum(totalEstimate)}</span>} rows
+          </span>
+        )}
       </div>
     </div>
   );
