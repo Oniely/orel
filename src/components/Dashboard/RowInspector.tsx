@@ -1,36 +1,17 @@
 import { Button } from "@heroui/react";
 import type { ColumnInfo } from "../../types/database";
 import { BracketsCurlyIcon, CaretLeftIcon, CaretRightIcon, CopyIcon, TrashIcon, XIcon } from "@phosphor-icons/react";
+import { getTypeColor } from "../../lib/typeColors";
 
-const TYPE_COLORS: Record<string, string> = {
-  uuid: "oklch(72% 0.12 290)",
-  varchar: "oklch(74% 0.12 220)",
-  "character varying": "oklch(74% 0.12 220)",
-  text: "oklch(74% 0.12 220)",
-  boolean: "oklch(74% 0.13 30)",
-  bool: "oklch(74% 0.13 30)",
-  timestamp: "oklch(76% 0.13 150)",
-  "timestamp with time zone": "oklch(76% 0.13 150)",
-  timestamptz: "oklch(76% 0.13 150)",
-  integer: "oklch(78% 0.12 100)",
-  int: "oklch(78% 0.12 100)",
-  int4: "oklch(78% 0.12 100)",
-  bigint: "oklch(78% 0.12 100)",
-  int8: "oklch(78% 0.12 100)",
-  jsonb: "oklch(74% 0.12 330)",
-  json: "oklch(74% 0.12 330)",
-};
+function JsonValue({ value, type }: { value: unknown; type: string }) {
+  if (value === null || value === undefined) return <span className="text-default-400 italic text-muted">null</span>;
+  const color = getTypeColor(type);
 
-function getTypeColor(type: string): string {
-  return TYPE_COLORS[type.toLowerCase()] ?? "oklch(70% 0.02 273)";
-}
-
-function JsonValue({ value }: { value: unknown }) {
-  if (value === null || value === undefined) return <span className="text-default-400 italic">null</span>;
-  if (typeof value === "boolean") return <span style={{ color: "oklch(74% 0.13 30)" }}>{String(value)}</span>;
-  if (typeof value === "number") return <span style={{ color: "oklch(78% 0.12 100)" }}>{value}</span>;
-  if (typeof value === "string") return <span style={{ color: "oklch(74% 0.12 220)" }}>"{value}"</span>;
-  return <span className="text-foreground">{JSON.stringify(value)}</span>;
+  return (
+    <span className="text-foreground" style={{ color }}>
+      {JSON.stringify(value)}
+    </span>
+  );
 }
 
 interface RowInspectorProps {
@@ -97,9 +78,9 @@ export function RowInspector({ row, columns, rowIndex, totalRows, onPrev, onNext
             <span className="text-default-400">{"{"}</span>
             {columns.map((col, i) => (
               <div key={col.name} className="flex gap-2 pl-4 min-w-0">
-                <span style={{ color: getTypeColor(col.dataType), flexShrink: 0 }}>{col.name}:</span>
+                <span style={{ color: getTypeColor(col.dataType), flexShrink: 0, opacity: 0.8 }}>{col.name}:</span>
                 <span className="truncate">
-                  <JsonValue value={row[col.name]} />
+                  <JsonValue value={row[col.name]} type={col.dataType} />
                 </span>
                 {i < columns.length - 1 && <span className="text-default-400 shrink-0">,</span>}
               </div>

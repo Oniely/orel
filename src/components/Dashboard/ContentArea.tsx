@@ -13,30 +13,7 @@ import {
   XIcon,
 } from "@phosphor-icons/react";
 
-// ── Type colors ───────────────────────────────────────────────────────────────
-
-const TYPE_COLORS: Record<string, string> = {
-  uuid: "oklch(72% 0.12 290)",
-  varchar: "oklch(74% 0.12 220)",
-  "character varying": "oklch(74% 0.12 220)",
-  text: "oklch(74% 0.12 220)",
-  boolean: "oklch(74% 0.13 30)",
-  bool: "oklch(74% 0.13 30)",
-  timestamp: "oklch(76% 0.13 150)",
-  "timestamp with time zone": "oklch(76% 0.13 150)",
-  timestamptz: "oklch(76% 0.13 150)",
-  integer: "oklch(78% 0.12 100)",
-  int: "oklch(78% 0.12 100)",
-  int4: "oklch(78% 0.12 100)",
-  bigint: "oklch(78% 0.12 100)",
-  int8: "oklch(78% 0.12 100)",
-  jsonb: "oklch(74% 0.12 330)",
-  json: "oklch(74% 0.12 330)",
-};
-
-function getTypeColor(type: string): string {
-  return TYPE_COLORS[type.toLowerCase()] ?? "oklch(70% 0.02 273)";
-}
+import { getTypeColor } from "../../lib/typeColors";
 
 function formatNum(n: number | null): string {
   if (n == null) return "—";
@@ -49,8 +26,9 @@ function formatNum(n: number | null): string {
 
 function Cell({ value, type }: { value: unknown; type: string }) {
   if (value === null || value === undefined) {
-    return <span className="text-default-400 italic text-[11px]">NULL</span>;
+    return <span className="text-default-400 italic text-[11px] text-muted">NULL</span>;
   }
+  const color = getTypeColor(type);
   const isBool = type === "boolean" || type === "bool";
   if (isBool || typeof value === "boolean") {
     const bool = value === true || value === "true" || value === 1;
@@ -60,7 +38,9 @@ function Cell({ value, type }: { value: unknown; type: string }) {
           className="w-2 h-2 rounded-[2px]"
           style={{ background: bool ? "oklch(73% 0.18 153)" : "oklch(60% 0.02 273)" }}
         />
-        <span className="font-mono text-xs">{bool ? "true" : "false"}</span>
+        <span className="font-mono text-xs" style={{ color }}>
+          {bool ? "true" : "false"}
+        </span>
       </span>
     );
   }
@@ -68,11 +48,17 @@ function Cell({ value, type }: { value: unknown; type: string }) {
     return (
       <span className="inline-flex items-center gap-1.5">
         <img src={value} className="w-4 h-4 rounded-full object-cover" alt="" />
-        <span className="font-mono text-[11px] text-default-400 truncate">{value.slice(0, 32)}…</span>
+        <span className="font-mono text-[11px] truncate" style={{ color }}>
+          {value.slice(0, 32)}…
+        </span>
       </span>
     );
   }
-  return <span className="font-mono text-xs">{String(value)}</span>;
+  return (
+    <span className="font-mono text-xs" style={{ color }}>
+      {String(value)}
+    </span>
+  );
 }
 
 // ── Filter bar ────────────────────────────────────────────────────────────────
