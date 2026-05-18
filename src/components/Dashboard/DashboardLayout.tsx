@@ -64,6 +64,10 @@ export function DashboardLayout() {
 
   const handleRowClick = (index: number) => {
     setSelectedRowIndex(index);
+  };
+
+  const handleInspectRow = (index: number) => {
+    setSelectedRowIndex(index);
     setShowInspector(true);
   };
 
@@ -112,6 +116,7 @@ export function DashboardLayout() {
           isLoading={rowsLoading}
           selectedRowIndex={selectedRowIndex}
           onRowClick={handleRowClick}
+          onInspectRow={handleInspectRow}
         />
 
         {/* Row Inspector */}

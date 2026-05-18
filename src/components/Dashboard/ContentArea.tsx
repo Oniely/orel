@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { RowContextMenu } from "./RowContextMenu";
 import { useReactTable, getCoreRowModel, flexRender, type ColumnDef } from "@tanstack/react-table";
 import type { ColumnInfo, FilterOperator, FilterRow, QueryResult } from "../../types/database";
 import { KeyIcon } from "./icons";
@@ -195,11 +196,20 @@ interface DataGridProps {
   rows: Record<string, unknown>[];
   selectedRowIndex: number | null;
   onRowClick: (index: number) => void;
+  onRowContextMenu: (index: number, x: number, y: number) => void;
   isLoading: boolean;
   activeTable: string | null;
 }
 
-function DataGrid({ columns: colInfos, rows, selectedRowIndex, onRowClick, isLoading, activeTable }: DataGridProps) {
+function DataGrid({
+  columns: colInfos,
+  rows,
+  selectedRowIndex,
+  onRowClick,
+  onRowContextMenu,
+  isLoading,
+  activeTable,
+}: DataGridProps) {
   const columns = useMemo<ColumnDef<Record<string, unknown>>[]>(
     () => [
       {
@@ -304,6 +314,10 @@ function DataGrid({ columns: colInfos, rows, selectedRowIndex, onRowClick, isLoa
             <tr
               key={row.id}
               onClick={() => onRowClick(i)}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                onRowContextMenu(i, e.clientX, e.clientY);
+              }}
               className="cursor-pointer transition-colors h-10"
               style={{
                 background:
@@ -435,6 +449,7 @@ interface ContentAreaProps {
   isLoading: boolean;
   selectedRowIndex: number | null;
   onRowClick: (index: number) => void;
+  onInspectRow: (index: number) => void;
 }
 
 export function ContentArea({
@@ -446,11 +461,13 @@ export function ContentArea({
   isLoading,
   selectedRowIndex,
   onRowClick,
+  onInspectRow,
 }: ContentAreaProps) {
   const [filters, setFilters] = useState<FilterRow[]>([
     { col: queryResult?.columns[0]?.name ?? "", op: "equals", val: "", conjunction: "AND" },
   ]);
   const [activeView, setActiveView] = useState<ViewType>("Data");
+  const [contextMenu, setContextMenu] = useState<{ rowIndex: number; x: number; y: number } | null>(null);
 
   // Reset to Data view whenever the active table changes
   useEffect(() => {
@@ -520,9 +537,21 @@ export function ContentArea({
             rows={rows}
             selectedRowIndex={selectedRowIndex}
             onRowClick={onRowClick}
+            onRowContextMenu={(index, x, y) => setContextMenu({ rowIndex: index, x, y })}
             isLoading={isLoading}
             activeTable={activeTable}
           />
+          {contextMenu && (
+            <RowContextMenu
+              x={contextMenu.x}
+              y={contextMenu.y}
+              onInspect={() => {
+                onInspectRow(contextMenu.rowIndex);
+                setContextMenu(null);
+              }}
+              onClose={() => setContextMenu(null)}
+            />
+          )}
         </>
       ) : (
         <StructurePanel columns={columns} activeTable={activeTable} />
