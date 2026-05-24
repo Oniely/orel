@@ -2,6 +2,7 @@ import { Button } from "@heroui/react";
 import type { ColumnInfo } from "../../types/database";
 import { BracketsCurlyIcon, CaretLeftIcon, CaretRightIcon, CopyIcon, TrashIcon, XIcon } from "@phosphor-icons/react";
 import { getTypeColor } from "../../lib/typeColors";
+import { useHotkeys } from "react-hotkeys-hook";
 
 function JsonValue({ value, type }: { value: unknown; type: string }) {
   if (value === null || value === undefined) return <span className="text-default-400 italic text-muted">null</span>;
@@ -28,6 +29,8 @@ export function RowInspector({ row, columns, rowIndex, totalRows, onPrev, onNext
   const handleCopy = () => {
     if (row) navigator.clipboard.writeText(JSON.stringify(row, null, 2));
   };
+
+  useHotkeys("esc", () => onClose());
 
   return (
     <div className="w-[340px] flex flex-col shrink-0 border-l border-separator bg-surface">

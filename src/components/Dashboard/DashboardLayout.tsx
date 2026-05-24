@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useConnectionStore } from "../../stores/connection.store";
 import { useListTables, useFetchRows } from "../../hooks/useTables";
@@ -7,6 +7,7 @@ import { Header } from "./Header";
 import { Sidebar } from "./Sidebar";
 import { ContentArea } from "./ContentArea";
 import { RowInspector } from "./RowInspector";
+import { useHotkeys } from "react-hotkeys-hook";
 
 export function DashboardLayout() {
   const navigate = useNavigate();
@@ -61,6 +62,18 @@ export function DashboardLayout() {
       setSelectedRowIndex(null);
     }
   };
+
+  const openTabsRef = useRef(openTabs);
+  openTabsRef.current = openTabs;
+
+  useHotkeys("meta+1,meta+2,meta+3,meta+4,meta+5,meta+6,meta+7,meta+8,meta+9", (e) => {
+    const tab = openTabsRef.current[parseInt(e.key) - 1];
+    if (tab) handleTabChange(tab);
+  });
+  useHotkeys("meta+w", (e) => {
+    e.preventDefault();
+    if (activeTable) handleTabClose(activeTable);
+  });
 
   const handleRowClick = (index: number) => {
     setSelectedRowIndex(index);
