@@ -124,7 +124,10 @@
   appearance: none;
   background: transparent;
   border: none;
-  font-family: ui-monospace, SF Mono, monospace;
+  font-family:
+    ui-monospace,
+    SF Mono,
+    monospace;
   font-size: 12px;
   outline: none;
   cursor: pointer;
@@ -133,4 +136,39 @@
   background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='rgba(150,150,170,0.7)' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M6 9l6 6 6-6'/></svg>");
   background-repeat: no-repeat;
   background-position: right 6px center;
+}
+
+.border-loading {
+  --offset: 1px;
+  overflow: hidden;
+}
+.border-loading::before {
+  content: "";
+  background: conic-gradient(transparent 270deg, white, transparent);
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  aspect-ratio: 1;
+  width: 100%;
+  animation: rotate 2s linear infinite;
+}
+.border-loading::after {
+  content: "";
+  background: inherit;
+  border-radius: inherit;
+  position: absolute;
+  inset: var(--offset);
+  height: calc(100% - 2 * var(--offset));
+  width: calc(100% - 2 * var(--offset));
+}
+
+@keyframes rotate {
+  from {
+    transform: translate(-50%, -50%) scale(1.4) rotate(0);
+  }
+
+  to {
+    transform: translate(-50%, -50%) scale(1.4) rotate(1turn);
+  }
 }
