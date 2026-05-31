@@ -4,23 +4,18 @@ import { INNER_W, SIDEBAR_PAD, SIDEBAR_WIDTH } from "./constants";
 import { ViewIcon } from "./icons";
 import { PicnicTableIcon, PlusIcon } from "@phosphor-icons/react";
 import { Button, SearchField } from "@heroui/react";
-
-function formatNum(n: number | null): string {
-  if (n == null) return "";
-  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + "M";
-  if (n >= 1_000) return (n / 1_000).toFixed(1) + "K";
-  return n.toString();
-}
+import { formatNum } from "../../lib/format";
 
 interface SidebarProps {
   tables: TableInfo[];
   isLoading: boolean;
   activeTable: string | null;
   onTableClick: (name: string) => void;
+  onNewQuery: () => void;
   sidebarOpen: boolean;
 }
 
-export function Sidebar({ tables, isLoading, activeTable, onTableClick, sidebarOpen }: SidebarProps) {
+export function Sidebar({ tables, isLoading, activeTable, onTableClick, onNewQuery, sidebarOpen }: SidebarProps) {
   const [search, setSearch] = useState("");
 
   const filtered = tables.filter((t) => t.name.toLowerCase().includes(search.toLowerCase()));
@@ -109,7 +104,7 @@ export function Sidebar({ tables, isLoading, activeTable, onTableClick, sidebarO
 
       {/* Bottom: New query button */}
       <div className="border-t border-separator" style={{ padding: `10px ${SIDEBAR_PAD}px` }}>
-        <Button variant="tertiary" style={{ width: INNER_W }} className="text-xs">
+        <Button variant="tertiary" onClick={onNewQuery} style={{ width: INNER_W }} className="text-xs">
           <PlusIcon className="size-3" weight="bold" />
           New query
         </Button>

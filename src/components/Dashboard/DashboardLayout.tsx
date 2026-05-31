@@ -8,6 +8,7 @@ import { Sidebar } from "./Sidebar";
 import { ContentArea } from "./ContentArea";
 import { RowInspector } from "./RowInspector";
 import { useHotkeys } from "react-hotkeys-hook";
+import type { Tab } from "../../types/database";
 
 export function DashboardLayout() {
   const navigate = useNavigate();
@@ -23,9 +24,12 @@ export function DashboardLayout() {
     }
   }, [connection, navigate]);
 
-  // Tab / table state
-  const [openTabs, setOpenTabs] = useState<string[]>([]);
-  const [activeTable, setActiveTable] = useState<string | null>(null);
+  // Tab state
+  const [openTabs, setOpenTabs] = useState<Tab[]>([]);
+  const [activeTabId, setActiveTabId] = useState<string | null>(null);
+
+  const activeTab = openTabs.find((t) => t.id === activeTabId) ?? null;
+  const activeTableName = activeTab?.type === "table" ? activeTab.label : null;
 
   // Row inspector state
   const [selectedRowIndex, setSelectedRowIndex] = useState<number | null>(null);
@@ -39,40 +43,76 @@ export function DashboardLayout() {
 
   // Data queries
   const { data: tables = [], isLoading: tablesLoading } = useListTables(connectionId);
-  const { data: queryResult = null, isLoading: rowsLoading } = useFetchRows(connectionId, activeTable);
+  const { data: queryResult = null, isLoading: rowsLoading } = useFetchRows(connectionId, activeTableName);
 
   const handleTableClick = (name: string) => {
-    setActiveTable(name);
-    setSelectedRowIndex(null);
-    if (!openTabs.includes(name)) {
-      setOpenTabs((prev) => [...prev, name]);
+    const id = `t-${name}`;
+    if (!openTabs.find((t) => t.id === id)) {
+      setOpenTabs((prev) => [...prev, { id, type: "table", label: name }]);
     }
-  };
-
-  const handleTabChange = (name: string) => {
-    setActiveTable(name);
+    setActiveTabId(id);
     setSelectedRowIndex(null);
   };
 
-  const handleTabClose = (name: string) => {
-    const newTabs = openTabs.filter((t) => t !== name);
+  const handleTabChange = (id: string) => {
+    setActiveTabId(id);
+    setSelectedRowIndex(null);
+  };
+
+  const handleTabClose = (id: string) => {
+    const idx = openTabs.findIndex((t) => t.id === id);
+    const newTabs = openTabs.filter((t) => t.id !== id);
     setOpenTabs(newTabs);
-    if (activeTable === name) {
-      setActiveTable(newTabs[newTabs.length - 1] ?? null);
+    if (activeTabId === id) {
+      setActiveTabId(newTabs[Math.max(0, idx - 1)]?.id ?? null);
       setSelectedRowIndex(null);
     }
   };
 
+  const handleNewQuery = () => {
+    const id = `q-${Date.now()}`;
+    setOpenTabs((prev) => {
+      const n = prev.filter((t) => t.type === "query").length + 1;
+      return [...prev, { id, type: "query", label: `Query ${n}`, sql: "" }];
+    });
+    setActiveTabId(id);
+  };
+
+  const handleSqlChange = (id: string, sql: string) => {
+    setOpenTabs((prev) => prev.map((t) => (t.id === id ? { ...t, sql } : t)));
+  };
+
   const openTabsRef = useRef(openTabs);
   openTabsRef.current = openTabs;
+  const activeTabIdRef = useRef(activeTabId);
+  activeTabIdRef.current = activeTabId;
 
+  // Dashboard Layout Shortcuts - Tab Switching
   useHotkeys("meta+1,meta+2,meta+3,meta+4,meta+5,meta+6,meta+7,meta+8,meta+9", (e) => {
     const tab = openTabsRef.current[parseInt(e.key) - 1];
-    if (tab) handleTabChange(tab);
+    if (tab) handleTabChange(tab.id);
   });
   useHotkeys("meta+w", (e) => {
     e.preventDefault();
-    if (activeTable) handleTabClose(activeTable);
+    if (activeTabId) handleTabClose(activeTabId);
+  });
+  useHotkeys("meta+t", (e) => {
+    e.preventDefault();
+    handleNewQuery();
+  });
+  const cycleTab = (direction: 1 | -1): void => {
+    const tabs = openTabsRef.current;
+    if (tabs.length < 2) return;
+    const idx = tabs.findIndex((t) => t.id === activeTabIdRef.current);
+    handleTabChange(tabs[(idx + direction + tabs.length) % tabs.length].id);
+  };
+  useHotkeys("ctrl+tab", (e) => {
+    e.preventDefault();
+    cycleTab(1);
+  });
+  useHotkeys("ctrl+shift+tab", (e) => {
+    e.preventDefault();
+    cycleTab(-1);
   });
 
   const handleRowClick = (index: number) => {
@@ -85,7 +125,7 @@ export function DashboardLayout() {
   };
 
   const handleRefresh = () => {
-    queryClient.invalidateQueries({ queryKey: ["rows", connectionId, activeTable] });
+    queryClient.invalidateQueries({ queryKey: ["rows", connectionId, activeTableName] });
     queryClient.invalidateQueries({ queryKey: ["tables", connectionId] });
   };
 
@@ -114,17 +154,20 @@ export function DashboardLayout() {
         <Sidebar
           tables={tables}
           isLoading={tablesLoading}
-          activeTable={activeTable}
+          activeTable={activeTableName}
           onTableClick={handleTableClick}
+          onNewQuery={handleNewQuery}
           sidebarOpen={sidebarOpen}
         />
 
         {/* Content */}
         <ContentArea
           openTabs={openTabs}
-          activeTable={activeTable}
+          activeTabId={activeTabId}
           onTabChange={handleTabChange}
           onTabClose={handleTabClose}
+          onNewQuery={handleNewQuery}
+          onSqlChange={handleSqlChange}
           queryResult={queryResult}
           isLoading={rowsLoading}
           selectedRowIndex={selectedRowIndex}

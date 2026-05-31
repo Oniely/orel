@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { RowContextMenu } from "./RowContextMenu";
 import { useReactTable, getCoreRowModel, flexRender, type ColumnDef } from "@tanstack/react-table";
-import type { ColumnInfo, FilterOperator, FilterRow, QueryResult } from "../../types/database";
+import type { ColumnInfo, FilterOperator, FilterRow, QueryResult, Tab } from "../../types/database";
 import { KeyIcon } from "./icons";
 import { Button } from "@heroui/react";
 import {
@@ -12,16 +12,12 @@ import {
   PicnicTableIcon,
   PlusIcon,
   XIcon,
+  CodeIcon,
 } from "@phosphor-icons/react";
 
 import { getTypeColor } from "../../lib/typeColors";
-
-function formatNum(n: number | null): string {
-  if (n == null) return "—";
-  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + "M";
-  if (n >= 1_000) return (n / 1_000).toFixed(1) + "K";
-  return n.toString();
-}
+import { formatNum } from "../../lib/format";
+import { SqlEditor, type SqlEditorCommands } from "./SqlEditor";
 
 // ── Cell renderer ─────────────────────────────────────────────────────────────
 
@@ -390,7 +386,7 @@ interface StructurePanelProps {
   activeTable: string | null;
 }
 
-function StructurePanel({ columns, activeTable }: StructurePanelProps) {
+function StructurePanel({ activeTable }: StructurePanelProps) {
   const [activeTab, setActiveTab] = useState<StructureTabType>("Columns");
 
   if (!activeTable) {
@@ -410,26 +406,9 @@ function StructurePanel({ columns, activeTable }: StructurePanelProps) {
 
       {/* Tab content */}
       <div className="flex-1 overflow-auto bg-background">
-        {activeTab === "Columns" && (
-          <div className="flex items-center justify-center h-full">
-            <p className="text-sm text-default-400">Columns — coming soon</p>
-          </div>
-        )}
-        {activeTab === "Indexes" && (
-          <div className="flex items-center justify-center h-full">
-            <p className="text-sm text-default-400">Indexes — coming soon</p>
-          </div>
-        )}
-        {activeTab === "Foreign Keys" && (
-          <div className="flex items-center justify-center h-full">
-            <p className="text-sm text-default-400">Foreign Keys — coming soon</p>
-          </div>
-        )}
-        {activeTab === "DDL" && (
-          <div className="flex items-center justify-center h-full">
-            <p className="text-sm text-default-400">DDL — coming soon</p>
-          </div>
-        )}
+        <div className="flex items-center justify-center h-full">
+          <p className="text-sm text-default-400">{activeTab} — coming soon</p>
+        </div>
       </div>
     </div>
   );
@@ -441,10 +420,12 @@ const VIEWS = ["Data", "Structure"] as const;
 type ViewType = (typeof VIEWS)[number];
 
 interface ContentAreaProps {
-  openTabs: string[];
-  activeTable: string | null;
-  onTabChange: (table: string) => void;
-  onTabClose: (table: string) => void;
+  openTabs: Tab[];
+  activeTabId: string | null;
+  onTabChange: (id: string) => void;
+  onTabClose: (id: string) => void;
+  onNewQuery: () => void;
+  onSqlChange: (id: string, sql: string) => void;
   queryResult: QueryResult | null;
   isLoading: boolean;
   selectedRowIndex: number | null;
@@ -454,15 +435,21 @@ interface ContentAreaProps {
 
 export function ContentArea({
   openTabs,
-  activeTable,
+  activeTabId,
   onTabChange,
   onTabClose,
+  onNewQuery,
+  onSqlChange,
   queryResult,
   isLoading,
   selectedRowIndex,
   onRowClick,
   onInspectRow,
 }: ContentAreaProps) {
+  const activeTab = openTabs.find((t) => t.id === activeTabId) ?? null;
+  const isQueryTab = activeTab?.type === "query";
+  const activeTableName = activeTab?.type === "table" ? activeTab.label : null;
+
   const [filters, setFilters] = useState<FilterRow[]>([
     { col: queryResult?.columns[0]?.name ?? "", op: "equals", val: "", conjunction: "AND" },
   ]);
@@ -472,25 +459,41 @@ export function ContentArea({
   // Reset to Data view whenever the active table changes
   useEffect(() => {
     setActiveView("Data");
-  }, [activeTable]);
+  }, [activeTableName]);
 
   const columns = queryResult?.columns ?? [];
   const rows = queryResult?.rows ?? [];
   const totalEstimate = queryResult?.totalEstimate ?? null;
 
-  // Sync first filter col when columns change
   const firstCol = columns[0]?.name ?? "";
+
+  const cycleTab = (direction: 1 | -1): void => {
+    if (openTabs.length < 2) return;
+    const idx = openTabs.findIndex((t) => t.id === activeTabId);
+    onTabChange(openTabs[(idx + direction + openTabs.length) % openTabs.length].id);
+  };
+
+  const editorCommands: SqlEditorCommands = {
+    closeTab: () => activeTab && onTabClose(activeTab.id),
+    newQuery: onNewQuery,
+    nextTab: () => cycleTab(1),
+    prevTab: () => cycleTab(-1),
+    switchTab: (index) => {
+      const t = openTabs[index];
+      if (t) onTabChange(t.id);
+    },
+  };
 
   return (
     <div className="flex-1 flex flex-col min-w-0 bg-background">
       {/* Browser-style tabs */}
       <div className="h-10 flex items-center gap-1 px-3 border-b border-separator bg-surface shrink-0">
         {openTabs.map((tab) => {
-          const isActive = activeTable === tab;
+          const isActive = activeTabId === tab.id;
           return (
             <div
-              key={tab}
-              onClick={() => onTabChange(tab)}
+              key={tab.id}
+              onClick={() => onTabChange(tab.id)}
               className="flex items-center gap-2 px-3 h-7 rounded-lg cursor-pointer text-xs font-mono transition-colors"
               style={{
                 background: isActive ? "var(--surface-secondary)" : "transparent",
@@ -500,12 +503,20 @@ export function ContentArea({
                 color: isActive ? "var(--foreground)" : "var(--muted)",
               }}
             >
-              <PicnicTableIcon size={11} className="opacity-60 shrink-0" />
-              <span>{tab}</span>
+              {tab.type === "query" ? (
+                <CodeIcon
+                  size={11}
+                  className="opacity-60 shrink-0"
+                  style={{ color: isActive ? "var(--accent)" : undefined, opacity: isActive ? 1 : 0.6 }}
+                />
+              ) : (
+                <PicnicTableIcon size={11} className="opacity-60 shrink-0" />
+              )}
+              <span>{tab.label}</span>
               <button
                 onClick={(e) => {
                   e.stopPropagation();
-                  onTabClose(tab);
+                  onTabClose(tab.id);
                 }}
                 className="w-4 h-4 grid place-items-center rounded-[3px] opacity-50 hover:opacity-100 transition-opacity"
               >
@@ -514,13 +525,19 @@ export function ContentArea({
             </div>
           );
         })}
-        <Button size="sm" variant="ghost" className="ml-0.5" isIconOnly>
+        <Button size="sm" variant="ghost" onClick={onNewQuery} className="ml-0.5" isIconOnly>
           <PlusIcon className="size-3" />
         </Button>
       </div>
 
-      {/* Center content — swaps based on active view */}
-      {activeView === "Data" ? (
+      {isQueryTab && activeTab ? (
+        <SqlEditor
+          key={activeTab.id}
+          sql={activeTab.sql ?? ""}
+          onSqlChange={(sql) => onSqlChange(activeTab.id, sql)}
+          commands={editorCommands}
+        />
+      ) : activeView === "Data" ? (
         <>
           <FilterBar
             filters={filters.map((f) => ({ ...f, col: f.col || firstCol }))}
@@ -539,7 +556,7 @@ export function ContentArea({
             onRowClick={onRowClick}
             onRowContextMenu={(index, x, y) => setContextMenu({ rowIndex: index, x, y })}
             isLoading={isLoading}
-            activeTable={activeTable}
+            activeTable={activeTableName}
           />
           {contextMenu && (
             <RowContextMenu
@@ -554,35 +571,37 @@ export function ContentArea({
           )}
         </>
       ) : (
-        <StructurePanel columns={columns} activeTable={activeTable} />
+        <StructurePanel columns={columns} activeTable={activeTableName} />
       )}
 
       {/* Footer */}
-      <div className="flex items-center justify-between gap-4 px-4.5 border-t border-separator bg-surface shrink-0 font-mono text-default-400 h-[38px] text-[11px]">
-        {/* View switcher */}
-        <PillTabBar tabs={VIEWS} active={activeView} onChange={setActiveView} />
+      {!isQueryTab && (
+        <div className="flex items-center justify-between gap-4 px-4.5 border-t border-separator bg-surface shrink-0 font-mono text-default-400 h-9.5 text-[11px]">
+          {/* View switcher */}
+          <PillTabBar tabs={VIEWS} active={activeView} onChange={setActiveView} />
 
-        {/* Pagination — center, only in Data view */}
-        {activeView === "Data" && (
-          <div className="flex items-center gap-1">
-            <Button variant="ghost" className="size-[20px]" isIconOnly>
-              <CaretLeftIcon className="size-2.5" />
-            </Button>
-            <span>1</span>
-            <Button variant="ghost" className="size-[20px]" isIconOnly>
-              <CaretRightIcon className="size-2.5" />
-            </Button>
-          </div>
-        )}
+          {/* Pagination — center, only in Data view */}
+          {activeView === "Data" && (
+            <div className="flex items-center gap-1">
+              <Button variant="ghost" className="size-5" isIconOnly>
+                <CaretLeftIcon className="size-2.5" />
+              </Button>
+              <span>1</span>
+              <Button variant="ghost" className="size-5" isIconOnly>
+                <CaretRightIcon className="size-2.5" />
+              </Button>
+            </div>
+          )}
 
-        {/* Row count — right side, only in Data view */}
-        {activeView === "Data" && (
-          <span>
-            <span className="text-foreground">{rows.length}</span>
-            {totalEstimate !== null && <span> / {formatNum(totalEstimate)}</span>} rows
-          </span>
-        )}
-      </div>
+          {/* Row count — right side, only in Data view */}
+          {activeView === "Data" && (
+            <span>
+              <span className="text-foreground">{rows.length}</span>
+              {totalEstimate !== null && <span> / {formatNum(totalEstimate)}</span>} rows
+            </span>
+          )}
+        </div>
+      )}
     </div>
   );
 }
