@@ -3,7 +3,8 @@ mod commands;
 use std::{collections::HashMap, sync::Mutex};
 
 use commands::connection::{
-    connect, delete_connection, load_connections, save_connection, test_connection, AppState,
+    connect, delete_connection, list_databases, load_connections, save_connection, switch_database,
+    test_connection, AppState,
 };
 use commands::query::{fetch_rows, list_tables};
 use sqlx::SqlitePool;
@@ -33,6 +34,7 @@ pub fn run() {
             app.manage(AppState {
                 db: pool,
                 pools: Mutex::new(HashMap::new()),
+                configs: Mutex::new(HashMap::new()),
             });
 
             Ok(())
@@ -43,6 +45,8 @@ pub fn run() {
             delete_connection,
             test_connection,
             connect,
+            list_databases,
+            switch_database,
             list_tables,
             fetch_rows,
         ])

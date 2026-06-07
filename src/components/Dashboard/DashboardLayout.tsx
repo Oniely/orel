@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useConnectionStore } from "../../stores/connection.store";
+import { useListDatabases, useSwitchDatabase } from "../../hooks/useConnections";
 import { useListTables, useFetchRows } from "../../hooks/useTables";
 import { useQueryClient } from "@tanstack/react-query";
 import { Header } from "./Header";
@@ -9,6 +10,9 @@ import { ContentArea } from "./ContentArea";
 import { RowInspector } from "./RowInspector";
 import { useHotkeys } from "react-hotkeys-hook";
 import type { Tab } from "../../types/database";
+
+type TabState = { tabs: Tab[]; activeTabId: string | null };
+const EMPTY_TAB_STATE: TabState = { tabs: [], activeTabId: null };
 
 export function DashboardLayout() {
   const navigate = useNavigate();
@@ -24,12 +28,8 @@ export function DashboardLayout() {
     }
   }, [connection, navigate]);
 
-  // Tab state
-  const [openTabs, setOpenTabs] = useState<Tab[]>([]);
-  const [activeTabId, setActiveTabId] = useState<string | null>(null);
-
-  const activeTab = openTabs.find((t) => t.id === activeTabId) ?? null;
-  const activeTableName = activeTab?.type === "table" ? activeTab.label : null;
+  // Tab State - Record Map
+  const [tabState, setTabState] = useState<Record<string, TabState>>({});
 
   // Row inspector state
   const [selectedRowIndex, setSelectedRowIndex] = useState<number | null>(null);
@@ -40,46 +40,67 @@ export function DashboardLayout() {
   const connectionId = connection?.config.id ?? null;
   const activeDatabase =
     connection?.activeDatabase ?? connection?.config.defaultDatabase ?? connection?.databases[0] ?? null;
+  const databaseKey = activeDatabase ?? "__none__";
+
+  const { tabs: openTabs, activeTabId } = tabState[databaseKey] ?? EMPTY_TAB_STATE;
+  const activeTab = openTabs.find((t) => t.id === activeTabId) ?? null;
+  const activeTableName = activeTab?.type === "table" ? activeTab.label : null;
 
   // Data queries
+  useListDatabases(connectionId, connection?.status === "connected"); // Load databases of connectionId
+  const switchDatabase = useSwitchDatabase();
   const { data: tables = [], isLoading: tablesLoading } = useListTables(connectionId);
   const { data: queryResult = null, isLoading: rowsLoading } = useFetchRows(connectionId, activeTableName);
 
+  const updateTabState = (updater: (state: TabState) => TabState) =>
+    setTabState((prev) => ({
+      ...prev,
+      [databaseKey]: updater(prev[databaseKey] ?? EMPTY_TAB_STATE),
+    }));
+
   const handleTableClick = (name: string) => {
     const id = `t-${name}`;
-    if (!openTabs.find((t) => t.id === id)) {
-      setOpenTabs((prev) => [...prev, { id, type: "table", label: name }]);
-    }
-    setActiveTabId(id);
+    updateTabState((state) => {
+      if (state.tabs.some((t) => t.id === id)) {
+        return { ...state, activeTabId: id };
+      }
+      return { tabs: [...state.tabs, { id, type: "table", label: name }], activeTabId: id };
+    });
     setSelectedRowIndex(null);
   };
 
   const handleTabChange = (id: string) => {
-    setActiveTabId(id);
+    updateTabState((state) => ({ ...state, activeTabId: id }));
     setSelectedRowIndex(null);
   };
 
   const handleTabClose = (id: string) => {
-    const idx = openTabs.findIndex((t) => t.id === id);
-    const newTabs = openTabs.filter((t) => t.id !== id);
-    setOpenTabs(newTabs);
+    updateTabState((state) => {
+      const idx = state.tabs.findIndex((t) => t.id === id);
+      const nextTabs = state.tabs.filter((t) => t.id !== id);
+      const nextActive = state.activeTabId === id ? (nextTabs[Math.max(0, idx - 1)]?.id ?? null) : state.activeTabId;
+      return { tabs: nextTabs, activeTabId: nextActive };
+    });
     if (activeTabId === id) {
-      setActiveTabId(newTabs[Math.max(0, idx - 1)]?.id ?? null);
       setSelectedRowIndex(null);
     }
   };
 
+  // new query tab (sql editor)
   const handleNewQuery = () => {
     const id = `q-${Date.now()}`;
-    setOpenTabs((prev) => {
-      const n = prev.filter((t) => t.type === "query").length + 1;
-      return [...prev, { id, type: "query", label: `Query ${n}`, sql: "" }];
+    updateTabState((state) => {
+      const n = state.tabs.filter((t) => t.type === "query").length + 1;
+      return { tabs: [...state.tabs, { id, type: "query", label: `Query ${n}`, sql: "" }], activeTabId: id };
     });
-    setActiveTabId(id);
   };
 
+  // sql query state for saving sql query text
   const handleSqlChange = (id: string, sql: string) => {
-    setOpenTabs((prev) => prev.map((t) => (t.id === id ? { ...t, sql } : t)));
+    updateTabState((state) => ({
+      ...state,
+      tabs: state.tabs.map((t) => (t.id === id ? { ...t, sql } : t)),
+    }));
   };
 
   const openTabsRef = useRef(openTabs);
@@ -124,9 +145,25 @@ export function DashboardLayout() {
     setShowInspector(true);
   };
 
+  const handleDatabaseSelect = (database: string) => {
+    if (!connectionId || !database || database === activeDatabase) return;
+    setSelectedRowIndex(null);
+    setShowInspector(false);
+    switchDatabase.mutate(
+      { connectionId, database },
+      {
+        onSuccess: () => {
+          queryClient.invalidateQueries({ queryKey: ["rows", connectionId] });
+          queryClient.invalidateQueries({ queryKey: ["tables", connectionId] });
+        },
+      },
+    );
+  };
+
   const handleRefresh = () => {
     queryClient.invalidateQueries({ queryKey: ["rows", connectionId, activeTableName] });
     queryClient.invalidateQueries({ queryKey: ["tables", connectionId] });
+    queryClient.invalidateQueries({ queryKey: ["databases", connectionId] });
   };
 
   const rows = queryResult?.rows ?? [];
@@ -144,6 +181,7 @@ export function DashboardLayout() {
         showInspector={showInspector}
         onToggleInspector={() => setShowInspector((v) => !v)}
         onRefresh={handleRefresh}
+        onDatabaseSelect={handleDatabaseSelect}
         sidebarOpen={sidebarOpen}
         onToggleSidebar={() => setSidebarOpen((v) => !v)}
       />

@@ -48,8 +48,9 @@ pub enum DbPool {
 
 // AppState type for Tauri app state, holding database connection pools as well as the app db.
 pub struct AppState {
-    pub db: SqlitePool,
-    pub pools: Mutex<HashMap<String, DbPool>>,
+    pub db: SqlitePool,                                   // app db
+    pub pools: Mutex<HashMap<String, DbPool>>,            // connections pool
+    pub configs: Mutex<HashMap<String, SavedConnection>>, // connection config
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -225,6 +226,7 @@ pub async fn connect(
     state: tauri::State<'_, AppState>,
 ) -> Result<Vec<String>, String> {
     let db = config.default_database.as_deref();
+    let connection_id = config.id.clone();
 
     let databases = match config.db_type.as_str() {
         "postgres" => {
@@ -250,7 +252,7 @@ pub async fn connect(
                 .pools
                 .lock()
                 .unwrap()
-                .insert(config.id.clone(), DbPool::Postgres(pool));
+                .insert(connection_id.clone(), DbPool::Postgres(pool));
             rows
         }
         "mysql" => {
@@ -274,11 +276,118 @@ pub async fn connect(
                 .pools
                 .lock()
                 .unwrap()
-                .insert(config.id.clone(), DbPool::MySql(pool));
+                .insert(connection_id.clone(), DbPool::MySql(pool));
             rows
         }
         other => return Err(format!("Unsupported database type: {}", other)),
     };
 
+    state.configs.lock().unwrap().insert(connection_id, config);
+
     Ok(databases)
+}
+
+#[tauri::command]
+pub async fn list_databases(
+    connection_id: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<String>, String> {
+    let pool = {
+        let pools = state.pools.lock().unwrap();
+        pools
+            .get(&connection_id)
+            .ok_or_else(|| "Connection not found".to_string())?
+            .clone()
+    };
+
+    match pool {
+        DbPool::Postgres(pg) => {
+            let rows = sqlx::query_scalar::<_, String>(
+                "SELECT datname FROM pg_database WHERE datistemplate = false ORDER BY datname",
+            )
+            .fetch_all(&pg)
+            .await
+            .map_err(|e| e.to_string())?;
+            Ok(rows)
+        }
+        DbPool::MySql(mysql) => {
+            let rows = sqlx::query_scalar::<_, String>("SHOW DATABASES")
+                .fetch_all(&mysql)
+                .await
+                .map_err(|e| e.to_string())?;
+            Ok(rows)
+        }
+    }
+}
+
+#[tauri::command]
+pub async fn switch_database(
+    connection_id: String,
+    database: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let database = database.trim().to_string();
+    if database.is_empty() {
+        return Err("Database name is required".to_string());
+    }
+
+    let config = {
+        let configs = state.configs.lock().unwrap();
+        configs
+            .get(&connection_id)
+            .cloned()
+            .ok_or_else(|| "Connection not found".to_string())?
+    };
+
+    let db = Some(database.as_str());
+    let new_pool = match config.db_type.as_str() {
+        "postgres" => {
+            let pool = PgPool::connect_with(pg_opts(
+                &config.host,
+                config.port,
+                &config.username,
+                &config.password,
+                config.ssl,
+                db,
+            ))
+            .await
+            .map_err(|e| e.to_string())?;
+            DbPool::Postgres(pool)
+        }
+        "mysql" => {
+            let pool = MySqlPool::connect_with(mysql_opts(
+                &config.host,
+                config.port,
+                &config.username,
+                &config.password,
+                config.ssl,
+                db,
+            ))
+            .await
+            .map_err(|e| e.to_string())?;
+            DbPool::MySql(pool)
+        }
+        other => return Err(format!("Unsupported database type: {}", other)),
+    };
+
+    let old_pool = {
+        let mut pools = state.pools.lock().unwrap();
+        pools.insert(connection_id.clone(), new_pool)
+    };
+
+    if let Some(old_pool) = old_pool {
+        match old_pool {
+            DbPool::Postgres(pg) => pg.close().await,
+            DbPool::MySql(mysql) => mysql.close().await,
+        }
+    }
+
+    {
+        let mut configs = state.configs.lock().unwrap();
+        if let Some(existing) = configs.get_mut(&connection_id) {
+            existing.default_database = Some(database);
+        }
+    }
+
+    Ok(())
 }

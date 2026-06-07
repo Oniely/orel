@@ -17,6 +17,7 @@ interface HeaderProps {
   showInspector: boolean;
   onToggleInspector: () => void;
   onRefresh: () => void;
+  onDatabaseSelect: (database: string) => void;
   sidebarOpen: boolean;
   onToggleSidebar: () => void;
 }
@@ -27,6 +28,7 @@ export function Header({
   showInspector,
   onToggleInspector,
   onRefresh,
+  onDatabaseSelect,
   sidebarOpen,
   onToggleSidebar,
 }: HeaderProps) {
@@ -80,16 +82,18 @@ export function Header({
             <CaretDownIcon />
           </Button>
           <Dropdown.Popover className="w-[225px] p-1">
-            <Dropdown.Menu onAction={(key) => console.log(`Selected: ${key}`)}>
-              <Dropdown.Item id="test1" textValue="Test 1">
-                <Label>Test 1</Label>
-              </Dropdown.Item>
-              <Dropdown.Item id="test2" textValue="Test 2">
-                <Label>Test 2</Label>
-              </Dropdown.Item>
-              <Dropdown.Item id="test3" textValue="Test 3">
-                <Label>Test 3</Label>
-              </Dropdown.Item>
+            <Dropdown.Menu onAction={(key) => onDatabaseSelect(String(key))}>
+              {connection.databases.length === 0 ? (
+                <Dropdown.Item id="no-databases" textValue="No databases" isDisabled>
+                  <Label>No databases</Label>
+                </Dropdown.Item>
+              ) : (
+                connection.databases.map((db) => (
+                  <Dropdown.Item key={db} id={db} textValue={db}>
+                    <Label>{db}</Label>
+                  </Dropdown.Item>
+                ))
+              )}
             </Dropdown.Menu>
           </Dropdown.Popover>
         </Dropdown>

@@ -16,7 +16,7 @@ export default function ConnectionRow({ connection }: { connection: SavedConnect
   const handleConnect = () => {
     connect.mutate(connection, {
       onSuccess: async () => {
-        await appWindow.setSize(new LogicalSize(1600, 900));
+        await appWindow.setSize(new LogicalSize(1400, 900));
         await appWindow.center();
         navigate({ to: "/dashboard" });
       },

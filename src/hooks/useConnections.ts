@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { invoke } from "@tauri-apps/api/core";
 import { useConnectionStore } from "../stores/connection.store";
@@ -72,6 +73,41 @@ export function useConnect(connectionId: string) {
       updateActiveConnection(connectionId, {
         status: "error",
         error: error instanceof Error ? error.message : "Connection failed",
+      });
+    },
+  });
+}
+
+// Load all databases for an active connection
+export function useListDatabases(connectionId: string | null, enabled = true) {
+  const updateActiveConnection = useConnectionStore((s) => s.updateActiveConnection);
+
+  const query = useQuery({
+    queryKey: ["databases", connectionId],
+    queryFn: () => invoke<string[]>("list_databases", { connectionId: connectionId! }),
+    enabled: !!connectionId && enabled,
+    staleTime: 30_000,
+  });
+
+  useEffect(() => {
+    if (!connectionId || !query.data) return;
+    updateActiveConnection(connectionId, { databases: query.data });
+  }, [connectionId, query.data, updateActiveConnection]);
+
+  return query;
+}
+
+export function useSwitchDatabase() {
+  const updateActiveConnection = useConnectionStore((s) => s.updateActiveConnection);
+
+  return useMutation({
+    mutationFn: (input: { connectionId: string; database: string }) => invoke("switch_database", input),
+    onSuccess: (_, { connectionId, database }) => {
+      updateActiveConnection(connectionId, { activeDatabase: database, error: undefined });
+    },
+    onError: (error, { connectionId }) => {
+      updateActiveConnection(connectionId, {
+        error: error instanceof Error ? error.message : "Failed to switch database",
       });
     },
   });
