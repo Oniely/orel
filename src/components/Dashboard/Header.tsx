@@ -1,15 +1,19 @@
-import { Button, Dropdown, Label, ToggleButton } from "@heroui/react";
-import type { ActiveConnection } from "../../types/connection";
+import { Button, Dropdown, Label, Separator, ToggleButton } from "@heroui/react";
+import type { ActiveConnection, SavedConnection } from "../../types/connection";
 import {
   ArrowClockwiseIcon,
   ArrowLineUpIcon,
   CaretDownIcon,
   DatabaseIcon,
   PlusIcon,
+  SignOutIcon,
   SidebarIcon,
   SidebarSimpleIcon,
 } from "@phosphor-icons/react";
 import { INNER_W, SIDEBAR_PAD, SIDEBAR_WIDTH } from "./constants";
+import { useNavigate } from "@tanstack/react-router";
+import { useConnectionStore } from "../../stores/connection.store";
+import { useConnect } from "../../hooks/useConnections";
 
 interface HeaderProps {
   connection: ActiveConnection;
@@ -20,6 +24,7 @@ interface HeaderProps {
   onDatabaseSelect: (database: string) => void;
   sidebarOpen: boolean;
   onToggleSidebar: () => void;
+  onDisconnect: () => void;
 }
 
 export function Header({
@@ -31,8 +36,16 @@ export function Header({
   onDatabaseSelect,
   sidebarOpen,
   onToggleSidebar,
+  onDisconnect,
 }: HeaderProps) {
   const latency = null; // TODO: track latency after connect
+  const navigate = useNavigate();
+  const { savedConnections } = useConnectionStore();
+  const connect = useConnect();
+
+  const handleConnect = (connection: SavedConnection) => {
+    connect.mutate(connection);
+  };
 
   return (
     <div className="h-[52px] flex items-center shrink-0 border-b border-separator bg-surface">
@@ -45,24 +58,54 @@ export function Header({
           display: sidebarOpen ? "flex" : "none",
         }}
       >
-        <Button size="sm" variant="tertiary" style={{ width: INNER_W }} className="flex items-center gap-2.5 px-3.5">
-          {/* Connection status dot with glow */}
-          <span className="relative w-2 h-2 shrink-0">
-            <span className="absolute inset-0 rounded-full" style={{ background: "oklch(73% 0.18 153)" }} />
-            <span
-              className="absolute rounded-full"
-              style={{
-                inset: -3,
-                borderRadius: 999,
-                background: "oklch(73% 0.18 153)",
-                opacity: 0.25,
+        <Dropdown>
+          <Button size="sm" variant="tertiary" style={{ width: INNER_W }} className="flex items-center gap-2.5 px-3.5">
+            {/* Connection status dot with glow */}
+            <span className="relative w-2 h-2 shrink-0 animate-pulse">
+              <span className="absolute inset-0 rounded-full" style={{ background: "oklch(73% 0.18 153)" }} />
+              <span
+                className="absolute rounded-full"
+                style={{
+                  inset: -3,
+                  borderRadius: 999,
+                  background: "oklch(73% 0.18 153)",
+                  opacity: 0.25,
+                }}
+              />
+            </span>
+            <span className="font-medium text-[12.5px] truncate flex-1 text-left">{connection.config.name}</span>
+            {latency !== null && <span className="font-mono text-[10.5px] text-default-400 shrink-0">{latency}ms</span>}
+            <CaretDownIcon size={12} />
+          </Button>
+          <Dropdown.Popover className="w-[200px] p-1">
+            <Dropdown.Menu
+              onAction={(key) => {
+                if (key === "disconnect") onDisconnect();
+                if (key === "new-connection") navigate({ to: "/" });
               }}
-            />
-          </span>
-          <span className="font-medium text-[12.5px] truncate flex-1 text-left">{connection.config.name}</span>
-          {latency !== null && <span className="font-mono text-[10.5px] text-default-400 shrink-0">{latency}ms</span>}
-          <CaretDownIcon size={12} />
-        </Button>
+            >
+              {savedConnections.length > 0 &&
+                savedConnections.map((saved_connection) => {
+                  if (saved_connection.id !== connection.config.id)
+                    return (
+                      <Dropdown.Item key={saved_connection.id} onClick={() => handleConnect(saved_connection)}>
+                        <DatabaseIcon className="size-4" />
+                        <Label>{saved_connection.name}</Label>
+                      </Dropdown.Item>
+                    );
+                })}
+              <Separator className="my-1" />
+              <Dropdown.Item id="new-connection" textValue="New Connection">
+                <PlusIcon className="size-4" />
+                <Label>New Connection</Label>
+              </Dropdown.Item>
+              <Dropdown.Item id="disconnect" textValue="Disconnect" variant="danger">
+                <SignOutIcon className="size-4 text-danger" />
+                <Label>Disconnect</Label>
+              </Dropdown.Item>
+            </Dropdown.Menu>
+          </Dropdown.Popover>
+        </Dropdown>
       </div>
 
       {/* Right zone — content header */}

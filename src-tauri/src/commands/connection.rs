@@ -168,6 +168,25 @@ pub async fn delete_connection(
 }
 
 #[tauri::command]
+pub async fn disconnect(state: tauri::State<'_, AppState>, id: String) -> Result<(), String> {
+    let old_pool = {
+        let mut pools = state.pools.lock().unwrap();
+        pools.remove(&id)
+    };
+
+    if let Some(pool) = old_pool {
+        match pool {
+            DbPool::Postgres(pg) => pg.close().await,
+            DbPool::MySql(mysql) => mysql.close().await,
+        }
+    }
+
+    state.configs.lock().unwrap().remove(&id);
+
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn test_connection(config: ConnectionConfig) -> Result<String, String> {
     let db = config.default_database.as_deref();
 

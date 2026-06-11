@@ -54,7 +54,7 @@ export function useTestConnection() {
 }
 
 // Connect to a server and get its list of databases
-export function useConnect(connectionId: string) {
+export function useConnect() {
   const { openConnection, updateActiveConnection } = useConnectionStore();
 
   return useMutation({
@@ -63,14 +63,14 @@ export function useConnect(connectionId: string) {
       const databases = await invoke<string[]>("connect", { config });
       return databases;
     },
-    onSuccess: (databases) => {
-      updateActiveConnection(connectionId, {
+    onSuccess: (databases, config) => {
+      updateActiveConnection(config.id, {
         status: "connected",
         databases,
       });
     },
-    onError: (error) => {
-      updateActiveConnection(connectionId, {
+    onError: (error, config) => {
+      updateActiveConnection(config.id, {
         status: "error",
         error: error instanceof Error ? error.message : "Connection failed",
       });
@@ -95,6 +95,18 @@ export function useListDatabases(connectionId: string | null, enabled = true) {
   }, [connectionId, query.data, updateActiveConnection]);
 
   return query;
+}
+
+// Disconnect from a server and clean up
+export function useDisconnect() {
+  const closeConnection = useConnectionStore((s) => s.closeConnection);
+
+  return useMutation({
+    mutationFn: (id: string) => invoke("disconnect", { id }),
+    onSuccess: (_, id) => {
+      closeConnection(id);
+    },
+  });
 }
 
 export function useSwitchDatabase() {

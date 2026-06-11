@@ -1,10 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button, Spinner } from "@heroui/react";
 import { ConnectionModal } from "../components/ConnectionModal";
 import { useSavedConnections } from "../hooks/useConnections";
 import { useConnectionStore } from "../stores/connection.store";
 import ConnectionRow from "../components/ConnectionManager/ConnectionRow";
+import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
 
 export const Route = createFileRoute("/")({
   component: ConnectionManager,
@@ -19,11 +20,17 @@ export const DB_LABELS: Record<string, string> = {
   postgres: "PostgreSQL",
   mysql: "MySQL",
 };
+const appWindow = getCurrentWindow();
 
 function ConnectionManager() {
   const [modalOpen, setModalOpen] = useState(false);
   const { savedConnections } = useConnectionStore();
   const { isLoading, error } = useSavedConnections();
+
+  useEffect(() => {
+    appWindow.setSize(new LogicalSize(1280, 720));
+    appWindow.center();
+  }, []);
 
   return (
     <div className="min-h-screen bg-background">

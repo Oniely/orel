@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useConnectionStore } from "../../stores/connection.store";
-import { useListDatabases, useSwitchDatabase } from "../../hooks/useConnections";
+import { useListDatabases, useSwitchDatabase, useDisconnect } from "../../hooks/useConnections";
 import { useListTables, useFetchRows } from "../../hooks/useTables";
 import { useQueryClient } from "@tanstack/react-query";
 import { Header } from "./Header";
@@ -40,7 +40,7 @@ export function DashboardLayout() {
   const connectionId = connection?.config.id ?? null;
   const activeDatabase =
     connection?.activeDatabase ?? connection?.config.defaultDatabase ?? connection?.databases[0] ?? null;
-  const databaseKey = activeDatabase ?? "__none__";
+  const databaseKey = connectionId && activeDatabase ? `${connectionId}::${activeDatabase}` : "__none__"; // combining connectionId and activeDatabase (this way even if activeDatabse name is the same on other connection it'll not render the same tabs as they have different connectionId)
 
   const { tabs: openTabs, activeTabId } = tabState[databaseKey] ?? EMPTY_TAB_STATE;
   const activeTab = openTabs.find((t) => t.id === activeTabId) ?? null;
@@ -49,6 +49,7 @@ export function DashboardLayout() {
   // Data queries
   useListDatabases(connectionId, connection?.status === "connected"); // Load databases of connectionId
   const switchDatabase = useSwitchDatabase();
+  const disconnect = useDisconnect();
   const { data: tables = [], isLoading: tablesLoading } = useListTables(connectionId);
   const { data: queryResult = null, isLoading: rowsLoading } = useFetchRows(connectionId, activeTableName);
 
@@ -160,6 +161,15 @@ export function DashboardLayout() {
     );
   };
 
+  const handleDisconnect = () => {
+    if (connectionId)
+      disconnect.mutate(connectionId, {
+        onSuccess: () => {
+          navigate({ to: "/" });
+        },
+      });
+  };
+
   const handleRefresh = () => {
     queryClient.invalidateQueries({ queryKey: ["rows", connectionId, activeTableName] });
     queryClient.invalidateQueries({ queryKey: ["tables", connectionId] });
@@ -184,6 +194,7 @@ export function DashboardLayout() {
         onDatabaseSelect={handleDatabaseSelect}
         sidebarOpen={sidebarOpen}
         onToggleSidebar={() => setSidebarOpen((v) => !v)}
+        onDisconnect={handleDisconnect}
       />
 
       {/* Body */}

@@ -10,7 +10,7 @@ const appWindow = getCurrentWindow();
 export default function ConnectionRow({ connection }: { connection: SavedConnection }) {
   const navigate = useNavigate();
   const deleteConnection = useDeleteConnection();
-  const connect = useConnect(connection.id);
+  const connect = useConnect();
   const isConnecting = connect.isPending;
 
   const handleConnect = () => {
