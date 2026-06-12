@@ -5,7 +5,7 @@ import { useConnectionStore } from "../stores/connection.store";
 import type { SavedConnection } from "../types/connection";
 
 // Load all saved connections from Rust on mount
-export function useSavedConnections() {
+export function useLoadConnections() {
   const setSavedConnections = useConnectionStore((s) => s.setSavedConnections);
 
   return useQuery({
@@ -99,12 +99,14 @@ export function useListDatabases(connectionId: string | null, enabled = true) {
 
 // Disconnect from a server and clean up
 export function useDisconnect() {
+  const queryClient = useQueryClient();
   const closeConnection = useConnectionStore((s) => s.closeConnection);
 
   return useMutation({
     mutationFn: (id: string) => invoke("disconnect", { id }),
     onSuccess: (_, id) => {
       closeConnection(id);
+      queryClient.invalidateQueries({ queryKey: ["tables", id] });
     },
   });
 }

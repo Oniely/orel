@@ -40,11 +40,16 @@ export function Header({
 }: HeaderProps) {
   const latency = null; // TODO: track latency after connect
   const navigate = useNavigate();
-  const { savedConnections } = useConnectionStore();
+  const { savedConnections, activeConnections, setFocusedConnection } = useConnectionStore();
   const connect = useConnect();
 
-  const handleConnect = (connection: SavedConnection) => {
-    connect.mutate(connection);
+  const handleConnect = (conn: SavedConnection) => {
+    const existing = activeConnections[conn.id];
+    if (existing && existing.status === "connected") {
+      setFocusedConnection(conn.id);
+      return;
+    }
+    connect.mutate(conn);
   };
 
   return (
@@ -58,6 +63,7 @@ export function Header({
           display: sidebarOpen ? "flex" : "none",
         }}
       >
+        {/* Connection switcher */}
         <Dropdown>
           <Button size="sm" variant="tertiary" style={{ width: INNER_W }} className="flex items-center gap-2.5 px-3.5">
             {/* Connection status dot with glow */}

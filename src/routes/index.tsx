@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { Button, Spinner } from "@heroui/react";
 import { ConnectionModal } from "../components/ConnectionModal";
-import { useSavedConnections } from "../hooks/useConnections";
+import { useLoadConnections } from "../hooks/useConnections";
 import { useConnectionStore } from "../stores/connection.store";
 import ConnectionRow from "../components/ConnectionManager/ConnectionRow";
 import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
@@ -25,7 +25,7 @@ const appWindow = getCurrentWindow();
 function ConnectionManager() {
   const [modalOpen, setModalOpen] = useState(false);
   const { savedConnections } = useConnectionStore();
-  const { isLoading, error } = useSavedConnections();
+  const { isLoading, error } = useLoadConnections();
 
   useEffect(() => {
     appWindow.setSize(new LogicalSize(1280, 720));

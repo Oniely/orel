@@ -7,7 +7,7 @@ interface ConnectionStore {
   setSavedConnections: (connections: SavedConnection[]) => void;
   addSavedConnection: (connection: SavedConnection) => void;
   removeSavedConnection: (id: string) => void;
-  updateSavedConnection: (id: string, updates: Partial<SavedConnection>) => void;
+  updateSavedConnection: (id: string, updates: Partial<SavedConnection>) => void; // TODO: implement on connection modal
 
   // --- Runtime (lives only in memory while app is open) ---
   // Multiple connections can be open simultaneously
