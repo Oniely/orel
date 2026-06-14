@@ -65,7 +65,6 @@ export const useConnectionStore = create<ConnectionStore>((set) => ({
           activeDatabase: config.defaultDatabase ?? null,
         },
       },
-      focusedConnectionId: config.id,
     })),
 
   closeConnection: (id) =>

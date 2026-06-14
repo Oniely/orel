@@ -2,7 +2,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { useDeleteConnection, useConnect } from "../../hooks/useConnections";
 import { SavedConnection } from "../../types/connection";
 import { DB_COLORS, DB_LABELS } from "../../routes";
-import { Button, Spinner } from "@heroui/react";
+import { Button, Spinner, toast } from "@heroui/react";
 
 import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
 const appWindow = getCurrentWindow();
@@ -19,6 +19,9 @@ export default function ConnectionRow({ connection }: { connection: SavedConnect
         await appWindow.setSize(new LogicalSize(1400, 900));
         await appWindow.center();
         navigate({ to: "/dashboard" });
+      },
+      onError: (error) => {
+        toast.danger(error instanceof Error ? error.message : "Connection failed");
       },
     });
   };

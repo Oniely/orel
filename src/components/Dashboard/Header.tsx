@@ -1,4 +1,4 @@
-import { Button, Dropdown, Label, Separator, ToggleButton } from "@heroui/react";
+import { Button, Dropdown, Label, Separator, Spinner, toast, ToggleButton } from "@heroui/react";
 import type { ActiveConnection, SavedConnection } from "../../types/connection";
 import {
   ArrowClockwiseIcon,
@@ -40,8 +40,9 @@ export function Header({
 }: HeaderProps) {
   const latency = null; // TODO: track latency after connect
   const navigate = useNavigate();
-  const { savedConnections, activeConnections, setFocusedConnection } = useConnectionStore();
+  const { savedConnections, activeConnections, setFocusedConnection, closeConnection } = useConnectionStore();
   const connect = useConnect();
+  const isConnecting = Object.values(activeConnections).some((c) => c.status === "connecting");
 
   const handleConnect = (conn: SavedConnection) => {
     const existing = activeConnections[conn.id];
@@ -49,7 +50,15 @@ export function Header({
       setFocusedConnection(conn.id);
       return;
     }
-    connect.mutate(conn);
+    connect.mutate(conn, {
+      onSuccess: () => {
+        toast.success("Connected successfully!");
+      },
+      onError: () => {
+        closeConnection(conn.id);
+        toast.danger(`Failed to connect: ${conn.name}`);
+      },
+    });
   };
 
   return (
@@ -66,19 +75,23 @@ export function Header({
         {/* Connection switcher */}
         <Dropdown>
           <Button size="sm" variant="tertiary" style={{ width: INNER_W }} className="flex items-center gap-2.5 px-3.5">
-            {/* Connection status dot with glow */}
-            <span className="relative w-2 h-2 shrink-0 animate-pulse">
-              <span className="absolute inset-0 rounded-full" style={{ background: "oklch(73% 0.18 153)" }} />
-              <span
-                className="absolute rounded-full"
-                style={{
-                  inset: -3,
-                  borderRadius: 999,
-                  background: "oklch(73% 0.18 153)",
-                  opacity: 0.25,
-                }}
-              />
-            </span>
+            {/* Connection status dot with glow / loading spinner */}
+            {isConnecting ? (
+              <Spinner size="sm" />
+            ) : (
+              <span className="relative w-2 h-2 shrink-0 animate-pulse">
+                <span className="absolute inset-0 rounded-full" style={{ background: "oklch(73% 0.18 153)" }} />
+                <span
+                  className="absolute rounded-full"
+                  style={{
+                    inset: -3,
+                    borderRadius: 999,
+                    background: "oklch(73% 0.18 153)",
+                    opacity: 0.25,
+                  }}
+                />
+              </span>
+            )}
             <span className="font-medium text-[12.5px] truncate flex-1 text-left">{connection.config.name}</span>
             {latency !== null && <span className="font-mono text-[10.5px] text-default-400 shrink-0">{latency}ms</span>}
             <CaretDownIcon size={12} />

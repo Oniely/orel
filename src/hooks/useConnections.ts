@@ -55,7 +55,7 @@ export function useTestConnection() {
 
 // Connect to a server and get its list of databases
 export function useConnect() {
-  const { openConnection, updateActiveConnection } = useConnectionStore();
+  const { openConnection, updateActiveConnection, setFocusedConnection } = useConnectionStore();
 
   return useMutation({
     mutationFn: async (config: SavedConnection) => {
@@ -68,6 +68,7 @@ export function useConnect() {
         status: "connected",
         databases,
       });
+      setFocusedConnection(config.id);
     },
     onError: (error, config) => {
       updateActiveConnection(config.id, {
