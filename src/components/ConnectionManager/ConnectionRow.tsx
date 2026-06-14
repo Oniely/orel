@@ -1,5 +1,6 @@
 import { useNavigate } from "@tanstack/react-router";
 import { useDeleteConnection, useConnect } from "../../hooks/useConnections";
+import { useConnectionStore } from "../../stores/connection.store";
 import { SavedConnection } from "../../types/connection";
 import { DB_COLORS, DB_LABELS } from "../../routes";
 import { Button, Spinner, toast } from "@heroui/react";
@@ -12,8 +13,14 @@ export default function ConnectionRow({ connection }: { connection: SavedConnect
   const deleteConnection = useDeleteConnection();
   const connect = useConnect();
   const isConnecting = connect.isPending;
+  // check for any connection that are connecting (global check)
+  const isAnyConnecting = useConnectionStore((s) =>
+    Object.values(s.activeConnections).some((c) => c.status === "connecting"),
+  );
+  const isDisabled = isAnyConnecting && !isConnecting; // disable row except the one that's connecting
 
   const handleConnect = () => {
+    if (isAnyConnecting) return;
     connect.mutate(connection, {
       onSuccess: async () => {
         await appWindow.setSize(new LogicalSize(1400, 900));
@@ -28,7 +35,9 @@ export default function ConnectionRow({ connection }: { connection: SavedConnect
 
   return (
     <div
-      className={`group cursor-pointer px-4 py-3 rounded-xl border border-separator bg-surface hover:border-default-300 transition-colors h-16 relative ${isConnecting && "border-loading"}`}
+      className={`group px-4 py-3 rounded-xl border border-separator bg-surface transition-colors h-16 relative ${
+        isConnecting ? "border-loading" : ""
+      } ${isDisabled ? "opacity-50 pointer-events-none cursor-not-allowed" : "cursor-pointer hover:border-default-300"}`}
       onClick={handleConnect}
     >
       <div className="absolute inset-0 z-10 flex items-center gap-3 py-3 px-4">
@@ -60,7 +69,7 @@ export default function ConnectionRow({ connection }: { connection: SavedConnect
             variant="ghost"
             className={`min-w-0 px-2 h-7 text-danger transition-opacity opacity-0 group-hover:opacity-100`}
             onPress={() => deleteConnection.mutate(connection.id)}
-            isDisabled={deleteConnection.isPending || connect.isPending}
+            isDisabled={deleteConnection.isPending || isAnyConnecting}
             aria-label="Remove connection"
           >
             {deleteConnection.isPending ? (
