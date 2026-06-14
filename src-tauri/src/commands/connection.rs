@@ -55,6 +55,60 @@ pub struct AppState {
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
+async fn close_pool(pool: DbPool) {
+    match pool {
+        DbPool::Postgres(pg) => pg.close().await,
+        DbPool::MySql(mysql) => mysql.close().await,
+    }
+}
+
+async fn create_pool(config: &SavedConnection, database: Option<&str>) -> Result<DbPool, String> {
+    match config.db_type.as_str() {
+        "postgres" => {
+            let pool = PgPool::connect_with(pg_opts(
+                &config.host,
+                config.port,
+                &config.username,
+                &config.password,
+                config.ssl,
+                database,
+            ))
+            .await
+            .map_err(|e| e.to_string())?;
+            Ok(DbPool::Postgres(pool))
+        }
+        "mysql" => {
+            let pool = MySqlPool::connect_with(mysql_opts(
+                &config.host,
+                config.port,
+                &config.username,
+                &config.password,
+                config.ssl,
+                database,
+            ))
+            .await
+            .map_err(|e| e.to_string())?;
+            Ok(DbPool::MySql(pool))
+        }
+        other => Err(format!("Unsupported database type: {}", other)),
+    }
+}
+
+async fn fetch_databases(pool: &DbPool) -> Result<Vec<String>, String> {
+    match pool {
+        DbPool::Postgres(pg) => sqlx::query_scalar::<_, String>(
+            "SELECT datname FROM pg_database WHERE datistemplate = false ORDER BY datname",
+        )
+        .fetch_all(pg)
+        .await
+        .map_err(|e| e.to_string()),
+        DbPool::MySql(mysql) => sqlx::query_scalar::<_, String>("SHOW DATABASES")
+            .fetch_all(mysql)
+            .await
+            .map_err(|e| e.to_string()),
+    }
+}
+
 fn pg_opts(
     host: &str,
     port: u16,
@@ -199,10 +253,7 @@ pub async fn disconnect(state: tauri::State<'_, AppState>, id: String) -> Result
     };
 
     if let Some(pool) = old_pool {
-        match pool {
-            DbPool::Postgres(pg) => pg.close().await,
-            DbPool::MySql(mysql) => mysql.close().await,
-        }
+        close_pool(pool).await;
     }
 
     state.configs.lock().unwrap().remove(&id);
@@ -263,71 +314,66 @@ pub async fn test_connection(config: ConnectionConfig) -> Result<String, String>
     Ok("Connection successful".to_string())
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConnectResult {
+    pub databases: Vec<String>,
+    pub active_database: String,
+}
+
 #[tauri::command]
 pub async fn connect(
     config: SavedConnection,
     state: tauri::State<'_, AppState>,
-) -> Result<Vec<String>, String> {
-    let db = config.default_database.as_deref();
+) -> Result<ConnectResult, String> {
     let connection_id = config.id.clone();
+    let default_db = config.default_database.as_deref().filter(|s| !s.is_empty());
 
-    let databases = match config.db_type.as_str() {
-        "postgres" => {
-            let pool = PgPool::connect_with(pg_opts(
-                &config.host,
-                config.port,
-                &config.username,
-                &config.password,
-                config.ssl,
-                db,
-            ))
-            .await
-            .map_err(|e| e.to_string())?;
+    // Connect to a catalog-safe database to list available databases.
+    // Postgres: "postgres" (always exists). MySQL: no database needed.
+    let initial_db = match config.db_type.as_str() {
+        "postgres" => Some("postgres"),
+        _ => None,
+    };
+    let initial_pool = create_pool(&config, initial_db).await?;
+    let databases = fetch_databases(&initial_pool).await?;
 
-            let rows = sqlx::query_scalar::<_, String>(
-                "SELECT datname FROM pg_database WHERE datistemplate = false ORDER BY datname",
-            )
-            .fetch_all(&pool)
-            .await
-            .map_err(|e| e.to_string())?;
-
-            state
-                .pools
-                .lock()
-                .unwrap()
-                .insert(connection_id.clone(), DbPool::Postgres(pool));
-            rows
+    // Determine which database to actually connect to
+    let target_db = if let Some(db) = default_db {
+        if !databases.iter().any(|d| d == db) {
+            close_pool(initial_pool).await;
+            return Err(format!(
+                "Default database '{}' does not exist on the server",
+                db
+            ));
         }
-        "mysql" => {
-            let pool = MySqlPool::connect_with(mysql_opts(
-                &config.host,
-                config.port,
-                &config.username,
-                &config.password,
-                config.ssl,
-                db,
-            ))
-            .await
-            .map_err(|e| e.to_string())?;
-
-            let rows = sqlx::query_scalar::<_, String>("SHOW DATABASES")
-                .fetch_all(&pool)
-                .await
-                .map_err(|e| e.to_string())?;
-
-            state
-                .pools
-                .lock()
-                .unwrap()
-                .insert(connection_id.clone(), DbPool::MySql(pool));
-            rows
-        }
-        other => return Err(format!("Unsupported database type: {}", other)),
+        db.to_string()
+    } else {
+        databases
+            .first()
+            .cloned()
+            .ok_or_else(|| "No databases available on the server".to_string())?
     };
 
+    // Reuse the initial pool if it's already connected to the target, otherwise reconnect
+    let final_pool = if initial_db == Some(target_db.as_str()) {
+        initial_pool
+    } else {
+        close_pool(initial_pool).await;
+        create_pool(&config, Some(&target_db)).await?
+    };
+
+    state
+        .pools
+        .lock()
+        .unwrap()
+        .insert(connection_id.clone(), final_pool);
     state.configs.lock().unwrap().insert(connection_id, config);
 
-    Ok(databases)
+    Ok(ConnectResult {
+        databases,
+        active_database: target_db,
+    })
 }
 
 #[tauri::command]
@@ -343,24 +389,7 @@ pub async fn list_databases(
             .clone()
     };
 
-    match pool {
-        DbPool::Postgres(pg) => {
-            let rows = sqlx::query_scalar::<_, String>(
-                "SELECT datname FROM pg_database WHERE datistemplate = false ORDER BY datname",
-            )
-            .fetch_all(&pg)
-            .await
-            .map_err(|e| e.to_string())?;
-            Ok(rows)
-        }
-        DbPool::MySql(mysql) => {
-            let rows = sqlx::query_scalar::<_, String>("SHOW DATABASES")
-                .fetch_all(&mysql)
-                .await
-                .map_err(|e| e.to_string())?;
-            Ok(rows)
-        }
-    }
+    fetch_databases(&pool).await
 }
 
 #[tauri::command]
@@ -382,36 +411,7 @@ pub async fn switch_database(
             .ok_or_else(|| "Connection not found".to_string())?
     };
 
-    let db = Some(database.as_str());
-    let new_pool = match config.db_type.as_str() {
-        "postgres" => {
-            let pool = PgPool::connect_with(pg_opts(
-                &config.host,
-                config.port,
-                &config.username,
-                &config.password,
-                config.ssl,
-                db,
-            ))
-            .await
-            .map_err(|e| e.to_string())?;
-            DbPool::Postgres(pool)
-        }
-        "mysql" => {
-            let pool = MySqlPool::connect_with(mysql_opts(
-                &config.host,
-                config.port,
-                &config.username,
-                &config.password,
-                config.ssl,
-                db,
-            ))
-            .await
-            .map_err(|e| e.to_string())?;
-            DbPool::MySql(pool)
-        }
-        other => return Err(format!("Unsupported database type: {}", other)),
-    };
+    let new_pool = create_pool(&config, Some(&database)).await?;
 
     let old_pool = {
         let mut pools = state.pools.lock().unwrap();
@@ -419,10 +419,7 @@ pub async fn switch_database(
     };
 
     if let Some(old_pool) = old_pool {
-        match old_pool {
-            DbPool::Postgres(pg) => pg.close().await,
-            DbPool::MySql(mysql) => mysql.close().await,
-        }
+        close_pool(old_pool).await;
     }
 
     {

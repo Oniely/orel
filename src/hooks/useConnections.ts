@@ -87,13 +87,14 @@ export function useConnect() {
   return useMutation({
     mutationFn: async (config: SavedConnection) => {
       openConnection(config);
-      const databases = await invoke<string[]>("connect", { config });
-      return databases;
+      const result = await invoke<{ databases: string[]; activeDatabase: string }>("connect", { config });
+      return result;
     },
-    onSuccess: (databases, config) => {
+    onSuccess: (result, config) => {
       updateActiveConnection(config.id, {
         status: "connected",
-        databases,
+        databases: result.databases,
+        activeDatabase: result.activeDatabase,
       });
       setFocusedConnection(config.id);
     },
