@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { invoke } from "@tauri-apps/api/core";
+import { toast } from "@heroui/react";
 import { useConnectionStore } from "../stores/connection.store";
 import type { SavedConnection } from "../types/connection";
 
@@ -28,6 +29,28 @@ export function useSaveConnection() {
     onSuccess: (_, config) => {
       addSavedConnection(config);
       queryClient.invalidateQueries({ queryKey: ["connections"] });
+      toast.success("Connection saved");
+    },
+    onError: (error) => {
+      toast.danger(error instanceof Error ? error.message : "Failed to save connection");
+    },
+  });
+}
+
+// Update a connection
+export function useUpdateConnection() {
+  const queryClient = useQueryClient();
+  const updateSavedConnection = useConnectionStore((s) => s.updateSavedConnection);
+
+  return useMutation({
+    mutationFn: (config: SavedConnection) => invoke("update_connection", { config }),
+    onSuccess: (_, config) => {
+      updateSavedConnection(config.id, config);
+      queryClient.invalidateQueries({ queryKey: ["connections"] });
+      toast.success("Connection updated");
+    },
+    onError: (error) => {
+      toast.danger(error instanceof Error ? error.message : "Failed to update connection");
     },
   });
 }
@@ -42,6 +65,10 @@ export function useDeleteConnection() {
     onSuccess: (_, id) => {
       removeSavedConnection(id);
       queryClient.invalidateQueries({ queryKey: ["connections"] });
+      toast.success("Connection deleted");
+    },
+    onError: (error) => {
+      toast.danger(error instanceof Error ? error.message : "Failed to delete connection");
     },
   });
 }

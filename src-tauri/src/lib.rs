@@ -4,7 +4,7 @@ use std::{collections::HashMap, sync::Mutex};
 
 use commands::connection::{
     connect, delete_connection, disconnect, list_databases, load_connections, save_connection,
-    switch_database, test_connection, AppState,
+    switch_database, test_connection, update_connection, AppState,
 };
 use commands::query::{fetch_rows, list_tables};
 use sqlx::SqlitePool;
@@ -42,6 +42,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             load_connections,
             save_connection,
+            update_connection,
             delete_connection,
             test_connection,
             connect,

@@ -4,6 +4,7 @@ import { Button, Spinner } from "@heroui/react";
 import { ConnectionModal } from "../components/ConnectionModal";
 import { useLoadConnections } from "../hooks/useConnections";
 import { useConnectionStore } from "../stores/connection.store";
+import type { SavedConnection } from "../types/connection";
 import ConnectionRow from "../components/ConnectionManager/ConnectionRow";
 import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
 
@@ -24,8 +25,19 @@ const appWindow = getCurrentWindow();
 
 function ConnectionManager() {
   const [modalOpen, setModalOpen] = useState(false);
+  const [editingConnection, setEditingConnection] = useState<SavedConnection | null>(null);
   const { savedConnections } = useConnectionStore();
   const { isLoading, error } = useLoadConnections();
+
+  const handleEdit = (connection: SavedConnection) => {
+    setEditingConnection(connection);
+    setModalOpen(true);
+  };
+
+  const handleCloseModal = () => {
+    setModalOpen(false);
+    setEditingConnection(null);
+  };
 
   useEffect(() => {
     appWindow.setSize(new LogicalSize(1280, 720));
@@ -45,7 +57,7 @@ function ConnectionManager() {
                 : `${savedConnections.length} connection${savedConnections.length !== 1 ? "s" : ""}`}
             </p>
           </div>
-          <Button size="sm" variant="outline" onPress={() => setModalOpen(true)}>
+          <Button size="sm" variant="outline" onPress={() => { setEditingConnection(null); setModalOpen(true); }}>
             <svg
               className="w-3.5 h-3.5 mr-1"
               viewBox="0 0 24 24"
@@ -103,13 +115,13 @@ function ConnectionManager() {
           <div className="flex flex-col gap-2">
             <p className="text-xs font-medium text-default-400 uppercase tracking-wide mb-2">Saved connections</p>
             {savedConnections.map((conn) => (
-              <ConnectionRow key={conn.id} connection={conn} />
+              <ConnectionRow key={conn.id} connection={conn} onEdit={handleEdit} />
             ))}
           </div>
         )}
       </div>
 
-      <ConnectionModal isOpen={modalOpen} onClose={() => setModalOpen(false)} />
+      <ConnectionModal isOpen={modalOpen} onClose={handleCloseModal} connection={editingConnection ?? undefined} />
     </div>
   );
 }

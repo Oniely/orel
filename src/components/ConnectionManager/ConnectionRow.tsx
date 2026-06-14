@@ -6,9 +6,16 @@ import { DB_COLORS, DB_LABELS } from "../../routes";
 import { Button, Spinner, toast } from "@heroui/react";
 
 import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
+import { PencilLineIcon, TrashIcon } from "@phosphor-icons/react";
 const appWindow = getCurrentWindow();
 
-export default function ConnectionRow({ connection }: { connection: SavedConnection }) {
+export default function ConnectionRow({
+  connection,
+  onEdit,
+}: {
+  connection: SavedConnection;
+  onEdit: (connection: SavedConnection) => void;
+}) {
   const navigate = useNavigate();
   const deleteConnection = useDeleteConnection();
   const connect = useConnect();
@@ -63,31 +70,29 @@ export default function ConnectionRow({ connection }: { connection: SavedConnect
             {DB_LABELS[connection.type]}
           </span>
 
-          {/* Delete button — visible on hover */}
-          <Button
-            size="sm"
-            variant="ghost"
-            className={`min-w-0 px-2 h-7 text-danger transition-opacity opacity-0 group-hover:opacity-100`}
-            onPress={() => deleteConnection.mutate(connection.id)}
-            isDisabled={deleteConnection.isPending || isAnyConnecting}
-            aria-label="Remove connection"
-          >
-            {deleteConnection.isPending ? (
-              <Spinner size="sm" />
-            ) : (
-              <svg
-                className="w-3.5 h-3.5"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth={1.5}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6" />
-              </svg>
-            )}
-          </Button>
+          <div className="space-x-0.5" onClick={(e) => e.stopPropagation()}>
+            <Button
+              size="sm"
+              variant="ghost"
+              className={`min-w-0 px-2 h-7 transition-opacity opacity-0 group-hover:opacity-100`}
+              onPress={() => onEdit(connection)}
+              isDisabled={isAnyConnecting}
+              aria-label="Edit connection"
+            >
+              <PencilLineIcon />
+            </Button>
+
+            <Button
+              size="sm"
+              variant="ghost"
+              className={`min-w-0 px-2 h-7 text-danger transition-opacity opacity-0 group-hover:opacity-100`}
+              onPress={() => deleteConnection.mutate(connection.id)}
+              isDisabled={deleteConnection.isPending || isAnyConnecting}
+              aria-label="Remove connection"
+            >
+              {deleteConnection.isPending ? <Spinner size="sm" /> : <TrashIcon />}
+            </Button>
+          </div>
 
           {/* Chevron */}
           <svg

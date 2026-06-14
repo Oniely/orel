@@ -154,6 +154,30 @@ pub async fn save_connection(
 }
 
 #[tauri::command]
+pub async fn update_connection(
+    state: tauri::State<'_, AppState>,
+    config: SavedConnection,
+) -> Result<(), String> {
+    sqlx::query("UPDATE connections SET name = ?, type = ?, host = ?, port = ?, username = ?, password = ?, ssl = ?, default_database = ?, color = ?, updated_at = ? WHERE id = ?")
+        .bind(config.name)
+        .bind(config.db_type)
+        .bind(config.host)
+        .bind(config.port)
+        .bind(config.username)
+        .bind(config.password)
+        .bind(config.ssl as u8)
+        .bind(config.default_database)
+        .bind(config.color)
+        .bind(config.updated_at)
+        .bind(config.id)
+        .execute(&state.db)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn delete_connection(
     state: tauri::State<'_, AppState>,
     id: String,

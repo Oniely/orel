@@ -6,11 +6,12 @@ import { Modal, Button, TextField, Label, Input, FieldError, Select, ListBox, Sw
 import { v4 as uuidv4 } from "uuid";
 import { connectionSchema, type ConnectionFormData, type SavedConnection } from "../types/connection";
 import { parseConnectionUrl } from "../utils/parseConnectionUrl";
-import { useSaveConnection, useTestConnection } from "../hooks/useConnections";
+import { useSaveConnection, useUpdateConnection, useTestConnection } from "../hooks/useConnections";
 
 interface ConnectionModalProps {
   isOpen: boolean;
   onClose: () => void;
+  connection?: SavedConnection;
 }
 
 const DB_TYPES = [
@@ -23,7 +24,8 @@ const DEFAULT_PORTS: Record<string, number> = {
   mysql: 3306,
 };
 
-export function ConnectionModal({ isOpen, onClose }: ConnectionModalProps) {
+export function ConnectionModal({ isOpen, onClose, connection }: ConnectionModalProps) {
+  const isEditing = !!connection;
   const [urlInput, setUrlInput] = useState("");
   const [urlExpanded, setUrlExpanded] = useState(false);
   const [urlImported, setUrlImported] = useState(false);
@@ -38,6 +40,7 @@ export function ConnectionModal({ isOpen, onClose }: ConnectionModalProps) {
   }, [testResult]);
 
   const saveConnection = useSaveConnection();
+  const updateConnection = useUpdateConnection();
   const testConnection = useTestConnection();
 
   const {
@@ -56,6 +59,34 @@ export function ConnectionModal({ isOpen, onClose }: ConnectionModalProps) {
       ssl: false,
     },
   });
+
+  useEffect(() => {
+    if (isOpen) {
+      if (connection) {
+        reset({
+          name: connection.name,
+          type: connection.type as "postgres" | "mysql",
+          host: connection.host,
+          port: Number(connection.port),
+          username: connection.username,
+          password: connection.password,
+          ssl: Boolean(connection.ssl),
+          defaultDatabase: connection.defaultDatabase ?? undefined,
+        });
+      } else {
+        reset({
+          name: "",
+          type: "postgres",
+          host: "localhost",
+          port: 5432,
+          username: "",
+          password: "",
+          ssl: false,
+          defaultDatabase: "",
+        });
+      }
+    }
+  }, [isOpen, connection, reset]);
 
   const dbType = watch("type");
 
@@ -94,13 +125,23 @@ export function ConnectionModal({ isOpen, onClose }: ConnectionModalProps) {
   };
 
   const handleSave = async (data: ConnectionFormData) => {
-    const connection: SavedConnection = {
-      ...data,
-      id: uuidv4(),
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-    await saveConnection.mutateAsync(connection);
+    if (isEditing) {
+      const updated: SavedConnection = {
+        ...data,
+        id: connection.id,
+        createdAt: connection.createdAt,
+        updatedAt: new Date().toISOString(),
+      };
+      await updateConnection.mutateAsync(updated);
+    } else {
+      const newConnection: SavedConnection = {
+        ...data,
+        id: uuidv4(),
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      await saveConnection.mutateAsync(newConnection);
+    }
     handleClose();
   };
 
@@ -126,7 +167,9 @@ export function ConnectionModal({ isOpen, onClose }: ConnectionModalProps) {
           <Modal.Dialog className="max-w-md w-full flex flex-col max-h-[90vh]">
             <>
               <Modal.Header className="border-b border-separator shrink-0 pb-3 px-1">
-                <Modal.Heading className="text-base font-medium">New connection</Modal.Heading>
+                <Modal.Heading className="text-base font-medium">
+                  {isEditing ? "Edit connection" : "New connection"}
+                </Modal.Heading>
                 <Modal.CloseTrigger />
               </Modal.Header>
 
@@ -380,7 +423,7 @@ export function ConnectionModal({ isOpen, onClose }: ConnectionModalProps) {
                   size="sm"
                   className="flex-1"
                   onPress={handleTest}
-                  isDisabled={isSubmitting || saveConnection.isPending}
+                  isDisabled={isSubmitting || saveConnection.isPending || updateConnection.isPending}
                 >
                   {testConnection.isPending ? <Spinner size="sm" /> : "Test connection"}
                 </Button>
@@ -388,9 +431,15 @@ export function ConnectionModal({ isOpen, onClose }: ConnectionModalProps) {
                   size="sm"
                   className="flex-1"
                   onPress={() => handleSubmit(handleSave)()}
-                  isDisabled={testConnection.isPending}
+                  isDisabled={testConnection.isPending || saveConnection.isPending || updateConnection.isPending}
                 >
-                  {isSubmitting || saveConnection.isPending ? <Spinner size="sm" /> : "Save connection"}
+                  {saveConnection.isPending || updateConnection.isPending ? (
+                    <Spinner size="sm" />
+                  ) : isEditing ? (
+                    "Update connection"
+                  ) : (
+                    "Save connection"
+                  )}
                 </Button>
               </Modal.Footer>
             </>
