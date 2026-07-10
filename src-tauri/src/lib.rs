@@ -8,13 +8,53 @@ use commands::connection::{
 };
 use commands::query::{fetch_rows, list_tables};
 use sqlx::SqlitePool;
-use tauri::Manager;
+use tauri::{
+    menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder},
+    Emitter, Manager,
+};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
+            // ── Native menu bar ────────────────────────────────────────────
+            let settings_item = MenuItemBuilder::with_id("settings", "Settings")
+                .accelerator("CmdOrCtrl+,")
+                .build(app)?;
+
+            let app_submenu = SubmenuBuilder::new(app, "Orel")
+                .item(&PredefinedMenuItem::about(app, Some("About Orel"), None)?)
+                .separator()
+                .item(&settings_item)
+                .separator()
+                .item(&PredefinedMenuItem::quit(app, Some("Quit"))?)
+                .build()?;
+
+            let edit_submenu = SubmenuBuilder::new(app, "Edit")
+                .item(&PredefinedMenuItem::undo(app, None)?)
+                .item(&PredefinedMenuItem::redo(app, None)?)
+                .separator()
+                .item(&PredefinedMenuItem::cut(app, None)?)
+                .item(&PredefinedMenuItem::copy(app, None)?)
+                .item(&PredefinedMenuItem::paste(app, None)?)
+                .item(&PredefinedMenuItem::select_all(app, None)?)
+                .build()?;
+
+            let menu = MenuBuilder::new(app)
+                .item(&app_submenu)
+                .item(&edit_submenu)
+                .build()?;
+
+            app.set_menu(menu)?;
+
+            // Listen for menu events
+            let app_handle = app.handle().clone();
+            app.on_menu_event(move |_app, event| {
+                if event.id() == "settings" {
+                    let _ = app_handle.emit("open-settings", ());
+                }
+            });
             let app_path = app.path().app_data_dir()?;
             let db_path = app_path.join("orel_spacecraft.db");
             let db = format!("sqlite:{}?mode=rwc", db_path.display());

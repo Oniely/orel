@@ -38,7 +38,7 @@ export function RowContextMenu({ x, y, onInspect, onClose }: RowContextMenuProps
         onClick={onInspect}
         className="w-full flex items-center gap-2.5 px-3 py-[7px] text-xs text-foreground hover:bg-surface-secondary transition-colors"
       >
-        <MagnifyingGlassIcon size={12} className="text-default-400 shrink-0" />
+        <MagnifyingGlassIcon size={12} className="text-muted shrink-0" />
         Inspect
       </button>
     </div>

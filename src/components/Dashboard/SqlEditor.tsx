@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import Editor, { type OnMount, type Monaco, type BeforeMount } from "@monaco-editor/react";
+import Editor, { type OnMount, type Monaco } from "@monaco-editor/react";
 import { Button } from "@heroui/react";
 import {
   PlayIcon,
@@ -9,6 +9,9 @@ import {
   CaretUpIcon,
   CaretDownIcon,
 } from "@phosphor-icons/react";
+import { buildOrelTheme, THEME_DARK, THEME_LIGHT } from "../../lib/monacoTheme";
+import { useThemeStore } from "../../stores/theme.store";
+import { THEMES } from "../../lib/themes";
 
 export interface SqlEditorCommands {
   closeTab: () => void;
@@ -27,81 +30,15 @@ interface SqlEditorProps {
 const MIN_RESULT_HEIGHT = 80;
 const DEFAULT_RESULT_HEIGHT = 200;
 
-// ── Custom Monaco theme derived from the app's OKLCH design tokens ─────────────
-// All hex values computed from the exact oklch() values in global.css.
-//
-// Palette reference:
-//   surface          #151822   editor canvas
-//   surface-secondary #21232b  gutter, widgets
-//   separator        #202127   borders
-//   accent           #5865f2   cursor, selection, keywords
-//   muted            #9c9fad
-//   foreground       #fafcff
-
-const defineOrelTheme: BeforeMount = (monaco) => {
-  monaco.editor.defineTheme("orel-dark", {
-    base: "vs-dark",
-    inherit: true,
-    rules: [
-      { token: "", foreground: "c0c3d1" }, // default text
-      { token: "keyword", foreground: "7f93ff", fontStyle: "bold" }, // SQL keywords
-      { token: "keyword.sql", foreground: "7f93ff", fontStyle: "bold" },
-      { token: "string", foreground: "f28979" }, // strings
-      { token: "string.sql", foreground: "f28979" },
-      { token: "number", foreground: "c9b957" }, // numbers
-      { token: "number.sql", foreground: "c9b957" },
-      { token: "comment", foreground: "464c63", fontStyle: "italic" },
-      { token: "comment.sql", foreground: "464c63", fontStyle: "italic" },
-      { token: "operator.sql", foreground: "808599" }, // = > < etc.
-      { token: "predefined.sql", foreground: "a497ea" }, // COUNT, MAX …
-      { token: "identifier.sql", foreground: "c0c3d1" },
-      { token: "delimiter", foreground: "808599" },
-      { token: "delimiter.sql", foreground: "808599" },
-    ],
-    colors: {
-      // Canvas
-      "editor.background": "#151822",
-      "editor.foreground": "#c0c3d1",
-      // Gutter
-      "editorGutter.background": "#131120",
-      "editorLineNumber.foreground": "#2b2d36",
-      "editorLineNumber.activeForeground": "#6a7089",
-      // Cursor & selection
-      "editorCursor.foreground": "#5865f2",
-      "editor.selectionBackground": "#2b2d5c",
-      "editor.inactiveSelectionBackground": "#202040",
-      // Line highlight
-      "editor.lineHighlightBackground": "#1c1b2a",
-      "editor.lineHighlightBorder": "#00000000",
-      // Indent guides
-      "editorIndentGuide.background": "#202127",
-      "editorIndentGuide.activeBackground": "#3c3c58",
-      // Widgets (autocomplete, hover)
-      "editorWidget.background": "#21232b",
-      "editorWidget.border": "#202127",
-      "editorSuggestWidget.background": "#21232b",
-      "editorSuggestWidget.border": "#202127",
-      "editorSuggestWidget.selectedBackground": "#2b2d5c",
-      "editorSuggestWidget.selectedForeground": "#c0c3d1",
-      "editorHoverWidget.background": "#21232b",
-      "editorHoverWidget.border": "#202127",
-      // Scrollbar
-      "scrollbar.shadow": "#00000000",
-      "scrollbarSlider.background": "#3a385840",
-      "scrollbarSlider.hoverBackground": "#5865f240",
-      "scrollbarSlider.activeBackground": "#5865f260",
-      // Misc
-      focusBorder: "#5865f2",
-      "input.background": "#21232b",
-      "input.border": "#202127",
-    },
-  });
-};
 
 export function SqlEditor({ sql, onSqlChange, commands }: SqlEditorProps) {
   const editorRef = useRef<Parameters<OnMount>[0] | null>(null);
+  const monacoRef = useRef<Monaco | null>(null);
   const commandsRef = useRef(commands);
   commandsRef.current = commands;
+  const themeId = useThemeStore((s) => s.themeId);
+  const currentTheme = THEMES.find((t) => t.id === themeId) ?? THEMES.find((t) => t.id === "dark")!;
+  const [editorTheme, setEditorTheme] = useState(() => currentTheme.isDark ? THEME_DARK : THEME_LIGHT);
   const [showResult, setShowResult] = useState(false);
   const [resultHeight, setResultHeight] = useState(DEFAULT_RESULT_HEIGHT);
   const [resultCollapsed, setResultCollapsed] = useState(false);
@@ -111,8 +48,21 @@ export function SqlEditor({ sql, onSqlChange, commands }: SqlEditorProps) {
 
   useEffect(() => () => { dragCleanupRef.current?.(); }, []);
 
+  // Re-register Monaco theme when the app theme changes via store
+  useEffect(() => {
+    if (!monacoRef.current) return;
+    const theme = THEMES.find((t) => t.id === themeId);
+    if (!theme) return;
+    const name = buildOrelTheme(monacoRef.current, theme.colors, theme.isDark);
+    setEditorTheme(name);
+  }, [themeId]);
+
   const handleMount: OnMount = (editorInstance, monaco: Monaco) => {
     editorRef.current = editorInstance;
+    monacoRef.current = monaco;
+    // Re-apply theme on mount to guarantee correct colors
+    const name = buildOrelTheme(monaco, currentTheme.colors, currentTheme.isDark);
+    setEditorTheme(name);
     editorInstance.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, handleRun);
     editorInstance.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyW, () => commandsRef.current?.closeTab());
     editorInstance.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyT, () => commandsRef.current?.newQuery());
@@ -170,7 +120,7 @@ export function SqlEditor({ sql, onSqlChange, commands }: SqlEditorProps) {
           Run
           <span
             className="text-[9px] px-1 py-[1px] rounded-xs ml-0.5"
-            style={{ opacity: 0.7, background: "rgba(255,255,255,0.18)" }}
+            style={{ opacity: 0.7, background: "color-mix(in oklch, var(--accent-foreground) 18%, transparent)" }}
           >
             ⌘↵
           </span>
@@ -178,7 +128,7 @@ export function SqlEditor({ sql, onSqlChange, commands }: SqlEditorProps) {
 
         <div className="flex-1" />
 
-        <span className="text-[11px] font-mono text-default-400">
+        <span className="text-[11px] font-mono text-muted">
           {sql.length} chars · {lineCount} lines
         </span>
 
@@ -200,8 +150,10 @@ export function SqlEditor({ sql, onSqlChange, commands }: SqlEditorProps) {
           language="sql"
           value={sql}
           onChange={(value) => onSqlChange(value ?? "")}
-          theme="orel-dark"
-          beforeMount={defineOrelTheme}
+          theme={editorTheme}
+          beforeMount={(monaco) => {
+            buildOrelTheme(monaco, currentTheme.colors, currentTheme.isDark);
+          }}
           onMount={handleMount}
           options={{
             fontSize: 13,
@@ -243,16 +195,16 @@ export function SqlEditor({ sql, onSqlChange, commands }: SqlEditorProps) {
 
           {/* Result header */}
           <div className="flex items-center gap-2 px-3.5 h-8 border-b border-separator shrink-0">
-            <span className="flex items-center gap-1.5 font-mono text-[11px] text-default-400">
-              <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: "oklch(73% 0.18 153)" }} />
+            <span className="flex items-center gap-1.5 font-mono text-[11px] text-muted">
+              <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: "var(--success)" }} />
               Query OK
             </span>
-            <span className="text-[11px] font-mono text-default-400">·</span>
-            <span className="text-[11px] font-mono text-default-400">
+            <span className="text-[11px] font-mono text-muted">·</span>
+            <span className="text-[11px] font-mono text-muted">
               <span className="text-foreground">12</span> rows in <span className="text-foreground">34ms</span>
             </span>
-            <span className="text-[11px] font-mono text-default-400">·</span>
-            <span className="text-[11px] font-mono text-default-400">
+            <span className="text-[11px] font-mono text-muted">·</span>
+            <span className="text-[11px] font-mono text-muted">
               <span className="text-foreground">5</span> columns
             </span>
 
@@ -281,7 +233,7 @@ export function SqlEditor({ sql, onSqlChange, commands }: SqlEditorProps) {
           {/* Result content */}
           {!resultCollapsed && (
             <div className="overflow-auto bg-background" style={{ height: effectiveResultHeight }}>
-              <div className="flex items-center justify-center h-full text-sm text-default-400">
+              <div className="flex items-center justify-center h-full text-sm text-muted">
                 Results will appear here
               </div>
             </div>

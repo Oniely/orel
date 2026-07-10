@@ -2,7 +2,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { useDeleteConnection, useConnect } from "../../hooks/useConnections";
 import { useConnectionStore } from "../../stores/connection.store";
 import { SavedConnection } from "../../types/connection";
-import { DB_COLORS, DB_LABELS } from "../../routes";
+import { DB_LABELS } from "../../routes";
 import { Button, Spinner, toast } from "@heroui/react";
 
 import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
@@ -42,9 +42,9 @@ export default function ConnectionRow({
 
   return (
     <div
-      className={`group px-4 py-3 rounded-xl border border-separator bg-surface transition-colors h-16 relative ${
+      className={`group px-4 py-3 rounded-xl border border-separator bg-default transition-colors h-16 relative ${
         isConnecting ? "border-loading" : ""
-      } ${isDisabled ? "opacity-50 pointer-events-none cursor-not-allowed" : "cursor-pointer hover:border-default-300"}`}
+      } ${isDisabled ? "opacity-50 pointer-events-none cursor-not-allowed" : "cursor-pointer hover:border-border"}`}
       onClick={handleConnect}
     >
       <div className="absolute inset-0 z-10 flex items-center gap-3 py-3 px-4">
@@ -52,7 +52,7 @@ export default function ConnectionRow({
 
         <div className="flex-1 min-w-0">
           <p className="text-sm font-medium text-foreground truncate">{connection.name}</p>
-          <p className="text-xs text-default-400 truncate mt-0.5">
+          <p className="text-xs text-muted truncate mt-0.5">
             {connection.username}@{connection.host}:{connection.port}
             {connection.defaultDatabase ? ` · ${connection.defaultDatabase}` : ""}
           </p>
@@ -61,11 +61,7 @@ export default function ConnectionRow({
         <div className="flex items-center gap-2">
           {/* DB type badge */}
           <span
-            className="text-[11px] font-medium px-2 py-0.5 rounded-full"
-            style={{
-              background: `${DB_COLORS[connection.type]}15`,
-              color: DB_COLORS[connection.type],
-            }}
+            className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-surface-secondary text-accent"
           >
             {DB_LABELS[connection.type]}
           </span>
@@ -96,7 +92,7 @@ export default function ConnectionRow({
 
           {/* Chevron */}
           <svg
-            className="w-4 h-4 text-default-300 shrink-0"
+            className="w-4 h-4 text-muted opacity-60 shrink-0"
             viewBox="0 0 24 24"
             fill="none"
             stroke="currentColor"
@@ -112,7 +108,7 @@ export default function ConnectionRow({
   );
 }
 
-function ConnectionAvatar({ name, type }: { name: string; type: string }) {
+function ConnectionAvatar({ name }: { name: string; type: string }) {
   const initials = name
     .split(/\s+/)
     .slice(0, 2)
@@ -120,13 +116,7 @@ function ConnectionAvatar({ name, type }: { name: string; type: string }) {
     .join("");
 
   return (
-    <div
-      className="w-8 h-8 rounded-lg flex items-center justify-center text-xs font-semibold shrink-0"
-      style={{
-        background: `${DB_COLORS[type]}20`,
-        color: DB_COLORS[type],
-      }}
-    >
+    <div className="w-8 h-8 rounded-lg flex items-center justify-center text-xs font-semibold shrink-0 bg-surface-secondary text-accent">
       {initials || "DB"}
     </div>
   );

@@ -5,7 +5,7 @@ import { getTypeColor } from "../../lib/typeColors";
 import { useHotkeys } from "react-hotkeys-hook";
 
 function JsonValue({ value, type }: { value: unknown; type: string }) {
-  if (value === null || value === undefined) return <span className="text-default-400 italic text-muted">null</span>;
+  if (value === null || value === undefined) return <span className="text-muted italic text-muted">null</span>;
   const color = getTypeColor(type);
 
   return (
@@ -36,9 +36,9 @@ export function RowInspector({ row, columns, rowIndex, totalRows, onPrev, onNext
     <div className="w-[340px] flex flex-col shrink-0 border-l border-separator bg-surface">
       {/* Header */}
       <div className="flex items-center gap-2 px-4.5 py-3.5 border-b border-separator">
-        <BracketsCurlyIcon size={13} className="text-default-400" />
+        <BracketsCurlyIcon size={13} className="text-muted" />
         <span className="text-[13px] font-semibold">Row inspector</span>
-        <span className="text-default-400 text-[11px] font-mono">
+        <span className="text-muted text-[11px] font-mono">
           · {rowIndex + 1}/{totalRows}
         </span>
         <div className="flex-1" />
@@ -71,27 +71,27 @@ export function RowInspector({ row, columns, rowIndex, totalRows, onPrev, onNext
           <CaretRightIcon className="size-3" />
         </Button>
         <div className="flex-1" />
-        <span className="text-default-400 text-[10px] font-mono">{columns.length} columns</span>
+        <span className="text-muted text-[10px] font-mono">{columns.length} columns</span>
       </div>
 
       {/* JSON body */}
       <div className="flex-1 overflow-y-auto px-4.5 py-3.5 scrollbar-hide">
         {row ? (
           <div className="font-mono text-xs leading-[1.8]">
-            <span className="text-default-400">{"{"}</span>
+            <span className="text-muted">{"{"}</span>
             {columns.map((col, i) => (
               <div key={col.name} className="flex gap-2 pl-4 min-w-0">
                 <span style={{ color: getTypeColor(col.dataType), flexShrink: 0, opacity: 0.8 }}>{col.name}:</span>
                 <span className="truncate">
                   <JsonValue value={row[col.name]} type={col.dataType} />
                 </span>
-                {i < columns.length - 1 && <span className="text-default-400 shrink-0">,</span>}
+                {i < columns.length - 1 && <span className="text-muted shrink-0">,</span>}
               </div>
             ))}
-            <span className="text-default-400">{"}"}</span>
+            <span className="text-muted">{"}"}</span>
           </div>
         ) : (
-          <div className="text-xs text-default-400 text-center py-8">No row selected</div>
+          <div className="text-xs text-muted text-center py-8">No row selected</div>
         )}
       </div>
 

@@ -45,13 +45,13 @@ function ConnectionManager() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-surface">
       <div className="max-w-xl mx-auto px-6 py-10">
         {/* Header */}
         <div className="flex items-start justify-between mb-8">
           <div>
             <h1 className="text-xl font-semibold text-foreground">Orel</h1>
-            <p className="text-sm text-default-400 mt-0.5">
+            <p className="text-sm text-muted mt-0.5">
               {savedConnections.length === 0
                 ? "No connections yet"
                 : `${savedConnections.length} connection${savedConnections.length !== 1 ? "s" : ""}`}
@@ -87,7 +87,7 @@ function ConnectionManager() {
           <div className="flex flex-col items-center justify-center py-20 gap-3 text-center">
             <div className="w-12 h-12 rounded-full bg-surface border border-separator flex items-center justify-center">
               <svg
-                className="w-5 h-5 text-default-300"
+                className="w-5 h-5 text-muted opacity-60"
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"
@@ -102,7 +102,7 @@ function ConnectionManager() {
             </div>
             <div>
               <p className="text-sm font-medium text-foreground">No connections</p>
-              <p className="text-xs text-default-400 mt-1">Add your first database connection to get started</p>
+              <p className="text-xs text-muted mt-1">Add your first database connection to get started</p>
             </div>
             <Button size="sm" variant="outline" onPress={() => setModalOpen(true)} className="mt-1">
               Add connection
@@ -113,7 +113,7 @@ function ConnectionManager() {
         {/* Connection list */}
         {!isLoading && savedConnections.length > 0 && (
           <div className="flex flex-col gap-2">
-            <p className="text-xs font-medium text-default-400 uppercase tracking-wide mb-2">Saved connections</p>
+            <p className="text-xs font-medium text-muted uppercase tracking-wide mb-2">Saved connections</p>
             {savedConnections.map((conn) => (
               <ConnectionRow key={conn.id} connection={conn} onEdit={handleEdit} />
             ))}

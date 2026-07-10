@@ -80,20 +80,20 @@ export function Header({
               <Spinner size="sm" />
             ) : (
               <span className="relative w-2 h-2 shrink-0 animate-pulse">
-                <span className="absolute inset-0 rounded-full" style={{ background: "oklch(73% 0.18 153)" }} />
+                <span className="absolute inset-0 rounded-full" style={{ background: "var(--success)" }} />
                 <span
                   className="absolute rounded-full"
                   style={{
                     inset: -3,
                     borderRadius: 999,
-                    background: "oklch(73% 0.18 153)",
+                    background: "var(--success)",
                     opacity: 0.25,
                   }}
                 />
               </span>
             )}
             <span className="font-medium text-[12.5px] truncate flex-1 text-left">{connection.config.name}</span>
-            {latency !== null && <span className="font-mono text-[10.5px] text-default-400 shrink-0">{latency}ms</span>}
+            {latency !== null && <span className="font-mono text-[10.5px] text-muted shrink-0">{latency}ms</span>}
             <CaretDownIcon size={12} />
           </Button>
           <Dropdown.Popover className="w-[200px] p-1">

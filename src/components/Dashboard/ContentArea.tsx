@@ -23,7 +23,7 @@ import { SqlEditor, type SqlEditorCommands } from "./SqlEditor";
 
 function Cell({ value, type }: { value: unknown; type: string }) {
   if (value === null || value === undefined) {
-    return <span className="text-default-400 italic text-[11px] text-muted">NULL</span>;
+    return <span className="text-muted italic text-[11px] text-muted">NULL</span>;
   }
   const color = getTypeColor(type);
   const isBool = type === "boolean" || type === "bool";
@@ -33,7 +33,7 @@ function Cell({ value, type }: { value: unknown; type: string }) {
       <span className="inline-flex items-center gap-1.5">
         <span
           className="w-2 h-2 rounded-[2px]"
-          style={{ background: bool ? "oklch(73% 0.18 153)" : "oklch(60% 0.02 273)" }}
+          style={{ background: bool ? "var(--success)" : "var(--muted)" }}
         />
         <span className="font-mono text-xs" style={{ color }}>
           {bool ? "true" : "false"}
@@ -99,7 +99,7 @@ function FilterBar({ filters, columns, onFiltersChange, onApply }: FilterBarProp
         <div key={i} className={`flex items-center gap-2${i !== filters.length - 1 ? " mb-1.5" : ""}`}>
           {/* Conjunction prefix — CodeIcon for filter #1, AND/OR toggle for the rest */}
           {i === 0 ? (
-            <div className="w-9 h-[30px] grid place-items-center rounded-[6px] bg-surface-secondary border border-separator text-default-400 shrink-0">
+            <div className="w-9 h-[30px] grid place-items-center rounded-[6px] bg-surface-secondary border border-separator text-muted shrink-0">
               <CodeSimpleIcon size={12} />
             </div>
           ) : (
@@ -148,7 +148,7 @@ function FilterBar({ filters, columns, onFiltersChange, onApply }: FilterBarProp
               value={f.val}
               onChange={(e) => updateFilter(i, "val", e.target.value)}
               placeholder="value"
-              className="flex-1 bg-transparent border-none outline-none text-foreground text-xs font-mono min-w-0 placeholder:text-default-400"
+              className="flex-1 bg-transparent border-none outline-none text-foreground text-xs font-mono min-w-0 placeholder:text-muted"
             />
             {f.val && (
               <Button isIconOnly variant="ghost" onClick={() => updateFilter(i, "val", "")} className="size-5">
@@ -214,7 +214,7 @@ function DataGrid({
         minSize: 52,
         enableResizing: false,
         header: () => null,
-        cell: ({ row }) => <span className="font-mono text-[11px] text-gray-600 select-none">{row.index + 1}</span>,
+        cell: ({ row }) => <span className="font-mono text-[11px] text-muted select-none">{row.index + 1}</span>,
       },
       ...colInfos.map((c) => ({
         id: c.name,
@@ -223,7 +223,7 @@ function DataGrid({
         minSize: 60,
         header: () => (
           <div className="flex items-center gap-1.5 overflow-hidden">
-            {c.isPrimary && <KeyIcon size={9} className="text-[oklch(76%_0.13_60)] shrink-0" />}
+            {c.isPrimary && <KeyIcon size={9} className="text-warning shrink-0" />}
             <span className="font-mono text-foreground shrink-0">{c.name}</span>
             <span
               className="text-[9px] font-mono px-1 py-[1px] rounded min-w-0 truncate"
@@ -252,7 +252,7 @@ function DataGrid({
   if (!activeTable) {
     return (
       <div className="flex-1 flex items-center justify-center">
-        <p className="text-sm text-default-400">Select a table to view its data</p>
+        <p className="text-sm text-muted">Select a table to view its data</p>
       </div>
     );
   }
@@ -260,7 +260,7 @@ function DataGrid({
   if (isLoading) {
     return (
       <div className="flex-1 flex items-center justify-center">
-        <p className="text-sm text-default-400">Loading…</p>
+        <p className="text-sm text-muted">Loading…</p>
       </div>
     );
   }
@@ -335,7 +335,7 @@ function DataGrid({
           ))}
           {rows.length === 0 && (
             <tr>
-              <td colSpan={colInfos.length} className="text-center py-12 text-sm text-default-400">
+              <td colSpan={colInfos.length} className="text-center py-12 text-sm text-muted">
                 No rows
               </td>
             </tr>
@@ -366,7 +366,6 @@ function PillTabBar<T extends string>({ tabs, active, onChange }: PillTabBarProp
             background: active === t ? "var(--surface)" : "transparent",
             color: active === t ? "var(--foreground)" : "var(--muted)",
             fontWeight: active === t ? 500 : 400,
-            boxShadow: active === t ? "0 1px 2px rgba(0,0,0,0.18)" : "none",
           }}
         >
           {t}
@@ -392,7 +391,7 @@ function StructurePanel({ activeTable }: StructurePanelProps) {
   if (!activeTable) {
     return (
       <div className="flex-1 flex items-center justify-center">
-        <p className="text-sm text-default-400">Select a table to view its structure</p>
+        <p className="text-sm text-muted">Select a table to view its structure</p>
       </div>
     );
   }
@@ -407,7 +406,7 @@ function StructurePanel({ activeTable }: StructurePanelProps) {
       {/* Tab content */}
       <div className="flex-1 overflow-auto bg-background">
         <div className="flex items-center justify-center h-full">
-          <p className="text-sm text-default-400">{activeTab} — coming soon</p>
+          <p className="text-sm text-muted">{activeTab} — coming soon</p>
         </div>
       </div>
     </div>
@@ -576,7 +575,7 @@ export function ContentArea({
 
       {/* Footer */}
       {!isQueryTab && (
-        <div className="flex items-center justify-between gap-4 px-4.5 border-t border-separator bg-surface shrink-0 font-mono text-default-400 h-9.5 text-[11px]">
+        <div className="flex items-center justify-between gap-4 px-4.5 border-t border-separator bg-surface shrink-0 font-mono text-muted h-9.5 text-[11px]">
           {/* View switcher */}
           <PillTabBar tabs={VIEWS} active={activeView} onChange={setActiveView} />
 

@@ -182,7 +182,7 @@ export function ConnectionModal({ isOpen, onClose, connection }: ConnectionModal
                     className="w-full flex items-center gap-2 px-3 py-2.5 text-left"
                   >
                     <svg
-                      className="w-3.5 h-3.5 text-default-400 shrink-0"
+                      className="w-3.5 h-3.5 text-muted shrink-0"
                       viewBox="0 0 24 24"
                       fill="none"
                       stroke="currentColor"
@@ -193,9 +193,9 @@ export function ConnectionModal({ isOpen, onClose, connection }: ConnectionModal
                       <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
                       <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
                     </svg>
-                    <span className="text-xs font-medium text-default-500 flex-1">Import from connection URL</span>
+                    <span className="text-xs font-medium text-muted flex-1">Import from connection URL</span>
                     <svg
-                      className={`w-3 h-3 text-default-300 transition-transform ${urlExpanded ? "rotate-90" : ""}`}
+                      className={`w-3 h-3 text-muted opacity-60 transition-transform ${urlExpanded ? "rotate-90" : ""}`}
                       viewBox="0 0 24 24"
                       fill="none"
                       stroke="currentColor"
@@ -210,7 +210,7 @@ export function ConnectionModal({ isOpen, onClose, connection }: ConnectionModal
                   {urlExpanded && (
                     <div className="border-t border-separator px-3 py-2.5 flex gap-2">
                       <input
-                        className="flex-1 bg-surface border border-separator rounded-md px-3 py-1.5 text-xs font-mono text-foreground placeholder:text-default-400 focus:outline-none focus:ring-1 focus:ring-accent"
+                        className="flex-1 bg-surface border border-separator rounded-md px-3 py-1.5 text-xs font-mono text-foreground placeholder:text-muted focus:outline-none focus:ring-1 focus:ring-accent"
                         placeholder="postgres://user:password@host:5432/dbname"
                         value={urlInput}
                         onChange={(e) => {
@@ -236,7 +236,7 @@ export function ConnectionModal({ isOpen, onClose, connection }: ConnectionModal
                 {/* OR divider */}
                 <div className="flex items-center gap-2">
                   <div className="flex-1 h-px bg-separator" />
-                  <span className="text-xs text-default-400">or fill in manually</span>
+                  <span className="text-xs text-muted">or fill in manually</span>
                   <div className="flex-1 h-px bg-separator" />
                 </div>
 
@@ -246,7 +246,7 @@ export function ConnectionModal({ isOpen, onClose, connection }: ConnectionModal
                   control={control}
                   render={({ field, fieldState }) => (
                     <TextField isInvalid={!!fieldState.error} value={field.value ?? ""} onChange={field.onChange}>
-                      <Label className="text-xs font-medium text-default-500">Connection name</Label>
+                      <Label className="text-xs font-medium text-muted">Connection name</Label>
                       <Input
                         placeholder="e.g. Work server"
                         className="mt-1 border border-separator px-3 py-1.5 w-full"
@@ -262,7 +262,7 @@ export function ConnectionModal({ isOpen, onClose, connection }: ConnectionModal
                   control={control}
                   render={({ field }) => (
                     <div className="flex flex-col gap-1">
-                      <label className="text-xs font-medium text-default-500">Database type</label>
+                      <label className="text-xs font-medium text-muted">Database type</label>
                       <Select
                         value={field.value}
                         onChange={(key) => handleTypeChange(key as "postgres" | "mysql")}
@@ -311,7 +311,7 @@ export function ConnectionModal({ isOpen, onClose, connection }: ConnectionModal
                         value={field.value ?? ""}
                         onChange={field.onChange}
                       >
-                        <Label className="text-xs font-medium text-default-500">Host</Label>
+                        <Label className="text-xs font-medium text-muted">Host</Label>
                         <Input placeholder="localhost" className="mt-1 border border-separator px-3 py-1.5 w-full" />
                         <FieldError className="text-xs mt-1">{fieldState.error?.message}</FieldError>
                       </TextField>
@@ -327,7 +327,7 @@ export function ConnectionModal({ isOpen, onClose, connection }: ConnectionModal
                         value={String(field.value ?? "")}
                         onChange={(v) => field.onChange(Number(v))}
                       >
-                        <Label className="text-xs font-medium text-default-500">Port</Label>
+                        <Label className="text-xs font-medium text-muted">Port</Label>
                         <Input type="number" className="mt-1 border border-separator px-3 py-1.5 w-full" />
                         <FieldError className="text-xs mt-1">{fieldState.error?.message}</FieldError>
                       </TextField>
@@ -347,7 +347,7 @@ export function ConnectionModal({ isOpen, onClose, connection }: ConnectionModal
                         value={field.value ?? ""}
                         onChange={field.onChange}
                       >
-                        <Label className="text-xs font-medium text-default-500">Username</Label>
+                        <Label className="text-xs font-medium text-muted">Username</Label>
                         <Input
                           placeholder={dbType === "postgres" ? "postgres" : "root"}
                           className="mt-1 border border-separator px-3 py-1.5 w-full"
@@ -367,7 +367,7 @@ export function ConnectionModal({ isOpen, onClose, connection }: ConnectionModal
                         onChange={field.onChange}
                         type="password"
                       >
-                        <Label className="text-xs font-medium text-default-500">Password</Label>
+                        <Label className="text-xs font-medium text-muted">Password</Label>
                         <Input placeholder="••••••••" className="mt-1 border border-separator px-3 py-1.5 w-full" />
                         <FieldError className="text-xs mt-1">{fieldState.error?.message}</FieldError>
                       </TextField>
@@ -381,8 +381,8 @@ export function ConnectionModal({ isOpen, onClose, connection }: ConnectionModal
                   control={control}
                   render={({ field, fieldState }) => (
                     <TextField isInvalid={!!fieldState.error} value={field.value ?? ""} onChange={field.onChange}>
-                      <Label className="text-xs font-medium text-default-500">
-                        Default database <span className="text-[10px] text-default-400 font-normal">optional</span>
+                      <Label className="text-xs font-medium text-muted">
+                        Default database <span className="text-[10px] text-muted font-normal">optional</span>
                       </Label>
                       <Input
                         placeholder="Leave empty to browse all"
@@ -399,7 +399,7 @@ export function ConnectionModal({ isOpen, onClose, connection }: ConnectionModal
                   control={control}
                   render={({ field }) => (
                     <div className="flex items-center justify-between">
-                      <Label className="text-sm text-default-500">Use SSL</Label>
+                      <Label className="text-sm text-muted">Use SSL</Label>
                       <Switch isSelected={field.value} onChange={field.onChange} aria-label="Use SSL">
                         <Switch.Control>
                           <Switch.Thumb />
