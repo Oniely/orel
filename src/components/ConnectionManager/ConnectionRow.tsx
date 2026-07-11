@@ -60,34 +60,39 @@ export default function ConnectionRow({
 
         <div className="flex items-center gap-2">
           {/* DB type badge */}
-          <span
-            className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-surface-secondary text-accent"
-          >
+          <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-surface-secondary text-accent">
             {DB_LABELS[connection.type]}
           </span>
 
-          <div className="space-x-0.5" onClick={(e) => e.stopPropagation()}>
-            <Button
-              size="sm"
-              variant="ghost"
-              className={`min-w-0 px-2 h-7 transition-opacity opacity-0 group-hover:opacity-100`}
-              onPress={() => onEdit(connection)}
-              isDisabled={isAnyConnecting}
-              aria-label="Edit connection"
-            >
-              <PencilLineIcon />
-            </Button>
+          <div
+            className="grid grid-cols-[0fr] group-hover:grid-cols-[1fr] transition-[grid-template-columns] duration-200 ease-out"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="overflow-hidden">
+              <div className="flex items-center space-x-0.5 opacity-0 -translate-x-1 group-hover:opacity-100 group-hover:translate-x-0 transition-[opacity,transform] duration-200 ease-out">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="min-w-0 px-2 h-7 hover:bg-accent/30"
+                  onPress={() => onEdit(connection)}
+                  isDisabled={isAnyConnecting}
+                  aria-label="Edit connection"
+                >
+                  <PencilLineIcon />
+                </Button>
 
-            <Button
-              size="sm"
-              variant="ghost"
-              className={`min-w-0 px-2 h-7 text-danger transition-opacity opacity-0 group-hover:opacity-100`}
-              onPress={() => deleteConnection.mutate(connection.id)}
-              isDisabled={deleteConnection.isPending || isAnyConnecting}
-              aria-label="Remove connection"
-            >
-              {deleteConnection.isPending ? <Spinner size="sm" /> : <TrashIcon />}
-            </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="min-w-0 px-2 h-7 text-danger hover:bg-danger-soft-hover"
+                  onPress={() => deleteConnection.mutate(connection.id)}
+                  isDisabled={deleteConnection.isPending || isAnyConnecting}
+                  aria-label="Remove connection"
+                >
+                  {deleteConnection.isPending ? <Spinner size="sm" /> : <TrashIcon />}
+                </Button>
+              </div>
+            </div>
           </div>
 
           {/* Chevron */}

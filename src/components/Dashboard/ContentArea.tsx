@@ -31,10 +31,7 @@ function Cell({ value, type }: { value: unknown; type: string }) {
     const bool = value === true || value === "true" || value === 1;
     return (
       <span className="inline-flex items-center gap-1.5">
-        <span
-          className="w-2 h-2 rounded-[2px]"
-          style={{ background: bool ? "var(--success)" : "var(--muted)" }}
-        />
+        <span className="w-2 h-2 rounded-[2px]" style={{ background: bool ? "var(--success)" : "var(--muted)" }} />
         <span className="font-mono text-xs" style={{ color }}>
           {bool ? "true" : "false"}
         </span>

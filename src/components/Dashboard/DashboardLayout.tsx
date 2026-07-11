@@ -207,6 +207,7 @@ export function DashboardLayout() {
           onTableClick={handleTableClick}
           onNewQuery={handleNewQuery}
           sidebarOpen={sidebarOpen}
+          onDisconnect={handleDisconnect}
         />
 
         {/* Content */}

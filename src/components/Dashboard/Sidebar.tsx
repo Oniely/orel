@@ -2,7 +2,7 @@ import { useState } from "react";
 import type { TableInfo } from "../../types/database";
 import { INNER_W, SIDEBAR_PAD, SIDEBAR_WIDTH } from "./constants";
 import { ViewIcon } from "./icons";
-import { PicnicTableIcon, PlusIcon } from "@phosphor-icons/react";
+import { MeteorIcon, PicnicTableIcon, PlusIcon } from "@phosphor-icons/react";
 import { Button, SearchField } from "@heroui/react";
 import { formatNum } from "../../lib/format";
 
@@ -13,9 +13,18 @@ interface SidebarProps {
   onTableClick: (name: string) => void;
   onNewQuery: () => void;
   sidebarOpen: boolean;
+  onDisconnect: () => void;
 }
 
-export function Sidebar({ tables, isLoading, activeTable, onTableClick, onNewQuery, sidebarOpen }: SidebarProps) {
+export function Sidebar({
+  tables,
+  isLoading,
+  activeTable,
+  onTableClick,
+  onNewQuery,
+  sidebarOpen,
+  onDisconnect,
+}: SidebarProps) {
   const [search, setSearch] = useState("");
 
   const filtered = tables.filter((t) => t.name.toLowerCase().includes(search.toLowerCase()));
@@ -108,10 +117,16 @@ export function Sidebar({ tables, isLoading, activeTable, onTableClick, onNewQue
       </div>
 
       {/* Bottom: New query button */}
-      <div className="border-t border-separator" style={{ padding: `10px ${SIDEBAR_PAD}px` }}>
-        <Button variant="tertiary" onClick={onNewQuery} style={{ width: INNER_W }} className="text-xs">
+      <div
+        className="border-t border-separator flex items-center flex-row-reverse gap-2"
+        style={{ padding: `10px ${SIDEBAR_PAD}px` }}
+      >
+        <Button variant="tertiary" onClick={onNewQuery} className="text-xs flex-1">
           <PlusIcon className="size-3" weight="bold" />
           New query
+        </Button>
+        <Button variant="danger-soft" onClick={onDisconnect}>
+          <MeteorIcon className="size-4" />
         </Button>
       </div>
     </div>

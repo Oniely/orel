@@ -80,13 +80,13 @@ export function Header({
               <Spinner size="sm" />
             ) : (
               <span className="relative w-2 h-2 shrink-0 animate-pulse">
-                <span className="absolute inset-0 rounded-full" style={{ background: "var(--success)" }} />
+                <span className="absolute inset-0 rounded-full" style={{ background: "var(--accent)" }} />
                 <span
                   className="absolute rounded-full"
                   style={{
                     inset: -3,
                     borderRadius: 999,
-                    background: "var(--success)",
+                    background: "var(--accent)",
                     opacity: 0.25,
                   }}
                 />

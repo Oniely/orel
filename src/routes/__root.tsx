@@ -25,7 +25,7 @@ const RootLayout = () => {
     <>
       <Outlet />
       <SettingsModal isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} />
-      <TanStackRouterDevtools />
+      {/*<TanStackRouterDevtools />*/}
     </>
   );
 };
