@@ -1,3 +1,5 @@
+import { applyTypeColors } from "./typeColors";
+
 export interface ThemeColors {
   accent: string;
   "accent-foreground": string;
@@ -450,6 +452,9 @@ export function applyTheme(theme: Theme): void {
   for (const [key, value] of Object.entries(theme.colors)) {
     root.style.setProperty(`--${key}`, value);
   }
+
+  // Apply type colors derived from accent hue
+  applyTypeColors(theme.colors.accent, theme.isDark);
 }
 
 /**

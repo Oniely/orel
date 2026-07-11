@@ -1,28 +1,77 @@
-export const TYPE_COLORS: Record<string, string> = {
-  uuid: "oklch(72% 0.12 290)",
-  varchar: "oklch(76% 0.13 150)",
-  "character varying": "oklch(76% 0.13 150)",
-  text: "oklch(76% 0.13 150)",
-  boolean: "oklch(74% 0.13 30)",
-  bool: "oklch(74% 0.13 30)",
-  timestamp: "oklch(78% 0.06 250)",
-  "timestamp with time zone": "oklch(78% 0.06 250)",
-  timestamptz: "oklch(78% 0.06 250)",
-  integer: "oklch(74% 0.12 220)",
-  int: "oklch(74% 0.12 220)",
-  int4: "oklch(74% 0.12 220)",
-  bigint: "oklch(74% 0.12 220)",
-  int8: "oklch(74% 0.12 220)",
-  numeric: "oklch(74% 0.12 220)",
-  decimal: "oklch(74% 0.12 220)",
-  float4: "oklch(74% 0.12 220)",
-  float8: "oklch(74% 0.12 220)",
-  real: "oklch(74% 0.12 220)",
-  "double precision": "oklch(74% 0.12 220)",
-  jsonb: "oklch(74% 0.12 330)",
-  json: "oklch(74% 0.12 330)",
+// Maps each SQL type to a category used for color assignment
+const TYPE_CATEGORY: Record<string, string> = {
+  uuid: "uuid",
+  varchar: "string",
+  "character varying": "string",
+  text: "string",
+  char: "string",
+  boolean: "bool",
+  bool: "bool",
+  timestamp: "time",
+  "timestamp with time zone": "time",
+  "timestamp without time zone": "time",
+  timestamptz: "time",
+  date: "time",
+  time: "time",
+  interval: "time",
+  integer: "number",
+  int: "number",
+  int2: "number",
+  int4: "number",
+  int8: "number",
+  smallint: "number",
+  bigint: "number",
+  numeric: "number",
+  decimal: "number",
+  float4: "number",
+  float8: "number",
+  real: "number",
+  "double precision": "number",
+  serial: "number",
+  bigserial: "number",
+  jsonb: "json",
+  json: "json",
 };
 
+// Hue offsets from the theme accent for each category
+const CATEGORY_HUE_OFFSET: Record<string, number> = {
+  uuid: 0,
+  string: 90,
+  bool: 150,
+  time: 210,
+  number: 270,
+  json: 330,
+};
+
+const DEFAULT_HUE_OFFSET = 45;
+
+/**
+ * Sets type-color CSS variables on :root based on the theme accent hue.
+ * Called from applyTheme.
+ */
+export function applyTypeColors(accentOklch: string, isDark: boolean): void {
+  const hue = parseOklchHue(accentOklch);
+  const lightness = isDark ? "74%" : "52%";
+  const chroma = isDark ? "0.13" : "0.14";
+  const root = document.documentElement;
+
+  for (const [cat, offset] of Object.entries(CATEGORY_HUE_OFFSET)) {
+    const h = (hue + offset) % 360;
+    root.style.setProperty(`--type-color-${cat}`, `oklch(${lightness} ${chroma} ${h})`);
+  }
+
+  const defaultH = (hue + DEFAULT_HUE_OFFSET) % 360;
+  root.style.setProperty("--type-color-default", `oklch(${lightness} 0.03 ${defaultH})`);
+}
+
+function parseOklchHue(oklch: string): number {
+  // Extract hue from "oklch(L% C H)" format
+  const parts = oklch.replace(/oklch\(|\)/g, "").trim().split(/\s+/);
+  return parseFloat(parts[2]) || 0;
+}
+
 export function getTypeColor(type: string): string {
-  return TYPE_COLORS[type.toLowerCase()] ?? "oklch(70% 0.02 273)";
+  const cat = TYPE_CATEGORY[type.toLowerCase()];
+  const varName = cat ? `--type-color-${cat}` : "--type-color-default";
+  return `var(${varName})`;
 }
