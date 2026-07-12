@@ -1,7 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { RowContextMenu } from "./RowContextMenu";
 import { useReactTable, getCoreRowModel, flexRender, type ColumnDef } from "@tanstack/react-table";
 import type { ColumnInfo, FilterOperator, FilterRow, QueryResult, Tab } from "../../types/database";
+import type { PendingChange } from "../../types/write-queue";
+import { buildRowIdentity } from "../../types/write-queue";
 import { KeyIcon } from "./icons";
 import { Button } from "@heroui/react";
 import {
@@ -17,41 +19,104 @@ import {
 
 import { getTypeColor } from "../../lib/typeColors";
 import { formatNum } from "../../lib/format";
+import { parseEditValue } from "../../lib/parseValue";
 import { SqlEditor, type SqlEditorCommands } from "./SqlEditor";
+import Cell from "./Cell";
+import { WriteQueueFooter } from "./WriteQueueFooter";
+import { useWriteQueueStore } from "../../stores/write-queue.store";
 
-// ── Cell renderer ─────────────────────────────────────────────────────────────
+// ── Single floating cell editor (only 1 instance in the DOM) ─────────────────
 
-function Cell({ value, type }: { value: unknown; type: string }) {
-  if (value === null || value === undefined) {
-    return <span className="text-muted italic text-[11px] text-muted">NULL</span>;
-  }
-  const color = getTypeColor(type);
-  const isBool = type === "boolean" || type === "bool";
-  if (isBool || typeof value === "boolean") {
-    const bool = value === true || value === "true" || value === 1;
-    return (
-      <span className="inline-flex items-center gap-1.5">
-        <span className="w-2 h-2 rounded-[2px]" style={{ background: bool ? "var(--success)" : "var(--muted)" }} />
-        <span className="font-mono text-xs" style={{ color }}>
-          {bool ? "true" : "false"}
-        </span>
-      </span>
-    );
-  }
-  if (typeof value === "string" && value.startsWith("http")) {
-    return (
-      <span className="inline-flex items-center gap-1.5">
-        <img src={value} className="w-4 h-4 rounded-full object-cover" alt="" />
-        <span className="font-mono text-[11px] truncate" style={{ color }}>
-          {value.slice(0, 32)}…
-        </span>
-      </span>
-    );
-  }
+interface CellEditorOverlayProps {
+  containerRef: React.RefObject<HTMLDivElement | null>;
+  cellAttr: string;
+  initialValue: string;
+  onCommit: (value: string) => void;
+  onCancel: () => void;
+  onAdvance: (direction: 1 | -1) => void;
+}
+
+function CellEditorOverlay({
+  containerRef,
+  cellAttr,
+  initialValue,
+  onCommit,
+  onCancel,
+  onAdvance,
+}: CellEditorOverlayProps) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [localValue, setLocalValue] = useState(initialValue);
+  const [pos, setPos] = useState<{ top: number; left: number; width: number; height: number } | null>(null);
+
+  // Measure target cell position relative to the scroll container
+  useLayoutEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const td = container.querySelector(`[data-cell="${cellAttr}"]`) as HTMLElement | null;
+    if (!td) return;
+
+    const cRect = container.getBoundingClientRect();
+    const tRect = td.getBoundingClientRect();
+    setPos({
+      top: tRect.top - cRect.top + container.scrollTop,
+      left: tRect.left - cRect.left + container.scrollLeft,
+      width: tRect.width,
+      height: tRect.height,
+    });
+  }, [containerRef, cellAttr]);
+
+  // Focus + cursor at end
+  useEffect(() => {
+    const input = inputRef.current;
+    if (input) {
+      input.focus();
+      input.setSelectionRange(input.value.length, input.value.length);
+    }
+  }, [pos]);
+
+  if (!pos) return null;
+
+  const doCommit = () => onCommit(localValue);
+
   return (
-    <span className="font-mono text-xs" style={{ color }}>
-      {String(value)}
-    </span>
+    <div
+      className="absolute z-[3] flex items-center px-[14px]"
+      style={{
+        top: pos.top,
+        left: pos.left,
+        width: pos.width,
+        height: pos.height,
+        background: "color-mix(in oklch, var(--warning) 10%, var(--background))",
+        boxShadow: "inset 0 0 0 1px var(--warning)",
+      }}
+    >
+      <input
+        ref={inputRef}
+        className="w-full bg-transparent border-none outline-none font-mono text-xs"
+        style={{ color: "var(--foreground)" }}
+        value={localValue}
+        onChange={(e) => setLocalValue(e.target.value)}
+        onBlur={doCommit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            doCommit();
+          } else if (e.key === "Escape") {
+            e.preventDefault();
+            onCancel();
+          } else if (e.key === "Tab") {
+            e.preventDefault();
+            doCommit();
+            onAdvance(e.shiftKey ? -1 : 1);
+          }
+        }}
+      />
+      {/* Dot indicator */}
+      <div
+        className="absolute bottom-0 right-0 w-2 h-2 rounded-full translate-x-1/2 translate-y-1/2"
+        style={{ background: "var(--warning)" }}
+      />
+    </div>
   );
 }
 
@@ -192,6 +257,11 @@ interface DataGridProps {
   onRowContextMenu: (index: number, x: number, y: number) => void;
   isLoading: boolean;
   activeTable: string | null;
+  hasPrimaryKey: boolean;
+  scopeKey: string | null;
+  onCellEdit: (rowIndex: number, column: string, oldValue: unknown, newValue: unknown) => void;
+  insertedRows: PendingChange[];
+  onInsertCellEdit: (insertIndex: number, column: string, value: unknown) => void;
 }
 
 function DataGrid({
@@ -202,7 +272,102 @@ function DataGrid({
   onRowContextMenu,
   isLoading,
   activeTable,
+  hasPrimaryKey,
+  scopeKey,
+  onCellEdit,
+  insertedRows,
+  onInsertCellEdit,
 }: DataGridProps) {
+  const [editingCell, setEditingCell] = useState<{
+    rowIndex: number;
+    column: string;
+    isInsert?: boolean;
+    initialValue: string;
+  } | null>(null);
+
+  // Pre-compute dirty/deleted state once per render — avoids per-cell buildRowIdentity + store lookups
+  const tableChanges = useWriteQueueStore((s) => (scopeKey ? s.tables[scopeKey] : undefined));
+
+  const { rowKindMap, cellDirtyMap } = useMemo(() => {
+    const rk = new Map<number, "Update" | "Delete">();
+    const cd = new Map<string, { newValue: unknown }>();
+    if (!tableChanges || !scopeKey || !hasPrimaryKey) return { rowKindMap: rk, cellDirtyMap: cd };
+
+    const pkCols = colInfos.filter((c) => c.isPrimary);
+    if (pkCols.length === 0) return { rowKindMap: rk, cellDirtyMap: cd };
+
+    // Build a reverse map: identityKey -> change
+    const changesMap = tableChanges.changes;
+
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      // Inline identity key computation (avoid object allocation)
+      const key = pkCols.map((c) => JSON.stringify(row[c.name] ?? null)).join("::");
+      const change = changesMap.get(key);
+      if (!change) continue;
+
+      if (change.kind === "Delete") {
+        rk.set(i, "Delete");
+      } else if (change.kind === "Update") {
+        rk.set(i, "Update");
+        for (const cc of change.changes) {
+          cd.set(`${i}::${cc.column}`, cc);
+        }
+      }
+    }
+    return { rowKindMap: rk, cellDirtyMap: cd };
+  }, [tableChanges, scopeKey, hasPrimaryKey, colInfos, rows]);
+
+  const commitEdit = (rawValue: string) => {
+    if (!editingCell) return;
+    const { rowIndex, column, isInsert } = editingCell;
+    const colInfo = colInfos.find((c) => c.name === column);
+    if (!colInfo) {
+      setEditingCell(null);
+      return;
+    }
+
+    const parsed = parseEditValue(rawValue, colInfo.dataType, colInfo.isNullable);
+
+    if (isInsert) {
+      onInsertCellEdit(rowIndex, column, parsed);
+    } else {
+      const originalValue = rows[rowIndex]?.[column];
+      if (JSON.stringify(parsed) !== JSON.stringify(originalValue)) {
+        onCellEdit(rowIndex, column, originalValue, parsed);
+      }
+    }
+    setEditingCell(null);
+  };
+
+  const startEdit = (rowIndex: number, column: string, isInsert?: boolean) => {
+    if (!isInsert && !hasPrimaryKey) return;
+    if (column === "__row_number") return;
+    if (!isInsert && rowKindMap.get(rowIndex) === "Delete") return;
+
+    const currentValue = isInsert
+      ? insertedRows[rowIndex]?.kind === "Insert"
+        ? insertedRows[rowIndex].values[column]
+        : undefined
+      : rows[rowIndex]?.[column];
+
+    const dirty = !isInsert ? cellDirtyMap.get(`${rowIndex}::${column}`) : undefined;
+    const displayVal = dirty ? dirty.newValue : currentValue;
+    const initialValue = displayVal === null || displayVal === undefined ? "" : String(displayVal);
+
+    setEditingCell({ rowIndex, column, isInsert, initialValue });
+  };
+
+  const advanceColumn = (direction: 1 | -1) => {
+    if (!editingCell) return;
+    const colNames = colInfos.map((c) => c.name);
+    const currentIdx = colNames.indexOf(editingCell.column);
+    const nextIdx = currentIdx + direction;
+    if (nextIdx >= 0 && nextIdx < colNames.length) {
+      startEdit(editingCell.rowIndex, colNames[nextIdx], editingCell.isInsert);
+    }
+  };
+
   const columns = useMemo<ColumnDef<Record<string, unknown>>[]>(
     () => [
       {
@@ -233,11 +398,16 @@ function DataGrid({
             </span>
           </div>
         ),
-        cell: ({ getValue }: any) => <Cell value={getValue()} type={c.dataType} />,
+        cell: ({ getValue, row }: any) => {
+          const dirty = cellDirtyMap.get(`${row.index}::${c.name}`);
+          return <Cell value={dirty ? dirty.newValue : getValue()} type={c.dataType} />;
+        },
       })),
     ],
-    [colInfos],
+    [colInfos, cellDirtyMap],
   );
+
+  const scrollRef = useRef<HTMLDivElement>(null);
 
   const table = useReactTable({
     data: rows,
@@ -263,7 +433,7 @@ function DataGrid({
   }
 
   return (
-    <div className="flex-1 overflow-auto bg-background scrollbar-hide">
+    <div ref={scrollRef} className="flex-1 overflow-auto bg-background scrollbar-hide relative">
       <table className="border-collapse text-xs table-fixed min-w-full" style={{ width: table.getTotalSize() }}>
         <colgroup>
           {table.getHeaderGroups()[0]?.headers.map((header) => (
@@ -303,42 +473,117 @@ function DataGrid({
         </thead>
 
         <tbody>
-          {table.getRowModel().rows.map((row, i) => (
-            <tr
-              key={row.id}
-              onClick={() => onRowClick(i)}
-              onContextMenu={(e) => {
-                e.preventDefault();
-                onRowContextMenu(i, e.clientX, e.clientY);
-              }}
-              className="cursor-pointer transition-colors h-10"
-              style={{
-                background:
-                  selectedRowIndex === i ? "color-mix(in oklch, var(--accent) 10%, transparent)" : "transparent",
-              }}
-            >
-              {row.getVisibleCells().map((cell) => (
-                <td
-                  key={cell.id}
-                  className="border-b-hairline px-[14px] overflow-hidden whitespace-nowrap"
-                  style={{ maxWidth: cell.column.getSize() }}
-                >
-                  <div className="overflow-hidden text-ellipsis whitespace-nowrap">
-                    {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                  </div>
+          {/* Existing rows */}
+          {table.getRowModel().rows.map((row, i) => {
+            const rowKind = rowKindMap.get(i);
+            const isDeleted = rowKind === "Delete";
+
+            return (
+              <tr
+                key={row.id}
+                onClick={() => onRowClick(i)}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  onRowContextMenu(i, e.clientX, e.clientY);
+                }}
+                className="cursor-pointer transition-colors h-10"
+                style={{
+                  background: isDeleted
+                    ? "color-mix(in oklch, var(--danger) 8%, transparent)"
+                    : selectedRowIndex === i
+                      ? "color-mix(in oklch, var(--accent) 10%, transparent)"
+                      : "transparent",
+                  textDecoration: isDeleted ? "line-through" : "none",
+                  opacity: isDeleted ? 0.5 : 1,
+                }}
+              >
+                {row.getVisibleCells().map((cell) => {
+                  const colId = cell.column.id;
+                  const dirty = colId !== "__row_number" && cellDirtyMap.has(`${i}::${colId}`);
+
+                  return (
+                    <td
+                      key={cell.id}
+                      data-cell={colId !== "__row_number" ? `${i}::${colId}` : undefined}
+                      className={`border-b-hairline overflow-hidden whitespace-nowrap px-[14px]${dirty ? "" : " cell-hoverable"}`}
+                      style={{
+                        maxWidth: cell.column.getSize(),
+                        background: dirty ? "color-mix(in oklch, var(--warning) 6%, transparent)" : undefined,
+                        boxShadow: dirty ? "inset 3px 0 0 var(--accent)" : undefined,
+                      }}
+                      onDoubleClick={() => startEdit(i, colId)}
+                    >
+                      <div className="overflow-hidden text-ellipsis whitespace-nowrap">
+                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                      </div>
+                    </td>
+                  );
+                })}
+              </tr>
+            );
+          })}
+
+          {/* Inserted rows (pending) */}
+          {insertedRows.map((insert, insertIdx) => {
+            if (insert.kind !== "Insert") return null;
+            return (
+              <tr
+                key={`insert-${insertIdx}`}
+                className="cursor-pointer transition-colors h-10"
+                style={{
+                  background: "color-mix(in oklch, var(--success) 8%, transparent)",
+                }}
+              >
+                {/* Row number cell */}
+                <td className="border-b-hairline px-[14px] overflow-hidden whitespace-nowrap" style={{ maxWidth: 52 }}>
+                  <span className="font-mono text-[11px] text-success select-none">+</span>
                 </td>
-              ))}
-            </tr>
-          ))}
-          {rows.length === 0 && (
+                {/* Data cells */}
+                {colInfos.map((c) => {
+                  const cellValue = insert.values[c.name];
+                  return (
+                    <td
+                      key={c.name}
+                      data-cell={`insert-${insertIdx}::${c.name}`}
+                      className="border-b-hairline overflow-hidden whitespace-nowrap px-[14px] cell-hoverable"
+                      style={{ maxWidth: 210 }}
+                      onDoubleClick={() => startEdit(insertIdx, c.name, true)}
+                    >
+                      <div className="overflow-hidden text-ellipsis whitespace-nowrap">
+                        <Cell value={cellValue} type={c.dataType} />
+                      </div>
+                    </td>
+                  );
+                })}
+              </tr>
+            );
+          })}
+
+          {rows.length === 0 && insertedRows.length === 0 && (
             <tr>
-              <td colSpan={colInfos.length} className="text-center py-12 text-sm text-muted">
+              <td colSpan={colInfos.length + 1} className="text-center py-12 text-sm text-muted">
                 No rows
               </td>
             </tr>
           )}
         </tbody>
       </table>
+
+      {/* Single floating editor — only mounts when actively editing */}
+      {editingCell && (
+        <CellEditorOverlay
+          containerRef={scrollRef}
+          cellAttr={
+            editingCell.isInsert
+              ? `insert-${editingCell.rowIndex}::${editingCell.column}`
+              : `${editingCell.rowIndex}::${editingCell.column}`
+          }
+          initialValue={editingCell.initialValue}
+          onCommit={commitEdit}
+          onCancel={() => setEditingCell(null)}
+          onAdvance={advanceColumn}
+        />
+      )}
     </div>
   );
 }
@@ -427,6 +672,19 @@ interface ContentAreaProps {
   selectedRowIndex: number | null;
   onRowClick: (index: number) => void;
   onInspectRow: (index: number) => void;
+  // Write queue props
+  hasPrimaryKey: boolean;
+  scopeKey: string | null;
+  changeCount: number;
+  insertedRows: PendingChange[];
+  onCellEdit: (rowIndex: number, column: string, oldValue: unknown, newValue: unknown) => void;
+  onInsertCellEdit: (insertIndex: number, column: string, value: unknown) => void;
+  onDeleteRow: (rowIndex: number) => void;
+  onUndoDeleteRow: (rowIndex: number) => void;
+  onReset: () => void;
+  onApply: () => void;
+  onCopySql: () => void;
+  isApplying: boolean;
 }
 
 export function ContentArea({
@@ -441,6 +699,18 @@ export function ContentArea({
   selectedRowIndex,
   onRowClick,
   onInspectRow,
+  hasPrimaryKey,
+  scopeKey,
+  changeCount,
+  insertedRows,
+  onCellEdit,
+  onInsertCellEdit,
+  onDeleteRow,
+  onUndoDeleteRow,
+  onReset,
+  onApply,
+  onCopySql,
+  isApplying,
 }: ContentAreaProps) {
   const activeTab = openTabs.find((t) => t.id === activeTabId) ?? null;
   const isQueryTab = activeTab?.type === "query";
@@ -553,6 +823,11 @@ export function ContentArea({
             onRowContextMenu={(index, x, y) => setContextMenu({ rowIndex: index, x, y })}
             isLoading={isLoading}
             activeTable={activeTableName}
+            hasPrimaryKey={hasPrimaryKey}
+            scopeKey={scopeKey}
+            onCellEdit={onCellEdit}
+            insertedRows={insertedRows}
+            onInsertCellEdit={onInsertCellEdit}
           />
           {contextMenu && (
             <RowContextMenu
@@ -562,12 +837,47 @@ export function ContentArea({
                 onInspectRow(contextMenu.rowIndex);
                 setContextMenu(null);
               }}
+              onDeleteRow={
+                hasPrimaryKey
+                  ? () => {
+                      onDeleteRow(contextMenu.rowIndex);
+                      setContextMenu(null);
+                    }
+                  : undefined
+              }
+              isRowDeleted={(() => {
+                if (!scopeKey || !hasPrimaryKey) return false;
+                const row = rows[contextMenu.rowIndex];
+                if (!row) return false;
+                const identity = buildRowIdentity(row, columns);
+                if (!identity) return false;
+                return useWriteQueueStore.getState().getRowChangeKind(scopeKey, identity) === "Delete";
+              })()}
+              onUndoDelete={
+                hasPrimaryKey
+                  ? () => {
+                      onUndoDeleteRow(contextMenu.rowIndex);
+                      setContextMenu(null);
+                    }
+                  : undefined
+              }
               onClose={() => setContextMenu(null)}
             />
           )}
         </>
       ) : (
         <StructurePanel columns={columns} activeTable={activeTableName} />
+      )}
+
+      {/* Write queue footer — only when there are pending changes */}
+      {!isQueryTab && changeCount > 0 && (
+        <WriteQueueFooter
+          changeCount={changeCount}
+          onReset={onReset}
+          onApply={onApply}
+          onCopySql={onCopySql}
+          isApplying={isApplying}
+        />
       )}
 
       {/* Footer */}

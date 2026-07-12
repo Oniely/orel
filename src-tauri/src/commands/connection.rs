@@ -51,6 +51,7 @@ pub struct AppState {
     pub db: SqlitePool,                                   // app db
     pub pools: Mutex<HashMap<String, DbPool>>,            // connections pool
     pub configs: Mutex<HashMap<String, SavedConnection>>, // connection config
+    pub engine_cache: Mutex<HashMap<String, HashMap<String, bool>>>, // connection_id -> table -> is_transactional
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────

@@ -25,6 +25,7 @@ interface HeaderProps {
   sidebarOpen: boolean;
   onToggleSidebar: () => void;
   onDisconnect: () => void;
+  onAddRow?: () => void;
 }
 
 export function Header({
@@ -37,6 +38,7 @@ export function Header({
   sidebarOpen,
   onToggleSidebar,
   onDisconnect,
+  onAddRow,
 }: HeaderProps) {
   const latency = null; // TODO: track latency after connect
   const navigate = useNavigate();
@@ -169,7 +171,7 @@ export function Header({
           Export
         </Button>
 
-        <Button size="sm" variant="outline" className="flex items-center gap-1.5 text-xs">
+        <Button size="sm" variant="outline" className="flex items-center gap-1.5 text-xs" onClick={onAddRow}>
           <PlusIcon className="size-3" weight="bold" />
           Add row
         </Button>

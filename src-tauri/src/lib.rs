@@ -7,6 +7,7 @@ use commands::connection::{
     switch_database, test_connection, update_connection, AppState,
 };
 use commands::query::{fetch_rows, list_tables};
+use commands::write_queue::{apply_write_queue, generate_sql};
 use sqlx::SqlitePool;
 use tauri::{
     menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder},
@@ -75,6 +76,7 @@ pub fn run() {
                 db: pool,
                 pools: Mutex::new(HashMap::new()),
                 configs: Mutex::new(HashMap::new()),
+                engine_cache: Mutex::new(HashMap::new()),
             });
 
             Ok(())
@@ -91,6 +93,8 @@ pub fn run() {
             switch_database,
             list_tables,
             fetch_rows,
+            apply_write_queue,
+            generate_sql,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
