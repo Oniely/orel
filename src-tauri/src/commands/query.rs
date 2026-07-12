@@ -28,11 +28,11 @@ pub struct QueryResult {
     pub total_estimate: Option<i64>,
 }
 
-fn pg_quote(name: &str) -> String {
+pub(crate) fn pg_quote(name: &str) -> String {
     format!("\"{}\"", name.replace('"', "\"\""))
 }
 
-fn mysql_quote(name: &str) -> String {
+pub(crate) fn mysql_quote(name: &str) -> String {
     format!("`{}`", name.replace('`', "``"))
 }
 

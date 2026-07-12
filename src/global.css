@@ -122,6 +122,22 @@
   border-bottom: 1px solid color-mix(in oklch, var(--separator) 60%, transparent);
 }
 
+.cell-hoverable {
+  position: relative;
+}
+.cell-hoverable::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: color-mix(in oklch, var(--foreground) 4%, transparent);
+  opacity: 0;
+  transition: opacity 100ms;
+  pointer-events: none;
+}
+.cell-hoverable:hover::after {
+  opacity: 1;
+}
+
 .db-select {
   appearance: none;
   background: transparent;
