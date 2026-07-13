@@ -249,6 +249,15 @@ function FilterBar({ filters, columns, onFiltersChange, onApply }: FilterBarProp
 
 // ── Data Grid ─────────────────────────────────────────────────────────────────
 
+// Static style objects — created once, reused across all renders (avoids per-row/cell allocation)
+const deletedRowStyle: React.CSSProperties = { background: "color-mix(in oklch, var(--danger) 8%, transparent)" };
+const selectedRowStyle: React.CSSProperties = { background: "color-mix(in oklch, var(--accent) 10%, transparent)" };
+const dirtyStyle: React.CSSProperties = {
+  background: "color-mix(in oklch, var(--warning) 6%, transparent)",
+  boxShadow: "inset 3px 0 0 var(--accent)",
+};
+const insertRowStyle: React.CSSProperties = { background: "color-mix(in oklch, var(--success) 8%, transparent)" };
+
 interface DataGridProps {
   columns: ColumnInfo[];
   rows: Record<string, unknown>[];
@@ -368,6 +377,7 @@ function DataGrid({
     }
   };
 
+  // Column defs — only depends on schema, never on editing/dirty state
   const columns = useMemo<ColumnDef<Record<string, unknown>>[]>(
     () => [
       {
@@ -398,13 +408,10 @@ function DataGrid({
             </span>
           </div>
         ),
-        cell: ({ getValue, row }: any) => {
-          const dirty = cellDirtyMap.get(`${row.index}::${c.name}`);
-          return <Cell value={dirty ? dirty.newValue : getValue()} type={c.dataType} />;
-        },
+        cell: ({ getValue }: any) => <Cell value={getValue()} type={c.dataType} />,
       })),
     ],
-    [colInfos, cellDirtyMap],
+    [colInfos],
   );
 
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -472,7 +479,26 @@ function DataGrid({
           ))}
         </thead>
 
-        <tbody>
+        <tbody
+          onClick={(e) => {
+            const tr = (e.target as HTMLElement).closest("tr[data-row]") as HTMLElement | null;
+            if (tr) onRowClick(Number(tr.dataset.row));
+          }}
+          onContextMenu={(e) => {
+            const tr = (e.target as HTMLElement).closest("tr[data-row]") as HTMLElement | null;
+            if (tr) { e.preventDefault(); onRowContextMenu(Number(tr.dataset.row), e.clientX, e.clientY); }
+          }}
+          onDoubleClick={(e) => {
+            const td = (e.target as HTMLElement).closest("td[data-cell]") as HTMLElement | null;
+            if (!td?.dataset.cell) return;
+            const [ri, col] = td.dataset.cell.split("::");
+            if (td.dataset.cell.startsWith("insert-")) {
+              startEdit(Number(ri.replace("insert-", "")), col, true);
+            } else {
+              startEdit(Number(ri), col);
+            }
+          }}
+        >
           {/* Existing rows */}
           {table.getRowModel().rows.map((row, i) => {
             const rowKind = rowKindMap.get(i);
@@ -481,40 +507,32 @@ function DataGrid({
             return (
               <tr
                 key={row.id}
-                onClick={() => onRowClick(i)}
-                onContextMenu={(e) => {
-                  e.preventDefault();
-                  onRowContextMenu(i, e.clientX, e.clientY);
-                }}
-                className="cursor-pointer transition-colors h-10"
-                style={{
-                  background: isDeleted
-                    ? "color-mix(in oklch, var(--danger) 8%, transparent)"
+                data-row={i}
+                className={`cursor-pointer h-10${isDeleted ? " line-through opacity-50" : ""}`}
+                style={
+                  isDeleted
+                    ? deletedRowStyle
                     : selectedRowIndex === i
-                      ? "color-mix(in oklch, var(--accent) 10%, transparent)"
-                      : "transparent",
-                  textDecoration: isDeleted ? "line-through" : "none",
-                  opacity: isDeleted ? 0.5 : 1,
-                }}
+                      ? selectedRowStyle
+                      : undefined
+                }
               >
                 {row.getVisibleCells().map((cell) => {
                   const colId = cell.column.id;
-                  const dirty = colId !== "__row_number" && cellDirtyMap.has(`${i}::${colId}`);
+                  const dirty = colId !== "__row_number" ? cellDirtyMap.get(`${i}::${colId}`) : undefined;
 
                   return (
                     <td
                       key={cell.id}
                       data-cell={colId !== "__row_number" ? `${i}::${colId}` : undefined}
                       className={`border-b-hairline overflow-hidden whitespace-nowrap px-[14px]${dirty ? "" : " cell-hoverable"}`}
-                      style={{
-                        maxWidth: cell.column.getSize(),
-                        background: dirty ? "color-mix(in oklch, var(--warning) 6%, transparent)" : undefined,
-                        boxShadow: dirty ? "inset 3px 0 0 var(--accent)" : undefined,
-                      }}
-                      onDoubleClick={() => startEdit(i, colId)}
+                      style={dirty ? dirtyStyle : undefined}
                     >
                       <div className="overflow-hidden text-ellipsis whitespace-nowrap">
-                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                        {dirty
+                          ? <Cell value={dirty.newValue} type={(colInfos.find(c => c.name === colId))?.dataType ?? "text"} />
+                          : flexRender(cell.column.columnDef.cell, cell.getContext())
+                        }
                       </div>
                     </td>
                   );
@@ -529,32 +547,25 @@ function DataGrid({
             return (
               <tr
                 key={`insert-${insertIdx}`}
-                className="cursor-pointer transition-colors h-10"
-                style={{
-                  background: "color-mix(in oklch, var(--success) 8%, transparent)",
-                }}
+                className="cursor-pointer h-10"
+                style={insertRowStyle}
               >
                 {/* Row number cell */}
-                <td className="border-b-hairline px-[14px] overflow-hidden whitespace-nowrap" style={{ maxWidth: 52 }}>
+                <td className="border-b-hairline px-[14px] overflow-hidden whitespace-nowrap">
                   <span className="font-mono text-[11px] text-success select-none">+</span>
                 </td>
                 {/* Data cells */}
-                {colInfos.map((c) => {
-                  const cellValue = insert.values[c.name];
-                  return (
-                    <td
-                      key={c.name}
-                      data-cell={`insert-${insertIdx}::${c.name}`}
-                      className="border-b-hairline overflow-hidden whitespace-nowrap px-[14px] cell-hoverable"
-                      style={{ maxWidth: 210 }}
-                      onDoubleClick={() => startEdit(insertIdx, c.name, true)}
-                    >
-                      <div className="overflow-hidden text-ellipsis whitespace-nowrap">
-                        <Cell value={cellValue} type={c.dataType} />
-                      </div>
-                    </td>
-                  );
-                })}
+                {colInfos.map((c) => (
+                  <td
+                    key={c.name}
+                    data-cell={`insert-${insertIdx}::${c.name}`}
+                    className="border-b-hairline overflow-hidden whitespace-nowrap px-[14px] cell-hoverable"
+                  >
+                    <div className="overflow-hidden text-ellipsis whitespace-nowrap">
+                      <Cell value={insert.values[c.name]} type={c.dataType} />
+                    </div>
+                  </td>
+                ))}
               </tr>
             );
           })}
