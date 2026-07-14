@@ -140,6 +140,16 @@ export function DashboardLayout() {
     cycleTab(-1);
   });
 
+  // Write queue shortcuts
+  useHotkeys("meta+s", (e) => {
+    e.preventDefault();
+    handleApply();
+  });
+  useHotkeys("meta+shift+s", (e) => {
+    e.preventDefault();
+    handleCopySql();
+  });
+
   const handleRowClick = (index: number) => {
     setSelectedRowIndex(index);
   };

@@ -173,9 +173,22 @@ pub async fn fetch_rows(
 
             // Fetch rows as JSON using PostgreSQL's row_to_json
             let quoted = pg_quote(&table);
+            let pk_cols: Vec<&str> = columns
+                .iter()
+                .filter(|c| c.is_primary)
+                .map(|c| c.name.as_str())
+                .collect();
+            let order_clause = if pk_cols.is_empty() {
+                String::new()
+            } else {
+                format!(
+                    " ORDER BY {}",
+                    pk_cols.iter().map(|c| pg_quote(c)).collect::<Vec<_>>().join(", ")
+                )
+            };
             let row_query = format!(
-                "SELECT row_to_json(t)::text FROM (SELECT * FROM {} LIMIT $1 OFFSET $2) t",
-                quoted
+                "SELECT row_to_json(t)::text FROM (SELECT * FROM {}{} LIMIT $1 OFFSET $2) t",
+                quoted, order_clause
             );
             let raw: Vec<String> = sqlx::query_scalar(&row_query)
                 .bind(limit)
@@ -248,9 +261,22 @@ pub async fn fetch_rows(
                 .collect::<Vec<_>>()
                 .join(", ");
             let quoted = mysql_quote(&table);
+            let pk_cols: Vec<&str> = columns
+                .iter()
+                .filter(|c| c.is_primary)
+                .map(|c| c.name.as_str())
+                .collect();
+            let order_clause = if pk_cols.is_empty() {
+                String::new()
+            } else {
+                format!(
+                    " ORDER BY {}",
+                    pk_cols.iter().map(|c| mysql_quote(c)).collect::<Vec<_>>().join(", ")
+                )
+            };
             let row_query = format!(
-                "SELECT JSON_OBJECT({}) FROM {} LIMIT ? OFFSET ?",
-                col_refs, quoted
+                "SELECT JSON_OBJECT({}) FROM {}{} LIMIT ? OFFSET ?",
+                col_refs, quoted, order_clause
             );
             let raw: Vec<String> = sqlx::query_scalar(&row_query)
                 .bind(limit)

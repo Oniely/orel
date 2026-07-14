@@ -24,7 +24,7 @@ pub struct ColumnChange {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", tag = "kind")]
+#[serde(tag = "kind")]
 pub enum PendingChange {
     Update {
         identity: RowIdentity,

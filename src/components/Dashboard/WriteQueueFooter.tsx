@@ -1,4 +1,4 @@
-import { Button, Dropdown, Label } from "@heroui/react";
+import { Button, Dropdown, Kbd, Label } from "@heroui/react";
 import { CaretDownIcon } from "@phosphor-icons/react";
 
 interface WriteQueueFooterProps {
@@ -59,10 +59,23 @@ export function WriteQueueFooter({ changeCount, onReset, onApply, onCopySql, isA
                 }}
               >
                 <Dropdown.Item id="apply" textValue="Apply changes">
-                  <Label>Apply changes</Label>
+                  <div className="flex items-center justify-between w-full">
+                    <Label>Apply changes</Label>
+                    <Kbd>
+                      <Kbd.Abbr keyValue="command" />
+                      <Kbd.Content>S</Kbd.Content>
+                    </Kbd>
+                  </div>
                 </Dropdown.Item>
                 <Dropdown.Item id="copy-sql" textValue="Copy SQL">
-                  <Label>Copy SQL</Label>
+                  <div className="flex items-center justify-between w-full">
+                    <Label>Copy SQL</Label>
+                    <Kbd>
+                      <Kbd.Abbr keyValue="shift" />
+                      <Kbd.Abbr keyValue="command" />
+                      <Kbd.Content>S</Kbd.Content>
+                    </Kbd>
+                  </div>
                 </Dropdown.Item>
               </Dropdown.Menu>
             </Dropdown.Popover>
