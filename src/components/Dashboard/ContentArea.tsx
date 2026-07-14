@@ -45,6 +45,7 @@ function CellEditorOverlay({
   onAdvance,
 }: CellEditorOverlayProps) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const committedRef = useRef(false);
   const [localValue, setLocalValue] = useState(initialValue);
   const [pos, setPos] = useState<{ top: number; left: number; width: number; height: number } | null>(null);
 
@@ -76,7 +77,11 @@ function CellEditorOverlay({
 
   if (!pos) return null;
 
-  const doCommit = () => onCommit(localValue);
+  const doCommit = () => {
+    if (committedRef.current) return;
+    committedRef.current = true;
+    onCommit(localValue);
+  };
 
   return (
     <div
@@ -103,6 +108,7 @@ function CellEditorOverlay({
             doCommit();
           } else if (e.key === "Escape") {
             e.preventDefault();
+            committedRef.current = true;
             onCancel();
           } else if (e.key === "Tab") {
             e.preventDefault();
