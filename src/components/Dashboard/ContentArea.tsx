@@ -345,7 +345,11 @@ function DataGrid({
     const parsed = parseEditValue(rawValue, colInfo.dataType, colInfo.isNullable);
 
     if (isInsert) {
-      onInsertCellEdit(rowIndex, column, parsed);
+      if (rawValue === "" && colInfo.hasDefault) {
+        onInsertCellEdit(rowIndex, column, undefined);
+      } else {
+        onInsertCellEdit(rowIndex, column, parsed);
+      }
     } else {
       const originalValue = rows[rowIndex]?.[column];
       if (JSON.stringify(parsed) !== JSON.stringify(originalValue)) {
@@ -359,6 +363,8 @@ function DataGrid({
     if (!isInsert && !hasPrimaryKey) return;
     if (column === "__row_number") return;
     if (!isInsert && rowKindMap.get(rowIndex) === "Delete") return;
+    const col = colInfos.find((c) => c.name === column);
+    if (isInsert && col?.hasDefault && col.isPrimary) return;
 
     const currentValue = isInsert
       ? insertedRows[rowIndex]?.kind === "Insert"
@@ -377,7 +383,13 @@ function DataGrid({
     if (!editingCell) return;
     const colNames = colInfos.map((c) => c.name);
     const currentIdx = colNames.indexOf(editingCell.column);
-    const nextIdx = currentIdx + direction;
+    let nextIdx = currentIdx + direction;
+    // Skip auto-generated PK columns when tabbing through insert rows
+    if (editingCell.isInsert) {
+      while (nextIdx >= 0 && nextIdx < colNames.length && colInfos[nextIdx].hasDefault && colInfos[nextIdx].isPrimary) {
+        nextIdx += direction;
+      }
+    }
     if (nextIdx >= 0 && nextIdx < colNames.length) {
       startEdit(editingCell.rowIndex, colNames[nextIdx], editingCell.isInsert);
     }
@@ -561,17 +573,30 @@ function DataGrid({
                   <span className="font-mono text-[11px] text-success select-none">+</span>
                 </td>
                 {/* Data cells */}
-                {colInfos.map((c) => (
-                  <td
-                    key={c.name}
-                    data-cell={`insert-${insertIdx}::${c.name}`}
-                    className="border-b-hairline overflow-hidden whitespace-nowrap px-[14px] cell-hoverable"
-                  >
-                    <div className="overflow-hidden text-ellipsis whitespace-nowrap">
-                      <Cell value={insert.values[c.name]} type={c.dataType} />
-                    </div>
-                  </td>
-                ))}
+                {colInfos.map((c) => {
+                  const isAutoGenPK = c.hasDefault && c.isPrimary;
+                  const hasValue = insert.values[c.name] !== undefined;
+                  return (
+                    <td
+                      key={c.name}
+                      data-cell={isAutoGenPK ? undefined : `insert-${insertIdx}::${c.name}`}
+                      className={`border-b-hairline overflow-hidden whitespace-nowrap px-[14px]${isAutoGenPK ? "" : " cell-hoverable"}`}
+                    >
+                      <div className="overflow-hidden text-ellipsis whitespace-nowrap">
+                        {isAutoGenPK ? (
+                          <span className="font-mono text-[11px] text-muted italic select-none opacity-40">DEFAULT</span>
+                        ) : !hasValue && c.hasDefault ? (
+                          <span
+                            className="font-mono text-[11px] text-muted italic select-none underline decoration-dashed underline-offset-2"
+                            style={{ textDecorationColor: "color-mix(in oklch, var(--muted) 50%, transparent)" }}
+                          >DEFAULT</span>
+                        ) : (
+                          <Cell value={insert.values[c.name]} type={c.dataType} />
+                        )}
+                      </div>
+                    </td>
+                  );
+                })}
               </tr>
             );
           })}
@@ -589,6 +614,11 @@ function DataGrid({
       {/* Single floating editor — only mounts when actively editing */}
       {editingCell && (
         <CellEditorOverlay
+          key={
+            editingCell.isInsert
+              ? `insert-${editingCell.rowIndex}::${editingCell.column}`
+              : `${editingCell.rowIndex}::${editingCell.column}`
+          }
           containerRef={scrollRef}
           cellAttr={
             editingCell.isInsert
@@ -825,7 +855,7 @@ export function ContentArea({
           <FilterBar
             filters={filters.map((f) => ({ ...f, col: f.col || firstCol }))}
             columns={
-              columns.length > 0 ? columns : [{ name: "column", dataType: "text", isNullable: true, isPrimary: false }]
+              columns.length > 0 ? columns : [{ name: "column", dataType: "text", isNullable: true, isPrimary: false, hasDefault: false }]
             }
             onFiltersChange={setFilters}
             onApply={() => {

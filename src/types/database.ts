@@ -9,6 +9,7 @@ export interface ColumnInfo {
   dataType: string;
   isNullable: boolean;
   isPrimary: boolean;
+  hasDefault: boolean;
 }
 
 export interface QueryResult {
