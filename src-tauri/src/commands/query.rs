@@ -18,6 +18,7 @@ pub struct ColumnInfo {
     pub data_type: String,
     pub is_nullable: bool,
     pub is_primary: bool,
+    pub has_default: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -127,7 +128,7 @@ pub async fn fetch_rows(
     match pool {
         DbPool::Postgres(pg) => {
             // Column info
-            let col_rows = sqlx::query_as::<_, (String, String, String, bool)>(
+            let col_rows = sqlx::query_as::<_, (String, String, String, bool, bool)>(
                 "SELECT c.column_name, c.data_type, c.is_nullable, \
                 EXISTS( \
                     SELECT 1 FROM information_schema.table_constraints tc \
@@ -139,7 +140,8 @@ pub async fn fetch_rows(
                         AND tc.table_name = c.table_name \
                         AND tc.table_schema = c.table_schema \
                         AND kcu.column_name = c.column_name \
-                ) \
+                ), \
+                (c.column_default IS NOT NULL) \
                 FROM information_schema.columns c \
                 WHERE c.table_name = $1 \
                 AND c.table_schema = 'public' \
@@ -152,11 +154,12 @@ pub async fn fetch_rows(
 
             let columns: Vec<ColumnInfo> = col_rows
                 .into_iter()
-                .map(|(name, data_type, is_nullable, is_primary)| ColumnInfo {
+                .map(|(name, data_type, is_nullable, is_primary, has_default)| ColumnInfo {
                     name,
                     data_type,
                     is_nullable: is_nullable == "YES",
                     is_primary,
+                    has_default,
                 })
                 .collect();
 
@@ -210,8 +213,9 @@ pub async fn fetch_rows(
         }
         DbPool::MySql(mysql) => {
             // Column info
-            let col_rows = sqlx::query_as::<_, (String, String, String, i8)>(
-                "SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE, IF(COLUMN_KEY = 'PRI', 1, 0) \
+            let col_rows = sqlx::query_as::<_, (String, String, String, i8, i8)>(
+                "SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE, IF(COLUMN_KEY = 'PRI', 1, 0), \
+                IF(COLUMN_DEFAULT IS NOT NULL OR EXTRA LIKE '%auto_increment%', 1, 0) \
                 FROM information_schema.COLUMNS \
                 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? \
                 ORDER BY ORDINAL_POSITION",
@@ -223,11 +227,12 @@ pub async fn fetch_rows(
 
             let columns: Vec<ColumnInfo> = col_rows
                 .into_iter()
-                .map(|(name, data_type, is_nullable, is_primary)| ColumnInfo {
+                .map(|(name, data_type, is_nullable, is_primary, has_default)| ColumnInfo {
                     name,
                     data_type,
                     is_nullable: is_nullable == "YES",
                     is_primary: is_primary != 0,
+                    has_default: has_default != 0,
                 })
                 .collect();
 

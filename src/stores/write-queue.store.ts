@@ -127,7 +127,12 @@ export const useWriteQueueStore = create<WriteQueueStore>((set, get) => ({
       const inserts = [...table.inserts];
       const insert = inserts[index];
       if (insert?.kind !== "Insert") return state;
-      inserts[index] = { ...insert, values: { ...insert.values, [column]: value } };
+      if (value === undefined) {
+        const { [column]: _, ...rest } = insert.values;
+        inserts[index] = { ...insert, values: rest };
+      } else {
+        inserts[index] = { ...insert, values: { ...insert.values, [column]: value } };
+      }
       return { tables: { ...state.tables, [scope]: { ...table, inserts } } };
     }),
 
