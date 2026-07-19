@@ -269,35 +269,26 @@ pub async fn apply_write_queue(
 async fn apply_transactional(pool: &DbPool, sqls: &[String]) -> Result<ApplyResult, String> {
     let total = sqls.len();
 
+    macro_rules! run_tx {
+        ($pool:expr) => {{
+            let mut tx = $pool.begin().await.map_err(|e| e.to_string())?;
+            for (i, sql) in sqls.iter().enumerate() {
+                if let Err(e) = sqlx::query(sql).execute(&mut *tx).await {
+                    tx.rollback().await.ok();
+                    return Ok(ApplyResult {
+                        applied: vec![],
+                        failed: Some((i, e.to_string())),
+                        not_attempted: ((i + 1)..total).collect(),
+                    });
+                }
+            }
+            tx.commit().await.map_err(|e| e.to_string())?;
+        }};
+    }
+
     match pool {
-        DbPool::Postgres(pg) => {
-            let mut tx = pg.begin().await.map_err(|e| e.to_string())?;
-            for (i, sql) in sqls.iter().enumerate() {
-                if let Err(e) = sqlx::query(sql).execute(&mut *tx).await {
-                    tx.rollback().await.ok();
-                    return Ok(ApplyResult {
-                        applied: vec![],
-                        failed: Some((i, e.to_string())),
-                        not_attempted: ((i + 1)..total).collect(),
-                    });
-                }
-            }
-            tx.commit().await.map_err(|e| e.to_string())?;
-        }
-        DbPool::MySql(mysql) => {
-            let mut tx = mysql.begin().await.map_err(|e| e.to_string())?;
-            for (i, sql) in sqls.iter().enumerate() {
-                if let Err(e) = sqlx::query(sql).execute(&mut *tx).await {
-                    tx.rollback().await.ok();
-                    return Ok(ApplyResult {
-                        applied: vec![],
-                        failed: Some((i, e.to_string())),
-                        not_attempted: ((i + 1)..total).collect(),
-                    });
-                }
-            }
-            tx.commit().await.map_err(|e| e.to_string())?;
-        }
+        DbPool::Postgres(pg) => run_tx!(pg),
+        DbPool::MySql(mysql) => run_tx!(mysql),
     }
 
     Ok(ApplyResult {
