@@ -10,9 +10,7 @@ import { ContentArea } from "./ContentArea";
 import { RowInspector } from "./RowInspector";
 import { useHotkeys } from "react-hotkeys-hook";
 import type { Tab } from "../../types/database";
-import { buildRowIdentity } from "../../types/write-queue";
-import { useWriteQueueStore } from "../../stores/write-queue.store";
-import { useApplyWriteQueue, useCopySql } from "../../hooks/useWriteQueue";
+import { useWriteQueueActions } from "../../hooks/useWriteQueueActions";
 
 type TabState = { tabs: Tab[]; activeTabId: string | null };
 const EMPTY_TAB_STATE: TabState = { tabs: [], activeTabId: null };
@@ -143,11 +141,11 @@ export function DashboardLayout() {
   // Write queue shortcuts
   useHotkeys("meta+s", (e) => {
     e.preventDefault();
-    handleApply();
+    wq.handleApply();
   });
   useHotkeys("meta+shift+s", (e) => {
     e.preventDefault();
-    handleCopySql();
+    wq.handleCopySql();
   });
 
   const handleRowClick = (index: number) => {
@@ -196,81 +194,8 @@ export function DashboardLayout() {
   // ── Write Queue ──────────────────────────────────────────────────────────
   const scopeKey =
     databaseKey !== "__none__" && activeTableName ? `${databaseKey}::${activeTableName}` : null;
-  const hasPrimaryKey = columns.some((c) => c.isPrimary);
 
-  const {
-    stageUpdate,
-    stageDelete,
-    stageInsert,
-    unstageRow,
-    updateInsert,
-    removeInsert,
-    clearTable,
-    getChanges,
-    getChangeCount,
-    getInserts,
-  } = useWriteQueueStore();
-
-  const changeCount = scopeKey ? getChangeCount(scopeKey) : 0;
-  const insertedRows = scopeKey ? getInserts(scopeKey) : [];
-
-  const applyMutation = useApplyWriteQueue();
-  const copySqlMutation = useCopySql();
-
-  const handleCellEdit = (rowIndex: number, column: string, oldValue: unknown, newValue: unknown) => {
-    if (!scopeKey || !queryResult) return;
-    const row = queryResult.rows[rowIndex];
-    if (!row) return;
-    const identity = buildRowIdentity(row, queryResult.columns);
-    if (!identity) return;
-    stageUpdate(scopeKey, identity, [{ column, oldValue, newValue }]);
-  };
-
-  const handleInsertCellEdit = (insertIndex: number, column: string, value: unknown) => {
-    if (!scopeKey) return;
-    updateInsert(scopeKey, insertIndex, column, value);
-  };
-
-  const handleDeleteRow = (rowIndex: number) => {
-    if (!scopeKey || !queryResult) return;
-    const row = queryResult.rows[rowIndex];
-    if (!row) return;
-    const identity = buildRowIdentity(row, queryResult.columns);
-    if (!identity) return;
-    stageDelete(scopeKey, identity);
-  };
-
-  const handleUndoDeleteRow = (rowIndex: number) => {
-    if (!scopeKey || !queryResult) return;
-    const row = queryResult.rows[rowIndex];
-    if (!row) return;
-    const identity = buildRowIdentity(row, queryResult.columns);
-    if (!identity) return;
-    unstageRow(scopeKey, identity);
-  };
-
-  const handleAddRow = () => {
-    if (!scopeKey) return;
-    stageInsert(scopeKey, {});
-  };
-
-  const handleReset = () => {
-    if (scopeKey) clearTable(scopeKey);
-  };
-
-  const handleApply = () => {
-    if (!scopeKey || !connectionId || !activeTableName) return;
-    const changes = getChanges(scopeKey);
-    if (changes.length === 0) return;
-    applyMutation.mutate({ connectionId, table: activeTableName, changes, scopeKey });
-  };
-
-  const handleCopySql = () => {
-    if (!scopeKey || !connectionId || !activeTableName) return;
-    const changes = getChanges(scopeKey);
-    if (changes.length === 0) return;
-    copySqlMutation.mutate({ connectionId, table: activeTableName, changes });
-  };
+  const wq = useWriteQueueActions(scopeKey, connectionId, activeTableName, queryResult);
 
   if (!connection) return null;
 
@@ -287,7 +212,7 @@ export function DashboardLayout() {
         sidebarOpen={sidebarOpen}
         onToggleSidebar={() => setSidebarOpen((v) => !v)}
         onDisconnect={handleDisconnect}
-        onAddRow={handleAddRow}
+        onAddRow={wq.handleAddRow}
       />
 
       {/* Body */}
@@ -316,19 +241,7 @@ export function DashboardLayout() {
           selectedRowIndex={selectedRowIndex}
           onRowClick={handleRowClick}
           onInspectRow={handleInspectRow}
-          hasPrimaryKey={hasPrimaryKey}
-          scopeKey={scopeKey}
-          changeCount={changeCount}
-          insertedRows={insertedRows}
-          onCellEdit={handleCellEdit}
-          onInsertCellEdit={handleInsertCellEdit}
-          onRemoveInsert={(insertIndex) => { if (scopeKey) removeInsert(scopeKey, insertIndex); }}
-          onDeleteRow={handleDeleteRow}
-          onUndoDeleteRow={handleUndoDeleteRow}
-          onReset={handleReset}
-          onApply={handleApply}
-          onCopySql={handleCopySql}
-          isApplying={applyMutation.isPending}
+          wq={wq}
         />
 
         {/* Row Inspector */}

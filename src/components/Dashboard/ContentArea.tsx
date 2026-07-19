@@ -2,8 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { RowContextMenu } from "./RowContextMenu";
 import { useReactTable, getCoreRowModel, flexRender, type ColumnDef } from "@tanstack/react-table";
 import type { ColumnInfo, FilterOperator, FilterRow, QueryResult, Tab } from "../../types/database";
-import type { PendingChange } from "../../types/write-queue";
-import { buildRowIdentity } from "../../types/write-queue";
+import type { WriteQueueActions } from "../../hooks/useWriteQueueActions";
 import { KeyIcon } from "./icons";
 import { Button } from "@heroui/react";
 import {
@@ -23,7 +22,8 @@ import { parseEditValue } from "../../lib/parseValue";
 import { SqlEditor, type SqlEditorCommands } from "./SqlEditor";
 import Cell from "./Cell";
 import { WriteQueueFooter } from "./WriteQueueFooter";
-import { useWriteQueueStore } from "../../stores/write-queue.store";
+
+const ROW_NUMBER_COL = "__row_number";
 
 // ── Single floating cell editor (only 1 instance in the DOM) ─────────────────
 
@@ -272,12 +272,7 @@ interface DataGridProps {
   onRowContextMenu: (index: number, x: number, y: number) => void;
   isLoading: boolean;
   activeTable: string | null;
-  hasPrimaryKey: boolean;
-  scopeKey: string | null;
-  onCellEdit: (rowIndex: number, column: string, oldValue: unknown, newValue: unknown) => void;
-  insertedRows: PendingChange[];
-  onInsertCellEdit: (insertIndex: number, column: string, value: unknown) => void;
-  onRemoveInsert: (insertIndex: number) => void;
+  wq: WriteQueueActions;
 }
 
 function DataGrid({
@@ -288,12 +283,7 @@ function DataGrid({
   onRowContextMenu,
   isLoading,
   activeTable,
-  hasPrimaryKey,
-  scopeKey,
-  onCellEdit,
-  insertedRows,
-  onInsertCellEdit,
-  onRemoveInsert,
+  wq,
 }: DataGridProps) {
   const [editingCell, setEditingCell] = useState<{
     rowIndex: number;
@@ -303,18 +293,16 @@ function DataGrid({
   } | null>(null);
 
   // Pre-compute dirty/deleted state once per render — avoids per-cell buildRowIdentity + store lookups
-  const tableChanges = useWriteQueueStore((s) => (scopeKey ? s.tables[scopeKey] : undefined));
-
   const { rowKindMap, cellDirtyMap } = useMemo(() => {
     const rk = new Map<number, "Update" | "Delete">();
     const cd = new Map<string, { newValue: unknown }>();
-    if (!tableChanges || !scopeKey || !hasPrimaryKey) return { rowKindMap: rk, cellDirtyMap: cd };
+    if (!wq.tableChanges || !wq.scopeKey || !wq.hasPrimaryKey) return { rowKindMap: rk, cellDirtyMap: cd };
 
     const pkCols = colInfos.filter((c) => c.isPrimary);
     if (pkCols.length === 0) return { rowKindMap: rk, cellDirtyMap: cd };
 
     // Build a reverse map: identityKey -> change
-    const changesMap = tableChanges.changes;
+    const changesMap = wq.tableChanges.changes;
 
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
@@ -333,7 +321,7 @@ function DataGrid({
       }
     }
     return { rowKindMap: rk, cellDirtyMap: cd };
-  }, [tableChanges, scopeKey, hasPrimaryKey, colInfos, rows]);
+  }, [wq.tableChanges, wq.scopeKey, wq.hasPrimaryKey, colInfos, rows]);
 
   const commitEdit = (rawValue: string) => {
     if (!editingCell) return;
@@ -348,29 +336,29 @@ function DataGrid({
 
     if (isInsert) {
       if (rawValue === "" && colInfo.hasDefault) {
-        onInsertCellEdit(rowIndex, column, undefined);
+        wq.handleInsertCellEdit(rowIndex, column, undefined);
       } else {
-        onInsertCellEdit(rowIndex, column, parsed);
+        wq.handleInsertCellEdit(rowIndex, column, parsed);
       }
     } else {
       const originalValue = rows[rowIndex]?.[column];
       if (JSON.stringify(parsed) !== JSON.stringify(originalValue)) {
-        onCellEdit(rowIndex, column, originalValue, parsed);
+        wq.handleCellEdit(rowIndex, column, originalValue, parsed);
       }
     }
     setEditingCell(null);
   };
 
   const startEdit = (rowIndex: number, column: string, isInsert?: boolean) => {
-    if (!isInsert && !hasPrimaryKey) return;
-    if (column === "__row_number") return;
+    if (!isInsert && !wq.hasPrimaryKey) return;
+    if (column === ROW_NUMBER_COL) return;
     if (!isInsert && rowKindMap.get(rowIndex) === "Delete") return;
     const col = colInfos.find((c) => c.name === column);
     if (isInsert && col?.hasDefault && col.isPrimary) return;
 
     const currentValue = isInsert
-      ? insertedRows[rowIndex]?.kind === "Insert"
-        ? insertedRows[rowIndex].values[column]
+      ? wq.insertedRows[rowIndex]?.kind === "Insert"
+        ? wq.insertedRows[rowIndex].values[column]
         : undefined
       : rows[rowIndex]?.[column];
 
@@ -401,7 +389,7 @@ function DataGrid({
   const columns = useMemo<ColumnDef<Record<string, unknown>>[]>(
     () => [
       {
-        id: "__row_number",
+        id: ROW_NUMBER_COL,
         size: 52,
         minSize: 52,
         enableResizing: false,
@@ -539,12 +527,12 @@ function DataGrid({
               >
                 {row.getVisibleCells().map((cell) => {
                   const colId = cell.column.id;
-                  const dirty = colId !== "__row_number" ? cellDirtyMap.get(`${i}::${colId}`) : undefined;
+                  const dirty = colId !== ROW_NUMBER_COL ? cellDirtyMap.get(`${i}::${colId}`) : undefined;
 
                   return (
                     <td
                       key={cell.id}
-                      data-cell={colId !== "__row_number" ? `${i}::${colId}` : undefined}
+                      data-cell={colId !== ROW_NUMBER_COL ? `${i}::${colId}` : undefined}
                       className={`border-b-hairline overflow-hidden whitespace-nowrap px-[14px]${dirty ? "" : " cell-hoverable"}`}
                       style={dirty ? dirtyStyle : undefined}
                     >
@@ -562,7 +550,7 @@ function DataGrid({
           })}
 
           {/* Inserted rows (pending) */}
-          {insertedRows.map((insert, insertIdx) => {
+          {wq.insertedRows.map((insert, insertIdx) => {
             if (insert.kind !== "Insert") return null;
             return (
               <tr
@@ -574,7 +562,7 @@ function DataGrid({
                 <td className="border-b-hairline px-[14px] overflow-hidden whitespace-nowrap">
                   <button
                     className="insert-row-btn font-mono text-[11px] select-none"
-                    onClick={(e) => { e.stopPropagation(); onRemoveInsert(insertIdx); }}
+                    onClick={(e) => { e.stopPropagation(); wq.handleRemoveInsert(insertIdx); }}
                   >
                     <span className="insert-plus text-success">+</span>
                     <span className="insert-minus text-danger hidden">&minus;</span>
@@ -609,7 +597,7 @@ function DataGrid({
             );
           })}
 
-          {rows.length === 0 && insertedRows.length === 0 && (
+          {rows.length === 0 && wq.insertedRows.length === 0 && (
             <tr>
               <td colSpan={colInfos.length + 1} className="text-center py-12 text-sm text-muted">
                 No rows
@@ -677,12 +665,7 @@ function PillTabBar<T extends string>({ tabs, active, onChange }: PillTabBarProp
 const STRUCTURE_TABS = ["Columns", "Indexes", "Foreign Keys", "DDL"] as const;
 type StructureTabType = (typeof STRUCTURE_TABS)[number];
 
-interface StructurePanelProps {
-  columns: ColumnInfo[];
-  activeTable: string | null;
-}
-
-function StructurePanel({ activeTable }: StructurePanelProps) {
+function StructurePanel({ activeTable }: { activeTable: string | null }) {
   const [activeTab, setActiveTab] = useState<StructureTabType>("Columns");
 
   if (!activeTable) {
@@ -727,20 +710,7 @@ interface ContentAreaProps {
   selectedRowIndex: number | null;
   onRowClick: (index: number) => void;
   onInspectRow: (index: number) => void;
-  // Write queue props
-  hasPrimaryKey: boolean;
-  scopeKey: string | null;
-  changeCount: number;
-  insertedRows: PendingChange[];
-  onCellEdit: (rowIndex: number, column: string, oldValue: unknown, newValue: unknown) => void;
-  onInsertCellEdit: (insertIndex: number, column: string, value: unknown) => void;
-  onRemoveInsert: (insertIndex: number) => void;
-  onDeleteRow: (rowIndex: number) => void;
-  onUndoDeleteRow: (rowIndex: number) => void;
-  onReset: () => void;
-  onApply: () => void;
-  onCopySql: () => void;
-  isApplying: boolean;
+  wq: WriteQueueActions;
 }
 
 export function ContentArea({
@@ -755,19 +725,7 @@ export function ContentArea({
   selectedRowIndex,
   onRowClick,
   onInspectRow,
-  hasPrimaryKey,
-  scopeKey,
-  changeCount,
-  insertedRows,
-  onCellEdit,
-  onInsertCellEdit,
-  onRemoveInsert,
-  onDeleteRow,
-  onUndoDeleteRow,
-  onReset,
-  onApply,
-  onCopySql,
-  isApplying,
+  wq,
 }: ContentAreaProps) {
   const activeTab = openTabs.find((t) => t.id === activeTabId) ?? null;
   const isQueryTab = activeTab?.type === "query";
@@ -880,12 +838,7 @@ export function ContentArea({
             onRowContextMenu={(index, x, y) => setContextMenu({ rowIndex: index, x, y })}
             isLoading={isLoading}
             activeTable={activeTableName}
-            hasPrimaryKey={hasPrimaryKey}
-            scopeKey={scopeKey}
-            onCellEdit={onCellEdit}
-            insertedRows={insertedRows}
-            onInsertCellEdit={onInsertCellEdit}
-            onRemoveInsert={onRemoveInsert}
+            wq={wq}
           />
           {contextMenu && (
             <RowContextMenu
@@ -896,25 +849,18 @@ export function ContentArea({
                 setContextMenu(null);
               }}
               onDeleteRow={
-                hasPrimaryKey
+                wq.hasPrimaryKey
                   ? () => {
-                      onDeleteRow(contextMenu.rowIndex);
+                      wq.handleDeleteRow(contextMenu.rowIndex);
                       setContextMenu(null);
                     }
                   : undefined
               }
-              isRowDeleted={(() => {
-                if (!scopeKey || !hasPrimaryKey) return false;
-                const row = rows[contextMenu.rowIndex];
-                if (!row) return false;
-                const identity = buildRowIdentity(row, columns);
-                if (!identity) return false;
-                return useWriteQueueStore.getState().getRowChangeKind(scopeKey, identity) === "Delete";
-              })()}
+              isRowDeleted={wq.isRowDeleted(contextMenu.rowIndex)}
               onUndoDelete={
-                hasPrimaryKey
+                wq.hasPrimaryKey
                   ? () => {
-                      onUndoDeleteRow(contextMenu.rowIndex);
+                      wq.handleUndoDeleteRow(contextMenu.rowIndex);
                       setContextMenu(null);
                     }
                   : undefined
@@ -924,17 +870,17 @@ export function ContentArea({
           )}
         </>
       ) : (
-        <StructurePanel columns={columns} activeTable={activeTableName} />
+        <StructurePanel activeTable={activeTableName} />
       )}
 
       {/* Write queue footer — only when there are pending changes */}
-      {!isQueryTab && changeCount > 0 && (
+      {!isQueryTab && wq.changeCount > 0 && (
         <WriteQueueFooter
-          changeCount={changeCount}
-          onReset={onReset}
-          onApply={onApply}
-          onCopySql={onCopySql}
-          isApplying={isApplying}
+          changeCount={wq.changeCount}
+          onReset={wq.handleReset}
+          onApply={wq.handleApply}
+          onCopySql={wq.handleCopySql}
+          isApplying={wq.isApplying}
         />
       )}
 
