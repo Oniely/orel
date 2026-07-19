@@ -277,6 +277,7 @@ interface DataGridProps {
   onCellEdit: (rowIndex: number, column: string, oldValue: unknown, newValue: unknown) => void;
   insertedRows: PendingChange[];
   onInsertCellEdit: (insertIndex: number, column: string, value: unknown) => void;
+  onRemoveInsert: (insertIndex: number) => void;
 }
 
 function DataGrid({
@@ -292,6 +293,7 @@ function DataGrid({
   onCellEdit,
   insertedRows,
   onInsertCellEdit,
+  onRemoveInsert,
 }: DataGridProps) {
   const [editingCell, setEditingCell] = useState<{
     rowIndex: number;
@@ -568,9 +570,15 @@ function DataGrid({
                 className="cursor-pointer h-10"
                 style={insertRowStyle}
               >
-                {/* Row number cell */}
+                {/* Row number cell — shows + by default, − on hover to remove */}
                 <td className="border-b-hairline px-[14px] overflow-hidden whitespace-nowrap">
-                  <span className="font-mono text-[11px] text-success select-none">+</span>
+                  <button
+                    className="insert-row-btn font-mono text-[11px] select-none"
+                    onClick={(e) => { e.stopPropagation(); onRemoveInsert(insertIdx); }}
+                  >
+                    <span className="insert-plus text-success">+</span>
+                    <span className="insert-minus text-danger hidden">&minus;</span>
+                  </button>
                 </td>
                 {/* Data cells */}
                 {colInfos.map((c) => {
@@ -726,6 +734,7 @@ interface ContentAreaProps {
   insertedRows: PendingChange[];
   onCellEdit: (rowIndex: number, column: string, oldValue: unknown, newValue: unknown) => void;
   onInsertCellEdit: (insertIndex: number, column: string, value: unknown) => void;
+  onRemoveInsert: (insertIndex: number) => void;
   onDeleteRow: (rowIndex: number) => void;
   onUndoDeleteRow: (rowIndex: number) => void;
   onReset: () => void;
@@ -752,6 +761,7 @@ export function ContentArea({
   insertedRows,
   onCellEdit,
   onInsertCellEdit,
+  onRemoveInsert,
   onDeleteRow,
   onUndoDeleteRow,
   onReset,
@@ -875,6 +885,7 @@ export function ContentArea({
             onCellEdit={onCellEdit}
             insertedRows={insertedRows}
             onInsertCellEdit={onInsertCellEdit}
+            onRemoveInsert={onRemoveInsert}
           />
           {contextMenu && (
             <RowContextMenu

@@ -126,6 +126,9 @@
   background: color-mix(in oklch, var(--foreground) 4%, transparent);
 }
 
+.insert-row-btn:hover .insert-plus { display: none; }
+.insert-row-btn:hover .insert-minus { display: inline; }
+
 .db-select {
   appearance: none;
   background: transparent;

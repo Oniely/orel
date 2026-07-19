@@ -204,6 +204,7 @@ export function DashboardLayout() {
     stageInsert,
     unstageRow,
     updateInsert,
+    removeInsert,
     clearTable,
     getChanges,
     getChangeCount,
@@ -321,6 +322,7 @@ export function DashboardLayout() {
           insertedRows={insertedRows}
           onCellEdit={handleCellEdit}
           onInsertCellEdit={handleInsertCellEdit}
+          onRemoveInsert={(insertIndex) => { if (scopeKey) removeInsert(scopeKey, insertIndex); }}
           onDeleteRow={handleDeleteRow}
           onUndoDeleteRow={handleUndoDeleteRow}
           onReset={handleReset}
