@@ -711,6 +711,7 @@ interface ContentAreaProps {
   onRowClick: (index: number) => void;
   onInspectRow: (index: number) => void;
   wq: WriteQueueActions;
+  showInspector: boolean;
 }
 
 export function ContentArea({
@@ -726,6 +727,7 @@ export function ContentArea({
   onRowClick,
   onInspectRow,
   wq,
+  showInspector,
 }: ContentAreaProps) {
   const activeTab = openTabs.find((t) => t.id === activeTabId) ?? null;
   const isQueryTab = activeTab?.type === "query";
@@ -874,7 +876,7 @@ export function ContentArea({
       )}
 
       {/* Write queue footer — only when there are pending changes */}
-      {!isQueryTab && wq.changeCount > 0 && (
+      {!isQueryTab && wq.changeCount > 0 && !showInspector && (
         <WriteQueueFooter
           changeCount={wq.changeCount}
           onReset={wq.handleReset}

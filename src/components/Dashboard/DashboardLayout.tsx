@@ -11,6 +11,7 @@ import { RowInspector } from "./RowInspector";
 import { useHotkeys } from "react-hotkeys-hook";
 import type { Tab } from "../../types/database";
 import { useWriteQueueActions } from "../../hooks/useWriteQueueActions";
+import { toast } from "@heroui/react";
 
 type TabState = { tabs: Tab[]; activeTabId: string | null };
 const EMPTY_TAB_STATE: TabState = { tabs: [], activeTabId: null };
@@ -141,7 +142,11 @@ export function DashboardLayout() {
   // Write queue shortcuts
   useHotkeys("meta+s", (e) => {
     e.preventDefault();
-    wq.handleApply();
+    if (showInspector && selectedRowIndex !== null) {
+      wq.handleApplyRow(selectedRowIndex).then((applied) => { if (applied) toast.success("Row saved"); });
+    } else {
+      wq.handleApply();
+    }
   });
   useHotkeys("meta+shift+s", (e) => {
     e.preventDefault();
@@ -242,6 +247,7 @@ export function DashboardLayout() {
           onRowClick={handleRowClick}
           onInspectRow={handleInspectRow}
           wq={wq}
+          showInspector={showInspector}
         />
 
         {/* Row Inspector */}
@@ -254,6 +260,7 @@ export function DashboardLayout() {
             onPrev={() => setSelectedRowIndex((i) => Math.max(0, (i ?? 0) - 1))}
             onNext={() => setSelectedRowIndex((i) => Math.min(rows.length - 1, (i ?? 0) + 1))}
             onClose={() => setShowInspector(false)}
+            wq={wq}
           />
         )}
       </div>

@@ -27,6 +27,7 @@ interface WriteQueueStore {
   getChanges: (scope: string) => PendingChange[];
   getInserts: (scope: string) => PendingChange[];
   getChangeCount: (scope: string) => number;
+  getRowChanges: (scope: string, identity: RowIdentity) => PendingChange[];
   getRowChangeKind: (scope: string, identity: RowIdentity) => "Update" | "Delete" | null;
   getCellChange: (scope: string, identity: RowIdentity, column: string) => ColumnChange | undefined;
 }
@@ -160,6 +161,13 @@ export const useWriteQueueStore = create<WriteQueueStore>((set, get) => ({
     const table = get().tables[scope];
     if (!table) return 0;
     return table.changes.size + table.inserts.length;
+  },
+
+  getRowChanges: (scope, identity) => {
+    const table = get().tables[scope];
+    if (!table) return [];
+    const change = table.changes.get(identityKey(identity));
+    return change ? [change] : [];
   },
 
   getRowChangeKind: (scope, identity) => {

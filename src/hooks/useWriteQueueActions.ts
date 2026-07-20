@@ -2,7 +2,7 @@ import type { QueryResult } from "../types/database";
 import type { PendingChange } from "../types/write-queue";
 import { buildRowIdentity } from "../types/write-queue";
 import { useWriteQueueStore } from "../stores/write-queue.store";
-import { useApplyWriteQueue, useCopySql } from "./useWriteQueue";
+import { useApplyWriteQueue, useApplyRowChanges, useCopySql } from "./useWriteQueue";
 
 const EMPTY_INSERTS: PendingChange[] = [];
 
@@ -13,6 +13,7 @@ export function useWriteQueueActions(
   queryResult: QueryResult | null,
 ) {
   const applyMutation = useApplyWriteQueue();
+  const applyRowMutation = useApplyRowChanges();
   const copySqlMutation = useCopySql();
 
   // Derived state
@@ -67,6 +68,21 @@ export function useWriteQueueActions(
     useWriteQueueStore.getState().stageInsert(scopeKey, {});
   };
 
+  const handleApplyRow = async (rowIndex: number): Promise<boolean> => {
+    if (!scopeKey || !connectionId || !activeTableName) return false;
+    const identity = getIdentity(rowIndex);
+    if (!identity) return false;
+    const rowChanges = useWriteQueueStore.getState().getRowChanges(scopeKey, identity);
+    if (rowChanges.length === 0) return false;
+    await applyRowMutation.mutateAsync({
+      connectionId,
+      table: activeTableName,
+      changes: rowChanges,
+    });
+    useWriteQueueStore.getState().unstageRow(scopeKey, identity);
+    return true;
+  };
+
   const handleReset = () => {
     if (!scopeKey) return;
     useWriteQueueStore.getState().clearTable(scopeKey);
@@ -100,12 +116,14 @@ export function useWriteQueueActions(
     insertedRows,
     tableChanges,
     isApplying: applyMutation.isPending,
+    isApplyingRow: applyRowMutation.isPending,
     handleCellEdit,
     handleDeleteRow,
     handleUndoDeleteRow,
     handleInsertCellEdit,
     handleRemoveInsert,
     handleAddRow,
+    handleApplyRow,
     handleReset,
     handleApply,
     handleCopySql,

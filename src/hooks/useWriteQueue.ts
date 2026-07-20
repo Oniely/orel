@@ -50,6 +50,26 @@ export function useApplyWriteQueue() {
   });
 }
 
+export function useApplyRowChanges() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (input: { connectionId: string; table: string; changes: PendingChange[] }) =>
+      invoke<ApplyResult>("apply_write_queue", {
+        connectionId: input.connectionId,
+        table: input.table,
+        changes: input.changes,
+      }),
+    onSuccess: (_result, input) => {
+      queryClient.invalidateQueries({ queryKey: ["rows", input.connectionId, input.table] });
+      queryClient.invalidateQueries({ queryKey: ["tables", input.connectionId] });
+    },
+    onError: (error) => {
+      toast.danger(error instanceof Error ? error.message : "Failed to apply row changes");
+    },
+  });
+}
+
 interface CopySqlInput {
   connectionId: string;
   table: string;
