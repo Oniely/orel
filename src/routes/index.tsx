@@ -59,7 +59,14 @@ function ConnectionManager() {
                 : `${savedConnections.length} connection${savedConnections.length !== 1 ? "s" : ""}`}
             </p>
           </div>
-          <Button size="sm" variant="outline" onPress={() => { setEditingConnection(null); setModalOpen(true); }}>
+          <Button
+            size="sm"
+            variant="outline"
+            onPress={() => {
+              setEditingConnection(null);
+              setModalOpen(true);
+            }}
+          >
             <svg
               className="w-3.5 h-3.5 mr-1"
               viewBox="0 0 24 24"
@@ -123,7 +130,14 @@ function ConnectionManager() {
         )}
       </div>
 
-      <ConnectionModal isOpen={modalOpen} onClose={handleCloseModal} connection={editingConnection ?? undefined} />
+      {modalOpen && (
+        <ConnectionModal
+          key={editingConnection?.id ?? "new"}
+          isOpen={modalOpen}
+          onClose={handleCloseModal}
+          connection={editingConnection ?? undefined}
+        />
+      )}
     </div>
   );
 }

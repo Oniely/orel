@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef } from "react";
 import { useForm, Controller } from "react-hook-form";
 import { standardSchemaResolver } from "@hookform/resolvers/standard-schema";
 import { Modal, Button, TextField, Label, Input, FieldError, Select, ListBox, Switch, Spinner } from "@heroui/react";
@@ -36,12 +36,6 @@ export function ConnectionModal({ isOpen, onClose, connection }: ConnectionModal
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
   const testResultRef = useRef<HTMLParagraphElement>(null);
 
-  useEffect(() => {
-    if (testResult) {
-      testResultRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
-    }
-  }, [testResult]);
-
   const saveConnection = useSaveConnection();
   const updateConnection = useUpdateConnection();
   const testConnection = useTestConnection();
@@ -56,18 +50,8 @@ export function ConnectionModal({ isOpen, onClose, connection }: ConnectionModal
     formState: { isSubmitting },
   } = useForm<ConnectionFormData>({
     resolver: standardSchemaResolver(connectionSchema),
-    defaultValues: {
-      type: "postgres",
-      host: "localhost",
-      port: 5432,
-      ssl: false,
-    },
-  });
-
-  useEffect(() => {
-    if (isOpen) {
-      if (connection) {
-        reset({
+    defaultValues: connection
+      ? {
           name: connection.name,
           type: connection.type as DbType,
           host: connection.host,
@@ -76,21 +60,14 @@ export function ConnectionModal({ isOpen, onClose, connection }: ConnectionModal
           password: connection.password,
           ssl: Boolean(connection.ssl),
           defaultDatabase: connection.defaultDatabase ?? undefined,
-        });
-      } else {
-        reset({
-          name: "",
+        }
+      : {
           type: "postgres",
           host: "localhost",
           port: 5432,
-          username: "",
-          password: "",
           ssl: false,
-          defaultDatabase: "",
-        });
-      }
-    }
-  }, [isOpen, connection, reset]);
+        },
+  });
 
   const dbType = watch("type");
 
@@ -150,6 +127,10 @@ export function ConnectionModal({ isOpen, onClose, connection }: ConnectionModal
         message: err instanceof Error ? err.message : "Connection failed",
       });
     }
+    // Wait for React to render the result element, then scroll to it
+    requestAnimationFrame(() => {
+      testResultRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    });
   };
 
   const handleSave = async (data: ConnectionFormData) => {

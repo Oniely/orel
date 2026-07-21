@@ -24,13 +24,6 @@ export function DashboardLayout() {
   const { focusedConnectionId, activeConnections } = useConnectionStore();
   const connection = focusedConnectionId ? activeConnections[focusedConnectionId] : null;
 
-  // Redirect if no active connection
-  useEffect(() => {
-    if (!connection) {
-      navigate({ to: "/" });
-    }
-  }, [connection, navigate]);
-
   // Tab State - Record Map
   const [tabState, setTabState] = useState<Record<string, TabState>>({});
 

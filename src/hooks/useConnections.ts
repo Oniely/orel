@@ -1,4 +1,3 @@
-import { useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { invoke } from "@tauri-apps/api/core";
 import { toast } from "@heroui/react";
@@ -111,19 +110,16 @@ export function useConnect() {
 export function useListDatabases(connectionId: string | null, enabled = true) {
   const updateActiveConnection = useConnectionStore((s) => s.updateActiveConnection);
 
-  const query = useQuery({
+  return useQuery({
     queryKey: ["databases", connectionId],
-    queryFn: () => invoke<string[]>("list_databases", { connectionId: connectionId! }),
+    queryFn: async () => {
+      const databases = await invoke<string[]>("list_databases", { connectionId: connectionId! });
+      updateActiveConnection(connectionId!, { databases });
+      return databases;
+    },
     enabled: !!connectionId && enabled,
     staleTime: 30_000,
   });
-
-  useEffect(() => {
-    if (!connectionId || !query.data) return;
-    updateActiveConnection(connectionId, { databases: query.data });
-  }, [connectionId, query.data, updateActiveConnection]);
-
-  return query;
 }
 
 // Disconnect from a server and clean up
