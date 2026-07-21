@@ -201,17 +201,25 @@ function HoldToDeleteButton({ onDelete, isDisabled }: HoldToDeleteButtonProps) {
   const p = phase === "deleting" ? 1 : progress;
 
   // Per-tile scale: staggered cascade — each tile starts filling at a different time
-  const tileScales = TILE_ORDER.map(
-    (ord) => Math.max(0, Math.min(1, (p - ord * 0.09) / 0.22)),
-  );
+  const tileScales = TILE_ORDER.map((ord) => Math.max(0, Math.min(1, (p - ord * 0.09) / 0.22)));
 
-  const tooltipContent = holding
-    ? progress >= 1
-      ? <span>Release to delete<br /><span className="text-muted" style={{ fontSize: 10 }}>Hover outside to cancel</span></span>
-      : "Keep holding..."
-    : phase === "deleting"
-      ? "Deleting..."
-      : "Hold to delete";
+  const tooltipContent = holding ? (
+    progress >= 1 ? (
+      <span>
+        Release to delete
+        <br />
+        <span className="text-muted" style={{ fontSize: 10 }}>
+          Hover outside to cancel
+        </span>
+      </span>
+    ) : (
+      "Keep holding..."
+    )
+  ) : phase === "deleting" ? (
+    "Deleting..."
+  ) : (
+    "Hold to delete"
+  );
 
   const tooltipOpen = holding ? true : phase === "canceling" || phase === "deleting" ? false : undefined;
 
@@ -296,6 +304,10 @@ export function RowInspector({ row, columns, rowIndex, totalRows, onPrev, onNext
   };
 
   useHotkeys("esc", () => onClose());
+  useHotkeys("up", () => onPrev());
+  useHotkeys("left", () => onPrev());
+  useHotkeys("right", () => onNext());
+  useHotkeys("down", () => onNext());
 
   const iKey = useMemo(() => {
     if (!row) return null;
@@ -413,10 +425,7 @@ export function RowInspector({ row, columns, rowIndex, totalRows, onPrev, onNext
         >
           {wq.isApplyingRow ? "Saving..." : "Save changes"}
         </Button>
-        <HoldToDeleteButton
-          onDelete={handleDelete}
-          isDisabled={!wq.hasPrimaryKey}
-        />
+        <HoldToDeleteButton onDelete={handleDelete} isDisabled={!wq.hasPrimaryKey} />
       </div>
     </div>
   );
