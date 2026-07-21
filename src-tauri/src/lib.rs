@@ -10,7 +10,7 @@ use commands::query::{fetch_rows, list_tables};
 use commands::write_queue::{apply_write_queue, generate_sql};
 use sqlx::SqlitePool;
 use tauri::{
-    menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder},
+    menu::{AboutMetadata, Menu, MenuItemBuilder, SubmenuBuilder},
     Emitter, Manager,
 };
 
@@ -21,32 +21,52 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             // ── Native menu bar ────────────────────────────────────────────
+            // Start with the default OS menu (Edit, View, Window all work natively)
+            let menu = Menu::default(app.handle())?;
+
+            // Build a custom app submenu with Settings added
             let settings_item = MenuItemBuilder::with_id("settings", "Settings")
                 .accelerator("CmdOrCtrl+,")
                 .build(app)?;
 
+            let refresh_item = MenuItemBuilder::with_id("refresh", "Refresh")
+                .accelerator("CmdOrCtrl+R")
+                .build(app)?;
+
             let app_submenu = SubmenuBuilder::new(app, "Orel")
-                .item(&PredefinedMenuItem::about(app, Some("About Orel"), None)?)
+                .about(Some(AboutMetadata::default()))
                 .separator()
                 .item(&settings_item)
                 .separator()
-                .item(&PredefinedMenuItem::quit(app, Some("Quit"))?)
-                .build()?;
-
-            let edit_submenu = SubmenuBuilder::new(app, "Edit")
-                .item(&PredefinedMenuItem::undo(app, None)?)
-                .item(&PredefinedMenuItem::redo(app, None)?)
+                .services()
                 .separator()
-                .item(&PredefinedMenuItem::cut(app, None)?)
-                .item(&PredefinedMenuItem::copy(app, None)?)
-                .item(&PredefinedMenuItem::paste(app, None)?)
-                .item(&PredefinedMenuItem::select_all(app, None)?)
+                .hide()
+                .hide_others()
+                .show_all()
+                .separator()
+                .quit()
                 .build()?;
 
-            let menu = MenuBuilder::new(app)
-                .item(&app_submenu)
-                .item(&edit_submenu)
+            let view_submenu = SubmenuBuilder::new(app, "View")
+                .item(&refresh_item)
                 .build()?;
+
+            // Replace the default app submenu with ours
+            let default_items = menu.items()?;
+            menu.prepend(&view_submenu)?;
+            menu.prepend(&app_submenu)?;
+            if let Some(first_default) = default_items.first() {
+                menu.remove(first_default)?;
+            }
+            // Remove the default View submenu if it exists
+            for item in menu.items()? {
+                if let tauri::menu::MenuItemKind::Submenu(sub) = &item {
+                    if sub.text()? == "View" && sub.id() != view_submenu.id() {
+                        menu.remove(&item)?;
+                        break;
+                    }
+                }
+            }
 
             app.set_menu(menu)?;
 
@@ -55,6 +75,8 @@ pub fn run() {
             app.on_menu_event(move |_app, event| {
                 if event.id() == "settings" {
                     let _ = app_handle.emit("open-settings", ());
+                } else if event.id() == "refresh" {
+                    let _ = app_handle.emit("refresh", ());
                 }
             });
             let app_path = app.path().app_data_dir()?;

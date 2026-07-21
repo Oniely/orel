@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useConnectionStore } from "../../stores/connection.store";
 import { useListDatabases, useSwitchDatabase, useDisconnect } from "../../hooks/useConnections";
@@ -9,6 +9,7 @@ import { Sidebar } from "./Sidebar";
 import { ContentArea } from "./ContentArea";
 import { RowInspector } from "./RowInspector";
 import { useHotkeys } from "react-hotkeys-hook";
+import { listen } from "@tauri-apps/api/event";
 import type { Tab } from "../../types/database";
 import { useWriteQueueActions } from "../../hooks/useWriteQueueActions";
 import { toast } from "@heroui/react";
@@ -53,7 +54,8 @@ export function DashboardLayout() {
   const switchDatabase = useSwitchDatabase();
   const disconnect = useDisconnect();
   const { data: tables = [], isLoading: tablesLoading } = useListTables(connectionId);
-  const { data: queryResult = null, isLoading: rowsLoading } = useFetchRows(connectionId, activeTableName);
+  const { data: queryResult = null, isLoading: rowsInitialLoading, isFetching: rowsFetching } = useFetchRows(connectionId, activeTableName);
+  const rowsLoading = rowsInitialLoading || rowsFetching;
 
   const updateTabState = (updater: (state: TabState) => TabState) =>
     setTabState((prev) => ({
@@ -190,11 +192,17 @@ export function DashboardLayout() {
       });
   };
 
-  const handleRefresh = () => {
-    queryClient.invalidateQueries({ queryKey: ["rows", connectionId, activeTableName] });
-    queryClient.invalidateQueries({ queryKey: ["tables", connectionId] });
-    queryClient.invalidateQueries({ queryKey: ["databases", connectionId] });
-  };
+  const handleRefresh = useCallback(() => {
+    queryClient.refetchQueries({ queryKey: ["rows", connectionId, activeTableName] });
+    queryClient.refetchQueries({ queryKey: ["tables", connectionId] });
+    queryClient.refetchQueries({ queryKey: ["databases", connectionId] });
+  }, [queryClient, connectionId, activeTableName]);
+
+  // Listen for native menu refresh event (Cmd+R)
+  useEffect(() => {
+    const unlisten = listen("refresh", () => handleRefresh());
+    return () => { unlisten.then((fn) => fn()); };
+  }, [handleRefresh]);
 
   const rows = queryResult?.rows ?? [];
   const columns = queryResult?.columns ?? [];
