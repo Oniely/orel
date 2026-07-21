@@ -887,8 +887,8 @@ export function ContentArea({
       )}
 
       {/* Footer */}
-      {!isQueryTab && (
-        <div className="flex items-center justify-between gap-4 px-4.5 border-t border-separator bg-surface shrink-0 font-mono text-muted h-9.5 text-[11px]">
+      {!isQueryTab && activeTableName && (
+        <div className="flex items-center justify-between gap-4 px-4.5 border-t border-separator bg-surface shrink-0 font-mono text-muted py-3.5 text-[11px]">
           {/* View switcher */}
           <PillTabBar tabs={VIEWS} active={activeView} onChange={setActiveView} />
 
