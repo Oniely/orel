@@ -18,6 +18,7 @@ use tauri::{
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             // ── Native menu bar ────────────────────────────────────────────
             let settings_item = MenuItemBuilder::with_id("settings", "Settings")

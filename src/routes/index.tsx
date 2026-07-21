@@ -15,11 +15,13 @@ export const Route = createFileRoute("/")({
 export const DB_COLORS: Record<string, string> = {
   postgres: "#378ADD",
   mysql: "#EF9F27",
+  sqlite: "#59A3D5",
 };
 
 export const DB_LABELS: Record<string, string> = {
   postgres: "PostgreSQL",
   mysql: "MySQL",
+  sqlite: "SQLite",
 };
 const appWindow = getCurrentWindow();
 

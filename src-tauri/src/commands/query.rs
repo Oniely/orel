@@ -37,6 +37,7 @@ pub(crate) fn mysql_quote(name: &str) -> String {
     format!("`{}`", name.replace('`', "``"))
 }
 
+
 fn build_pk_order_clause(columns: &[ColumnInfo], quote_fn: fn(&str) -> String) -> String {
     let pk_cols: Vec<&str> = columns.iter().filter(|c| c.is_primary).map(|c| c.name.as_str()).collect();
     if pk_cols.is_empty() {
@@ -112,6 +113,29 @@ pub async fn list_tables(
                     name,
                     table_type,
                     row_estimate,
+                })
+                .collect())
+        }
+        DbPool::Sqlite(sqlite) => {
+            let rows = sqlx::query_as::<_, (String, String)>(
+                "SELECT name, type FROM sqlite_master \
+                WHERE type IN ('table', 'view') AND name NOT LIKE 'sqlite_%' \
+                ORDER BY type DESC, name",
+            )
+            .fetch_all(&sqlite)
+            .await
+            .map_err(|e| e.to_string())?;
+
+            Ok(rows
+                .into_iter()
+                .map(|(name, obj_type)| TableInfo {
+                    name,
+                    table_type: if obj_type == "view" {
+                        "view".to_string()
+                    } else {
+                        "table".to_string()
+                    },
+                    row_estimate: None,
                 })
                 .collect())
         }
@@ -284,6 +308,68 @@ pub async fn fetch_rows(
                 columns,
                 rows,
                 total_estimate,
+            })
+        }
+        DbPool::Sqlite(sqlite) => {
+            // Column info via pragma_table_info (table-valued function, supports bound params)
+            let col_rows = sqlx::query_as::<_, (i32, String, String, i32, Option<String>, i32)>(
+                "SELECT * FROM pragma_table_info(?)",
+            )
+            .bind(&table)
+            .fetch_all(&sqlite)
+            .await
+            .map_err(|e| e.to_string())?;
+
+            let columns: Vec<ColumnInfo> = col_rows
+                .into_iter()
+                .map(|(_, name, data_type, notnull, dflt_value, pk)| ColumnInfo {
+                    name,
+                    data_type: data_type.to_lowercase(),
+                    is_nullable: notnull == 0,
+                    is_primary: pk > 0,
+                    has_default: dflt_value.is_some(),
+                })
+                .collect();
+
+            if columns.is_empty() {
+                return Ok(QueryResult {
+                    columns,
+                    rows: vec![],
+                    total_estimate: None,
+                });
+            }
+
+            // Build json_object() query
+            let col_refs: String = columns
+                .iter()
+                .map(|c| {
+                    let quoted_col = pg_quote(&c.name);
+                    format!("'{}', {}", c.name.replace('\'', "''"), quoted_col)
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
+            let quoted = pg_quote(&table);
+            let order_clause = build_pk_order_clause(&columns, pg_quote);
+            let row_query = format!(
+                "SELECT json_object({}) FROM {}{} LIMIT ? OFFSET ?",
+                col_refs, quoted, order_clause
+            );
+            let raw: Vec<String> = sqlx::query_scalar(&row_query)
+                .bind(limit)
+                .bind(offset)
+                .fetch_all(&sqlite)
+                .await
+                .map_err(|e| e.to_string())?;
+
+            let rows: Vec<Value> = raw
+                .iter()
+                .filter_map(|s| serde_json::from_str(s).ok())
+                .collect();
+
+            Ok(QueryResult {
+                columns,
+                rows,
+                total_estimate: None,
             })
         }
     }

@@ -44,6 +44,7 @@ pub struct ConnectionConfig {
 pub enum DbPool {
     Postgres(PgPool),
     MySql(MySqlPool),
+    Sqlite(SqlitePool),
 }
 
 // AppState type for Tauri app state, holding database connection pools as well as the app db.
@@ -60,6 +61,7 @@ async fn close_pool(pool: DbPool) {
     match pool {
         DbPool::Postgres(pg) => pg.close().await,
         DbPool::MySql(mysql) => mysql.close().await,
+        DbPool::Sqlite(sqlite) => sqlite.close().await,
     }
 }
 
@@ -91,6 +93,17 @@ async fn create_pool(config: &SavedConnection, database: Option<&str>) -> Result
             .map_err(|e| e.to_string())?;
             Ok(DbPool::MySql(pool))
         }
+        "sqlite" => {
+            use sqlx::sqlite::SqlitePoolOptions;
+
+            let path = database.unwrap_or(&config.host);
+            let pool = SqlitePoolOptions::new()
+                .max_connections(1)
+                .connect_with(sqlite_opts(path)?)
+                .await
+                .map_err(|e| e.to_string())?;
+            Ok(DbPool::Sqlite(pool))
+        }
         other => Err(format!("Unsupported database type: {}", other)),
     }
 }
@@ -107,6 +120,10 @@ async fn fetch_databases(pool: &DbPool) -> Result<Vec<String>, String> {
             .fetch_all(mysql)
             .await
             .map_err(|e| e.to_string()),
+        DbPool::Sqlite(_) => {
+            // SQLite has no concept of multiple databases
+            Ok(vec!["main".to_string()])
+        }
     }
 }
 
@@ -137,6 +154,15 @@ fn pg_opts(
         }
     }
     opts
+}
+
+fn sqlite_opts(path: &str) -> Result<sqlx::sqlite::SqliteConnectOptions, String> {
+    use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode};
+    use std::str::FromStr;
+
+    SqliteConnectOptions::from_str(path)
+        .map_err(|e| e.to_string())
+        .map(|o| o.journal_mode(SqliteJournalMode::Wal).create_if_missing(false))
 }
 
 fn mysql_opts(
@@ -309,6 +335,22 @@ pub async fn test_connection(config: ConnectionConfig) -> Result<String, String>
                 .map_err(|e| e.to_string())?;
             pool.close().await;
         }
+        "sqlite" => {
+            use sqlx::sqlite::SqlitePoolOptions;
+
+            let path = db.unwrap_or(&config.host);
+            let pool = SqlitePoolOptions::new()
+                .max_connections(1)
+                .acquire_timeout(std::time::Duration::from_secs(5))
+                .connect_with(sqlite_opts(path)?)
+                .await
+                .map_err(|e| e.to_string())?;
+            sqlx::query("SELECT 1")
+                .execute(&pool)
+                .await
+                .map_err(|e| e.to_string())?;
+            pool.close().await;
+        }
         other => return Err(format!("Unsupported database type: {}", other)),
     }
 
@@ -328,6 +370,24 @@ pub async fn connect(
     state: tauri::State<'_, AppState>,
 ) -> Result<ConnectResult, String> {
     let connection_id = config.id.clone();
+
+    // SQLite: file-based, no multi-database concept
+    if config.db_type == "sqlite" {
+        let pool = create_pool(&config, None).await?;
+        let db_name = std::path::Path::new(&config.host)
+            .file_name()
+            .map(|f| f.to_string_lossy().to_string())
+            .unwrap_or_else(|| "database".to_string());
+
+        state.pools.lock().unwrap().insert(connection_id.clone(), pool);
+        state.configs.lock().unwrap().insert(connection_id, config);
+
+        return Ok(ConnectResult {
+            databases: vec![db_name.clone()],
+            active_database: db_name,
+        });
+    }
+
     let default_db = config.default_database.as_deref().filter(|s| !s.is_empty());
 
     // Connect to a catalog-safe database to list available databases.
@@ -411,6 +471,10 @@ pub async fn switch_database(
             .cloned()
             .ok_or_else(|| "Connection not found".to_string())?
     };
+
+    if config.db_type == "sqlite" {
+        return Err("SQLite does not support database switching".to_string());
+    }
 
     let new_pool = create_pool(&config, Some(&database)).await?;
 

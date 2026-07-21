@@ -136,31 +136,38 @@ export function Header({
           <SidebarIcon className="size-4" />
         </ToggleButton>
 
-        {/* Database switcher */}
-        <Dropdown>
-          <Button size="sm" variant="tertiary" className="flex items-center justify-between gap-3 w-[225px]">
-            <div className="inline-flex items-center gap-3">
-              <DatabaseIcon />
-              <span className="font-mono text-xs">{activeDatabase ?? connection.config.defaultDatabase ?? "—"}</span>
-            </div>
-            <CaretDownIcon />
-          </Button>
-          <Dropdown.Popover className="w-[225px] p-1">
-            <Dropdown.Menu onAction={(key) => onDatabaseSelect(String(key))}>
-              {connection.databases.length === 0 ? (
-                <Dropdown.Item id="no-databases" textValue="No databases" isDisabled>
-                  <Label>No databases</Label>
-                </Dropdown.Item>
-              ) : (
-                connection.databases.map((db) => (
-                  <Dropdown.Item key={db} id={db} textValue={db}>
-                    <Label>{db}</Label>
+        {/* Database switcher — hidden for SQLite (single file = single database) */}
+        {connection.config.type === "sqlite" ? (
+          <div className="flex items-center gap-3 px-3 py-1">
+            <DatabaseIcon className="size-4 text-muted" />
+            <span className="font-mono text-xs text-muted">{activeDatabase ?? "database"}</span>
+          </div>
+        ) : (
+          <Dropdown>
+            <Button size="sm" variant="tertiary" className="flex items-center justify-between gap-3 w-[225px]">
+              <div className="inline-flex items-center gap-3">
+                <DatabaseIcon />
+                <span className="font-mono text-xs">{activeDatabase ?? connection.config.defaultDatabase ?? "—"}</span>
+              </div>
+              <CaretDownIcon />
+            </Button>
+            <Dropdown.Popover className="w-[225px] p-1">
+              <Dropdown.Menu onAction={(key) => onDatabaseSelect(String(key))}>
+                {connection.databases.length === 0 ? (
+                  <Dropdown.Item id="no-databases" textValue="No databases" isDisabled>
+                    <Label>No databases</Label>
                   </Dropdown.Item>
-                ))
-              )}
-            </Dropdown.Menu>
-          </Dropdown.Popover>
-        </Dropdown>
+                ) : (
+                  connection.databases.map((db) => (
+                    <Dropdown.Item key={db} id={db} textValue={db}>
+                      <Label>{db}</Label>
+                    </Dropdown.Item>
+                  ))
+                )}
+              </Dropdown.Menu>
+            </Dropdown.Popover>
+          </Dropdown>
+        )}
 
         {/* Separator */}
         <div className="flex-1" />

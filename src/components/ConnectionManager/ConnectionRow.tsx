@@ -53,8 +53,9 @@ export default function ConnectionRow({
         <div className="flex-1 min-w-0">
           <p className="text-sm font-medium text-foreground truncate">{connection.name}</p>
           <p className="text-xs text-muted truncate mt-0.5">
-            {connection.username}@{connection.host}:{connection.port}
-            {connection.defaultDatabase ? ` · ${connection.defaultDatabase}` : ""}
+            {connection.type === "sqlite"
+              ? connection.host
+              : `${connection.username}@${connection.host}:${connection.port}${connection.defaultDatabase ? ` · ${connection.defaultDatabase}` : ""}`}
           </p>
         </div>
 

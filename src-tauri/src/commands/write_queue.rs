@@ -51,11 +51,12 @@ pub struct ApplyResult {
 enum Driver {
     Postgres,
     MySql,
+    Sqlite,
 }
 
 fn quote_ident(name: &str, driver: &Driver) -> String {
     match driver {
-        Driver::Postgres => pg_quote(name),
+        Driver::Postgres | Driver::Sqlite => pg_quote(name),
         Driver::MySql => mysql_quote(name),
     }
 }
@@ -71,7 +72,7 @@ fn format_sql_value(val: &Value, driver: &Driver) -> String {
                     "FALSE".to_string()
                 }
             }
-            Driver::MySql => {
+            Driver::MySql | Driver::Sqlite => {
                 if *b {
                     "1".to_string()
                 } else {
@@ -123,9 +124,9 @@ fn change_to_sql(table: &str, change: &PendingChange, driver: &Driver) -> String
         }
         PendingChange::Insert { values } => {
             if values.is_empty() {
-                // Empty insert — use DEFAULT VALUES for Postgres, () VALUES () for MySQL
+                // Empty insert — use DEFAULT VALUES for Postgres/SQLite, () VALUES () for MySQL
                 return match driver {
-                    Driver::Postgres => format!("INSERT INTO {} DEFAULT VALUES", qt),
+                    Driver::Postgres | Driver::Sqlite => format!("INSERT INTO {} DEFAULT VALUES", qt),
                     Driver::MySql => format!("INSERT INTO {} () VALUES ()", qt),
                 };
             }
@@ -148,6 +149,7 @@ fn driver_from_pool(pool: &DbPool) -> Driver {
     match pool {
         DbPool::Postgres(_) => Driver::Postgres,
         DbPool::MySql(_) => Driver::MySql,
+        DbPool::Sqlite(_) => Driver::Sqlite,
     }
 }
 
@@ -159,8 +161,8 @@ async fn is_transactional(
     table: &str,
     cache: &Mutex<HashMap<String, HashMap<String, bool>>>,
 ) -> Result<bool, String> {
-    // Postgres always supports transactions
-    if matches!(pool, DbPool::Postgres(_)) {
+    // Postgres and SQLite always support transactions
+    if matches!(pool, DbPool::Postgres(_) | DbPool::Sqlite(_)) {
         return Ok(true);
     }
 
@@ -289,6 +291,7 @@ async fn apply_transactional(pool: &DbPool, sqls: &[String]) -> Result<ApplyResu
     match pool {
         DbPool::Postgres(pg) => run_tx!(pg),
         DbPool::MySql(mysql) => run_tx!(mysql),
+        DbPool::Sqlite(sqlite) => run_tx!(sqlite),
     }
 
     Ok(ApplyResult {
@@ -306,6 +309,7 @@ async fn apply_sequential(pool: &DbPool, sqls: &[String]) -> Result<ApplyResult,
         let err = match pool {
             DbPool::Postgres(pg) => sqlx::query(sql).execute(pg).await.err(),
             DbPool::MySql(mysql) => sqlx::query(sql).execute(mysql).await.err(),
+            DbPool::Sqlite(sqlite) => sqlx::query(sql).execute(sqlite).await.err(),
         };
 
         if let Some(e) = err {
