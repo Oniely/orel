@@ -139,11 +139,15 @@ export function DashboardLayout() {
     cycleTab(-1);
   });
 
+  useHotkeys("alt+z", () => setSidebarOpen((v) => !v));
+
   // Write queue shortcuts
   useHotkeys("meta+s", (e) => {
     e.preventDefault();
     if (showInspector && selectedRowIndex !== null) {
-      wq.handleApplyRow(selectedRowIndex).then((applied) => { if (applied) toast.success("Row saved"); });
+      wq.handleApplyRow(selectedRowIndex).then((applied) => {
+        if (applied) toast.success("Row saved");
+      });
     } else {
       wq.handleApply();
     }
@@ -197,8 +201,7 @@ export function DashboardLayout() {
   const selectedRow = selectedRowIndex !== null ? (rows[selectedRowIndex] as Record<string, unknown>) : null;
 
   // ── Write Queue ──────────────────────────────────────────────────────────
-  const scopeKey =
-    databaseKey !== "__none__" && activeTableName ? `${databaseKey}::${activeTableName}` : null;
+  const scopeKey = databaseKey !== "__none__" && activeTableName ? `${databaseKey}::${activeTableName}` : null;
 
   const wq = useWriteQueueActions(scopeKey, connectionId, activeTableName, queryResult);
 
