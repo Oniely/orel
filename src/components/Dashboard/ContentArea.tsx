@@ -270,6 +270,7 @@ interface DataGridProps {
   selectedRowIndex: number | null;
   onRowClick: (index: number) => void;
   onRowContextMenu: (index: number, x: number, y: number) => void;
+  onInspectRow: (index: number) => void;
   isLoading: boolean;
   activeTable: string | null;
   wq: WriteQueueActions;
@@ -281,6 +282,7 @@ function DataGrid({
   selectedRowIndex,
   onRowClick,
   onRowContextMenu,
+  onInspectRow,
   isLoading,
   activeTable,
   wq,
@@ -385,6 +387,41 @@ function DataGrid({
     }
   };
 
+  // Long-press to inspect row (direct DOM mutation to avoid full re-renders)
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressTriggered = useRef(false);
+  const holdingTr = useRef<HTMLElement | null>(null);
+
+  const cancelLongPress = () => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+    if (holdingTr.current) {
+      holdingTr.current.removeAttribute("data-holding");
+      holdingTr.current = null;
+    }
+  };
+
+  const handlePointerDown = (e: React.PointerEvent) => {
+    cancelLongPress();
+    const tr = (e.target as HTMLElement).closest("tr[data-row]") as HTMLElement | null;
+    if (!tr || !tr.dataset.row) return;
+    const rowIndex = Number(tr.dataset.row);
+    longPressTriggered.current = false;
+    holdingTr.current = tr;
+    tr.setAttribute("data-holding", "");
+    longPressTimer.current = setTimeout(() => {
+      longPressTriggered.current = true;
+      cancelLongPress();
+      onInspectRow(rowIndex);
+    }, 500);
+  };
+
+  useEffect(() => {
+    return () => { if (longPressTimer.current) clearTimeout(longPressTimer.current); };
+  }, []);
+
   // Column defs — only depends on schema, never on editing/dirty state
   const columns = useMemo<ColumnDef<Record<string, unknown>>[]>(
     () => [
@@ -448,7 +485,7 @@ function DataGrid({
   }
 
   return (
-    <div ref={scrollRef} className="flex-1 overflow-auto bg-background scrollbar-hide relative">
+    <div ref={scrollRef} onScroll={cancelLongPress} className="flex-1 overflow-auto bg-background scrollbar-hide relative">
       <table className="border-collapse text-xs table-fixed min-w-full" style={{ width: table.getTotalSize() }}>
         <colgroup>
           {table.getHeaderGroups()[0]?.headers.map((header) => (
@@ -488,11 +525,16 @@ function DataGrid({
         </thead>
 
         <tbody
+          onPointerDown={handlePointerDown}
+          onPointerUp={cancelLongPress}
+          onPointerLeave={cancelLongPress}
           onClick={(e) => {
+            if (longPressTriggered.current) { longPressTriggered.current = false; return; }
             const tr = (e.target as HTMLElement).closest("tr[data-row]") as HTMLElement | null;
             if (tr) onRowClick(Number(tr.dataset.row));
           }}
           onContextMenu={(e) => {
+            cancelLongPress();
             const tr = (e.target as HTMLElement).closest("tr[data-row]") as HTMLElement | null;
             if (tr) { e.preventDefault(); onRowContextMenu(Number(tr.dataset.row), e.clientX, e.clientY); }
           }}
@@ -838,6 +880,7 @@ export function ContentArea({
             selectedRowIndex={selectedRowIndex}
             onRowClick={onRowClick}
             onRowContextMenu={(index, x, y) => setContextMenu({ rowIndex: index, x, y })}
+            onInspectRow={onInspectRow}
             isLoading={isLoading}
             activeTable={activeTableName}
             wq={wq}
