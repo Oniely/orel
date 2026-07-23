@@ -1,10 +1,12 @@
+import { useState, useRef } from "react";
 import type { QueryResult } from "../types/database";
 import type { PendingChange } from "../types/write-queue";
-import { buildRowIdentity } from "../types/write-queue";
+import { buildRowIdentity, identityKey } from "../types/write-queue";
 import { useWriteQueueStore } from "../stores/write-queue.store";
 import { useApplyWriteQueue, useApplyRowChanges, useCopySql } from "./useWriteQueue";
 
 const EMPTY_INSERTS: PendingChange[] = [];
+const SAVED_HIGHLIGHT_MS = 3000;
 
 export function useWriteQueueActions(
   scopeKey: string | null,
@@ -16,15 +18,40 @@ export function useWriteQueueActions(
   const applyRowMutation = useApplyRowChanges();
   const copySqlMutation = useCopySql();
 
-  // Derived state
   const columns = queryResult?.columns ?? [];
   const rows = queryResult?.rows ?? [];
   const hasPrimaryKey = columns.some((c) => c.isPrimary);
 
-  // Single reactive subscription — provides changeCount, insertedRows, and dirty state for DataGrid
   const tableChanges = useWriteQueueStore((s) => (scopeKey ? s.tables[scopeKey] : undefined));
+
+  const [recentlySaved, setRecentlySaved] = useState<Map<string, string[]>>(new Map());
+  const timersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const changeCount = tableChanges ? tableChanges.changes.size + tableChanges.inserts.length : 0;
   const insertedRows = tableChanges?.inserts ?? EMPTY_INSERTS;
+
+  const markCellsSaved = (entries: Array<[string, string[]]>) => {
+    if (entries.length === 0) return;
+    for (const [key] of entries) {
+      const old = timersRef.current.get(key);
+      if (old) clearTimeout(old);
+      timersRef.current.set(
+        key,
+        setTimeout(() => {
+          timersRef.current.delete(key);
+          setRecentlySaved((p) => {
+            const n = new Map(p);
+            n.delete(key);
+            return n;
+          });
+        }, SAVED_HIGHLIGHT_MS),
+      );
+    }
+    setRecentlySaved((prev) => {
+      const next = new Map(prev);
+      for (const [key, cols] of entries) next.set(key, cols);
+      return next;
+    });
+  };
 
   // Helper: get identity for a row index (deduplicates the repeated pattern)
   const getIdentity = (rowIndex: number) => {
@@ -74,12 +101,15 @@ export function useWriteQueueActions(
     if (!identity) return false;
     const rowChanges = useWriteQueueStore.getState().getRowChanges(scopeKey, identity);
     if (rowChanges.length === 0) return false;
-    await applyRowMutation.mutateAsync({
-      connectionId,
-      table: activeTableName,
-      changes: rowChanges,
-    });
+
+    const changedColumns = rowChanges[0]?.kind === "Update" ? rowChanges[0].changes.map((c) => c.column) : [];
+
+    await applyRowMutation.mutateAsync({ connectionId, table: activeTableName, changes: rowChanges });
+
+    const iKey = identityKey(identity);
     useWriteQueueStore.getState().unstageRow(scopeKey, identity);
+    markCellsSaved([[iKey, changedColumns]]);
+
     return true;
   };
 
@@ -88,11 +118,20 @@ export function useWriteQueueActions(
     useWriteQueueStore.getState().clearTable(scopeKey);
   };
 
-  const handleApply = () => {
+  const handleApply = async () => {
     if (!scopeKey || !connectionId || !activeTableName) return;
     const changes = useWriteQueueStore.getState().getChanges(scopeKey);
     if (changes.length === 0) return;
-    applyMutation.mutate({ connectionId, table: activeTableName, changes, scopeKey });
+
+    const savedEntries: Array<[string, string[]]> = [];
+    for (const change of changes) {
+      if (change.kind === "Update") {
+        savedEntries.push([identityKey(change.identity), change.changes.map((c) => c.column)]);
+      }
+    }
+
+    await applyMutation.mutateAsync({ connectionId, table: activeTableName, changes, scopeKey });
+    markCellsSaved(savedEntries);
   };
 
   const handleCopySql = () => {
@@ -128,6 +167,7 @@ export function useWriteQueueActions(
     handleApply,
     handleCopySql,
     isRowDeleted,
+    recentlySaved,
   };
 }
 

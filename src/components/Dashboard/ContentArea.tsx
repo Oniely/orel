@@ -262,6 +262,9 @@ const dirtyStyle: React.CSSProperties = {
   background: "color-mix(in oklch, var(--warning) 6%, transparent)",
   boxShadow: "inset 3px 0 0 var(--accent)",
 };
+const savedStyle: React.CSSProperties = {
+  background: "color-mix(in oklch, var(--accent) 12%, transparent)",
+};
 const insertRowStyle: React.CSSProperties = { background: "color-mix(in oklch, var(--success) 8%, transparent)" };
 
 interface DataGridProps {
@@ -294,36 +297,45 @@ function DataGrid({
     initialValue: string;
   } | null>(null);
 
-  // Pre-compute dirty/deleted state once per render — avoids per-cell buildRowIdentity + store lookups
-  const { rowKindMap, cellDirtyMap } = useMemo(() => {
+  // Pre-compute dirty/deleted/saved state once per render — avoids per-cell store lookups
+  const { rowKindMap, cellDirtyMap, cellSavedSet } = useMemo(() => {
     const rk = new Map<number, "Update" | "Delete">();
     const cd = new Map<string, { newValue: unknown }>();
-    if (!wq.tableChanges || !wq.scopeKey || !wq.hasPrimaryKey) return { rowKindMap: rk, cellDirtyMap: cd };
+    const cs = new Set<string>();
+    if (!wq.hasPrimaryKey) return { rowKindMap: rk, cellDirtyMap: cd, cellSavedSet: cs };
 
     const pkCols = colInfos.filter((c) => c.isPrimary);
-    if (pkCols.length === 0) return { rowKindMap: rk, cellDirtyMap: cd };
+    if (pkCols.length === 0) return { rowKindMap: rk, cellDirtyMap: cd, cellSavedSet: cs };
 
-    // Build a reverse map: identityKey -> change
-    const changesMap = wq.tableChanges.changes;
+    const hasDirty = wq.tableChanges && wq.scopeKey;
+    const hasSaved = wq.recentlySaved && wq.recentlySaved.size > 0;
+    if (!hasDirty && !hasSaved) return { rowKindMap: rk, cellDirtyMap: cd, cellSavedSet: cs };
+
+    const changesMap = hasDirty ? wq.tableChanges!.changes : undefined;
 
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
-      // Inline identity key computation (avoid object allocation)
       const key = pkCols.map((c) => JSON.stringify(row[c.name] ?? null)).join("::");
-      const change = changesMap.get(key);
-      if (!change) continue;
 
-      if (change.kind === "Delete") {
-        rk.set(i, "Delete");
-      } else if (change.kind === "Update") {
-        rk.set(i, "Update");
-        for (const cc of change.changes) {
-          cd.set(`${i}::${cc.column}`, cc);
+      if (changesMap) {
+        const change = changesMap.get(key);
+        if (change?.kind === "Delete") {
+          rk.set(i, "Delete");
+        } else if (change?.kind === "Update") {
+          rk.set(i, "Update");
+          for (const cc of change.changes) cd.set(`${i}::${cc.column}`, cc);
+        }
+      }
+
+      if (hasSaved) {
+        const savedCols = wq.recentlySaved!.get(key);
+        if (savedCols) {
+          for (const col of savedCols) cs.add(`${i}::${col}`);
         }
       }
     }
-    return { rowKindMap: rk, cellDirtyMap: cd };
-  }, [wq.tableChanges, wq.scopeKey, wq.hasPrimaryKey, colInfos, rows]);
+    return { rowKindMap: rk, cellDirtyMap: cd, cellSavedSet: cs };
+  }, [wq.tableChanges, wq.scopeKey, wq.hasPrimaryKey, wq.recentlySaved, colInfos, rows]);
 
   const commitEdit = (rawValue: string) => {
     if (!editingCell) return;
@@ -419,7 +431,9 @@ function DataGrid({
   };
 
   useEffect(() => {
-    return () => { if (longPressTimer.current) clearTimeout(longPressTimer.current); };
+    return () => {
+      if (longPressTimer.current) clearTimeout(longPressTimer.current);
+    };
   }, []);
 
   // Column defs — only depends on schema, never on editing/dirty state
@@ -485,7 +499,11 @@ function DataGrid({
   }
 
   return (
-    <div ref={scrollRef} onScroll={cancelLongPress} className="flex-1 overflow-auto bg-background scrollbar-hide relative">
+    <div
+      ref={scrollRef}
+      onScroll={cancelLongPress}
+      className="flex-1 overflow-auto bg-background scrollbar-hide relative"
+    >
       <table className="border-collapse text-xs table-fixed min-w-full" style={{ width: table.getTotalSize() }}>
         <colgroup>
           {table.getHeaderGroups()[0]?.headers.map((header) => (
@@ -529,14 +547,20 @@ function DataGrid({
           onPointerUp={cancelLongPress}
           onPointerLeave={cancelLongPress}
           onClick={(e) => {
-            if (longPressTriggered.current) { longPressTriggered.current = false; return; }
+            if (longPressTriggered.current) {
+              longPressTriggered.current = false;
+              return;
+            }
             const tr = (e.target as HTMLElement).closest("tr[data-row]") as HTMLElement | null;
             if (tr) onRowClick(Number(tr.dataset.row));
           }}
           onContextMenu={(e) => {
             cancelLongPress();
             const tr = (e.target as HTMLElement).closest("tr[data-row]") as HTMLElement | null;
-            if (tr) { e.preventDefault(); onRowContextMenu(Number(tr.dataset.row), e.clientX, e.clientY); }
+            if (tr) {
+              e.preventDefault();
+              onRowContextMenu(Number(tr.dataset.row), e.clientX, e.clientY);
+            }
           }}
           onDoubleClick={(e) => {
             const td = (e.target as HTMLElement).closest("td[data-cell]") as HTMLElement | null;
@@ -559,30 +583,29 @@ function DataGrid({
                 key={row.id}
                 data-row={i}
                 className={`cursor-pointer h-10${isDeleted ? " line-through opacity-50" : ""}`}
-                style={
-                  isDeleted
-                    ? deletedRowStyle
-                    : selectedRowIndex === i
-                      ? selectedRowStyle
-                      : undefined
-                }
+                style={isDeleted ? deletedRowStyle : selectedRowIndex === i ? selectedRowStyle : undefined}
               >
                 {row.getVisibleCells().map((cell) => {
                   const colId = cell.column.id;
                   const dirty = colId !== ROW_NUMBER_COL ? cellDirtyMap.get(`${i}::${colId}`) : undefined;
+                  const saved = !dirty && colId !== ROW_NUMBER_COL && cellSavedSet.has(`${i}::${colId}`);
 
                   return (
                     <td
                       key={cell.id}
                       data-cell={colId !== ROW_NUMBER_COL ? `${i}::${colId}` : undefined}
                       className={`border-b-hairline overflow-hidden whitespace-nowrap px-[14px]${dirty ? "" : " cell-hoverable"}`}
-                      style={dirty ? dirtyStyle : undefined}
+                      style={dirty ? dirtyStyle : saved ? savedStyle : undefined}
                     >
                       <div className="overflow-hidden text-ellipsis whitespace-nowrap">
-                        {dirty
-                          ? <Cell value={dirty.newValue} type={(colInfos.find(c => c.name === colId))?.dataType ?? "text"} />
-                          : flexRender(cell.column.columnDef.cell, cell.getContext())
-                        }
+                        {dirty ? (
+                          <Cell
+                            value={dirty.newValue}
+                            type={colInfos.find((c) => c.name === colId)?.dataType ?? "text"}
+                          />
+                        ) : (
+                          flexRender(cell.column.columnDef.cell, cell.getContext())
+                        )}
                       </div>
                     </td>
                   );
@@ -595,16 +618,15 @@ function DataGrid({
           {wq.insertedRows.map((insert, insertIdx) => {
             if (insert.kind !== "Insert") return null;
             return (
-              <tr
-                key={`insert-${insertIdx}`}
-                className="cursor-pointer h-10"
-                style={insertRowStyle}
-              >
+              <tr key={`insert-${insertIdx}`} className="cursor-pointer h-10" style={insertRowStyle}>
                 {/* Row number cell — shows + by default, − on hover to remove */}
                 <td className="border-b-hairline px-[14px] overflow-hidden whitespace-nowrap">
                   <button
                     className="insert-row-btn font-mono text-[11px] select-none"
-                    onClick={(e) => { e.stopPropagation(); wq.handleRemoveInsert(insertIdx); }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      wq.handleRemoveInsert(insertIdx);
+                    }}
                   >
                     <span className="insert-plus text-success">+</span>
                     <span className="insert-minus text-danger hidden">&minus;</span>
@@ -622,12 +644,16 @@ function DataGrid({
                     >
                       <div className="overflow-hidden text-ellipsis whitespace-nowrap">
                         {isAutoGenPK ? (
-                          <span className="font-mono text-[11px] text-muted italic select-none opacity-40">DEFAULT</span>
+                          <span className="font-mono text-[11px] text-muted italic select-none opacity-40">
+                            DEFAULT
+                          </span>
                         ) : !hasValue && c.hasDefault ? (
                           <span
                             className="font-mono text-[11px] text-muted italic select-none underline decoration-dashed underline-offset-2"
                             style={{ textDecorationColor: "color-mix(in oklch, var(--muted) 50%, transparent)" }}
-                          >DEFAULT</span>
+                          >
+                            DEFAULT
+                          </span>
                         ) : (
                           <Cell value={insert.values[c.name]} type={c.dataType} />
                         )}
@@ -867,7 +893,9 @@ export function ContentArea({
           <FilterBar
             filters={filters.map((f) => ({ ...f, col: f.col || firstCol }))}
             columns={
-              columns.length > 0 ? columns : [{ name: "column", dataType: "text", isNullable: true, isPrimary: false, hasDefault: false }]
+              columns.length > 0
+                ? columns
+                : [{ name: "column", dataType: "text", isNullable: true, isPrimary: false, hasDefault: false }]
             }
             onFiltersChange={setFilters}
             onApply={() => {

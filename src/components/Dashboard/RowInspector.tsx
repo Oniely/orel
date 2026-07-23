@@ -10,16 +10,38 @@ import { useHotkeys } from "react-hotkeys-hook";
 
 // ── Editable Field ───────────────────────────────────────────────────────────
 
+const dirtyFieldStyle: React.CSSProperties = {
+  background: "color-mix(in oklch, var(--warning) 8%, transparent)",
+  borderRadius: 3,
+  padding: "1px 4px",
+  margin: "-1px -4px",
+};
+const savedFieldStyle: React.CSSProperties = {
+  background: "color-mix(in oklch, var(--accent) 12%, transparent)",
+  borderRadius: 3,
+  padding: "1px 4px",
+  margin: "-1px -4px",
+};
+
 interface EditableFieldProps {
   column: ColumnInfo;
   originalValue: unknown;
   dirtyValue: unknown | undefined;
   isDirty: boolean;
+  isSaved?: boolean;
   editable: boolean;
   onCommit: (newValue: unknown) => void;
 }
 
-function EditableField({ column, originalValue, dirtyValue, isDirty, editable, onCommit }: EditableFieldProps) {
+function EditableField({
+  column,
+  originalValue,
+  dirtyValue,
+  isDirty,
+  isSaved,
+  editable,
+  onCommit,
+}: EditableFieldProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [inputValue, setInputValue] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
@@ -90,16 +112,7 @@ function EditableField({ column, originalValue, dirtyValue, isDirty, editable, o
     <span
       className={`truncate${editable ? " cursor-pointer" : ""}`}
       onDoubleClick={handleDoubleClick}
-      style={
-        isDirty
-          ? {
-              background: "color-mix(in oklch, var(--warning) 8%, transparent)",
-              borderRadius: 3,
-              padding: "1px 4px",
-              margin: "-1px -4px",
-            }
-          : undefined
-      }
+      style={isDirty ? dirtyFieldStyle : isSaved ? savedFieldStyle : undefined}
     >
       {formattedValue}
     </span>
@@ -316,6 +329,7 @@ export function RowInspector({ row, columns, rowIndex, totalRows, onPrev, onNext
   }, [row, columns]);
   const rowChange = iKey && wq.scopeKey ? wq.tableChanges?.changes.get(iKey) : undefined;
   const hasRowChanges = !!rowChange;
+  const savedColumns = iKey ? wq.recentlySaved?.get(iKey) : undefined;
 
   const getDirtyValue = (colName: string): { isDirty: boolean; value: unknown } => {
     if (rowChange?.kind === "Update") {
@@ -392,6 +406,7 @@ export function RowInspector({ row, columns, rowIndex, totalRows, onPrev, onNext
             {columns.map((col, i) => {
               const { isDirty, value: dirtyValue } = getDirtyValue(col.name);
               const editable = wq.hasPrimaryKey;
+              const isSaved = !isDirty && savedColumns?.includes(col.name);
 
               return (
                 <div key={col.name} className="flex gap-2 pl-4 min-w-0">
@@ -401,6 +416,7 @@ export function RowInspector({ row, columns, rowIndex, totalRows, onPrev, onNext
                     originalValue={row[col.name]}
                     dirtyValue={dirtyValue}
                     isDirty={isDirty}
+                    isSaved={isSaved}
                     editable={editable}
                     onCommit={(newValue) => handleFieldCommit(col, newValue)}
                   />
