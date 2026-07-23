@@ -422,12 +422,15 @@ function DataGrid({
     const rowIndex = Number(tr.dataset.row);
     longPressTriggered.current = false;
     holdingTr.current = tr;
-    tr.setAttribute("data-holding", "");
+    // Delay visual feedback so quick clicks / double-clicks don't flash the animation
     longPressTimer.current = setTimeout(() => {
-      longPressTriggered.current = true;
-      cancelLongPress();
-      onInspectRow(rowIndex);
-    }, 500);
+      tr.setAttribute("data-holding", "");
+      longPressTimer.current = setTimeout(() => {
+        longPressTriggered.current = true;
+        cancelLongPress();
+        onInspectRow(rowIndex);
+      }, 350);
+    }, 150);
   };
 
   useEffect(() => {
