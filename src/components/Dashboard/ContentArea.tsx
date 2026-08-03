@@ -290,6 +290,7 @@ function DataGrid({
   activeTable,
   wq,
 }: DataGridProps) {
+  const scrollRef = useRef<HTMLDivElement>(null);
   const [editingCell, setEditingCell] = useState<{
     rowIndex: number;
     column: string;
@@ -411,6 +412,11 @@ function DataGrid({
     }
     if (holdingTr.current) {
       holdingTr.current.removeAttribute("data-holding");
+      holdingTr.current.style.removeProperty("--hold-indicator-left");
+      holdingTr.current.style.removeProperty("--hold-indicator-width");
+      holdingTr.current.style.removeProperty("--hold-origin-x");
+      holdingTr.current.style.removeProperty("--hold-origin-y");
+      holdingTr.current.style.removeProperty("--hold-radius");
       holdingTr.current = null;
     }
   };
@@ -420,10 +426,29 @@ function DataGrid({
     const tr = (e.target as HTMLElement).closest("tr[data-row]") as HTMLElement | null;
     if (!tr || !tr.dataset.row) return;
     const rowIndex = Number(tr.dataset.row);
+    const pointerClientX = e.clientX;
+    const pointerClientY = e.clientY;
     longPressTriggered.current = false;
     holdingTr.current = tr;
     // Delay visual feedback so quick clicks / double-clicks don't flash the animation
     longPressTimer.current = setTimeout(() => {
+      const scrollContainer = scrollRef.current;
+      if (scrollContainer) {
+        const containerRect = scrollContainer.getBoundingClientRect();
+        const rowRect = tr.getBoundingClientRect();
+        const originX = Math.min(Math.max(pointerClientX - containerRect.left, 0), scrollContainer.clientWidth);
+        const originY = Math.min(Math.max(pointerClientY - rowRect.top, 0), rowRect.height);
+        const radius = Math.hypot(
+          Math.max(originX, scrollContainer.clientWidth - originX),
+          Math.max(originY, rowRect.height - originY),
+        );
+
+        tr.style.setProperty("--hold-indicator-left", `${scrollContainer.scrollLeft}px`);
+        tr.style.setProperty("--hold-indicator-width", `${scrollContainer.clientWidth}px`);
+        tr.style.setProperty("--hold-origin-x", `${originX}px`);
+        tr.style.setProperty("--hold-origin-y", `${originY}px`);
+        tr.style.setProperty("--hold-radius", `${radius}px`);
+      }
       tr.setAttribute("data-holding", "");
       longPressTimer.current = setTimeout(() => {
         longPressTriggered.current = true;
@@ -475,8 +500,6 @@ function DataGrid({
     ],
     [colInfos],
   );
-
-  const scrollRef = useRef<HTMLDivElement>(null);
 
   const table = useReactTable({
     data: rows,

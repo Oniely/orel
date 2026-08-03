@@ -126,25 +126,36 @@
   background: color-mix(in oklch, var(--foreground) 4%, transparent);
 }
 
-/* Long-press hold indicator — progress bar at bottom of row */
+/* Long-press hold indicator — radial glow originating beneath the pointer */
 tr[data-holding] {
   position: relative;
 }
 tr[data-holding]::after {
   content: "";
   position: absolute;
-  left: 0;
+  left: var(--hold-indicator-left, 0px);
+  top: 0;
   bottom: 0;
-  height: 2px;
-  width: 0%;
-  background: var(--accent);
-  border-radius: 1px;
-  animation: hold-fill 500ms linear forwards;
+  width: var(--hold-indicator-width, 100%);
+  background: radial-gradient(
+    circle at var(--hold-origin-x, 50%) var(--hold-origin-y, 50%),
+    color-mix(in oklch, var(--accent) 16%, transparent) 0%,
+    color-mix(in oklch, var(--accent) 9%, transparent) 55%,
+    transparent 100%
+  );
+  clip-path: circle(0 at var(--hold-origin-x, 50%) var(--hold-origin-y, 50%));
+  animation: hold-ripple 350ms ease-out forwards;
   pointer-events: none;
 }
-@keyframes hold-fill {
-  from { width: 0%; opacity: 0.6; }
-  to   { width: 100%; opacity: 1; }
+@keyframes hold-ripple {
+  from {
+    clip-path: circle(0 at var(--hold-origin-x, 50%) var(--hold-origin-y, 50%));
+    opacity: 0.65;
+  }
+  to {
+    clip-path: circle(var(--hold-radius, 100%) at var(--hold-origin-x, 50%) var(--hold-origin-y, 50%));
+    opacity: 1;
+  }
 }
 
 .insert-row-btn:hover .insert-plus { display: none; }
