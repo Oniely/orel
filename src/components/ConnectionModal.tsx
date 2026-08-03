@@ -8,6 +8,7 @@ import { connectionSchema, type ConnectionFormData, type SavedConnection, type D
 import { parseConnectionUrl } from "../utils/parseConnectionUrl";
 import { useSaveConnection, useUpdateConnection, useTestConnection } from "../hooks/useConnections";
 import { open } from "@tauri-apps/plugin-dialog";
+import { getErrorMessage } from "../lib/error";
 
 interface ConnectionModalProps {
   isOpen: boolean;
@@ -124,7 +125,7 @@ export function ConnectionModal({ isOpen, onClose, connection }: ConnectionModal
     } catch (err) {
       setTestResult({
         ok: false,
-        message: err instanceof Error ? err.message : "Connection failed",
+        message: getErrorMessage(err, "Connection failed"),
       });
     }
     // Wait for React to render the result element, then scroll to it

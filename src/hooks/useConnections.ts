@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { toast } from "@heroui/react";
 import { useConnectionStore } from "../stores/connection.store";
 import type { SavedConnection } from "../types/connection";
+import { getErrorMessage } from "../lib/error";
 
 // Load all saved connections from Rust on mount
 export function useLoadConnections() {
@@ -31,7 +32,7 @@ export function useSaveConnection() {
       toast.success("Connection saved");
     },
     onError: (error) => {
-      toast.danger(error instanceof Error ? error.message : "Failed to save connection");
+      toast.danger(getErrorMessage(error, "Failed to save connection"));
     },
   });
 }
@@ -49,7 +50,7 @@ export function useUpdateConnection() {
       toast.success("Connection updated");
     },
     onError: (error) => {
-      toast.danger(error instanceof Error ? error.message : "Failed to update connection");
+      toast.danger(getErrorMessage(error, "Failed to update connection"));
     },
   });
 }
@@ -67,7 +68,7 @@ export function useDeleteConnection() {
       toast.success("Connection deleted");
     },
     onError: (error) => {
-      toast.danger(error instanceof Error ? error.message : "Failed to delete connection");
+      toast.danger(getErrorMessage(error, "Failed to delete connection"));
     },
   });
 }
@@ -100,7 +101,7 @@ export function useConnect() {
     onError: (error, config) => {
       updateActiveConnection(config.id, {
         status: "error",
-        error: error instanceof Error ? error.message : "Connection failed",
+        error: getErrorMessage(error, "Connection failed"),
       });
     },
   });
@@ -146,7 +147,7 @@ export function useSwitchDatabase() {
     },
     onError: (error, { connectionId }) => {
       updateActiveConnection(connectionId, {
-        error: error instanceof Error ? error.message : "Failed to switch database",
+        error: getErrorMessage(error, "Failed to switch database"),
       });
     },
   });

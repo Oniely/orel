@@ -1,6 +1,6 @@
 mod commands;
 
-use std::{collections::HashMap, sync::Mutex};
+use std::{collections::HashMap, io, sync::Mutex};
 
 use commands::connection::{
     connect, delete_connection, disconnect, list_databases, load_connections, save_connection,
@@ -8,7 +8,10 @@ use commands::connection::{
 };
 use commands::query::{fetch_rows, list_tables};
 use commands::write_queue::{apply_write_queue, generate_sql};
-use sqlx::SqlitePool;
+use sqlx::{
+    sqlite::{SqliteConnectOptions, SqlitePoolOptions},
+    SqlitePool,
+};
 use tauri::{
     menu::{AboutMetadata, Menu, MenuItemBuilder, SubmenuBuilder},
     Emitter, Manager,
@@ -82,20 +85,24 @@ pub fn run() {
                 }
             });
             let app_path = app.path().app_data_dir()?;
+            std::fs::create_dir_all(&app_path)?;
             let db_path = app_path.join("orel_spacecraft.db");
-            let db = format!("sqlite:{}?mode=rwc", db_path.display());
+            let options = SqliteConnectOptions::new()
+                .filename(&db_path)
+                .create_if_missing(true);
 
             let pool = tauri::async_runtime::block_on(async {
-                let pool = SqlitePool::connect(&db)
+                let pool = SqlitePoolOptions::new()
+                    .connect_with(options)
                     .await
-                    .expect("Failed to connect to database.");
+                    .map_err(io::Error::other)?;
                 sqlx::migrate!("./migrations")
                     .run(&pool)
                     .await
-                    .expect("Failed to run migrations.");
+                    .map_err(io::Error::other)?;
 
-                pool // return the pool
-            });
+                Ok::<SqlitePool, io::Error>(pool)
+            })?;
 
             app.manage(AppState {
                 db: pool,

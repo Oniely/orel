@@ -14,8 +14,9 @@ To publish a release:
 
 ```bash
 # First update package.json and src-tauri/Cargo.toml to the new version, then commit it.
-git tag v0.2.0
-git push origin main v0.2.0
+RELEASE_VERSION="$(node -p "require('./package.json').version")"
+git tag "v${RELEASE_VERSION}"
+git push origin main "v${RELEASE_VERSION}"
 ```
 
 GitHub Actions builds macOS, Windows, and Linux packages, creates the GitHub Release, and publishes the signed

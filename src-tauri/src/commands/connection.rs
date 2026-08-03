@@ -194,6 +194,20 @@ fn mysql_opts(
     opts
 }
 
+fn preferred_mysql_database(databases: &[String]) -> Option<String> {
+    const SYSTEM_DATABASES: [&str; 4] = ["information_schema", "mysql", "performance_schema", "sys"];
+
+    databases
+        .iter()
+        .find(|database| {
+            !SYSTEM_DATABASES
+                .iter()
+                .any(|system| database.eq_ignore_ascii_case(system))
+        })
+        .or_else(|| databases.first())
+        .cloned()
+}
+
 // ── Commands ──────────────────────────────────────────────────────────────────
 
 #[tauri::command]
@@ -390,6 +404,74 @@ pub async fn connect(
 
     let default_db = config.default_database.as_deref().filter(|s| !s.is_empty());
 
+    // A MySQL account can be allowed to connect to a specific database while
+    // being denied a server-wide catalog connection or SHOW DATABASES. When a
+    // default is configured, connect to that known-good database first and
+    // treat catalog discovery as optional.
+    if config.db_type == "mysql" {
+        if let Some(database) = default_db {
+            let database = database.to_string();
+            let pool = create_pool(&config, Some(&database)).await?;
+            let mut databases = fetch_databases(&pool)
+                .await
+                .unwrap_or_else(|_| vec![database.clone()]);
+
+            if !databases.iter().any(|item| item == &database) {
+                databases.push(database.clone());
+            }
+            databases.sort();
+
+            state
+                .pools
+                .lock()
+                .unwrap()
+                .insert(connection_id.clone(), pool);
+            state.configs.lock().unwrap().insert(connection_id, config);
+
+            return Ok(ConnectResult {
+                databases,
+                active_database: database,
+            });
+        }
+
+        let initial_pool = create_pool(&config, None).await?;
+        let databases = match fetch_databases(&initial_pool).await {
+            Ok(databases) => databases,
+            Err(error) => {
+                close_pool(initial_pool).await;
+                return Err(format!(
+                    "Connected to MySQL, but could not discover accessible databases. Enter a Default database in the connection settings. MySQL error: {error}"
+                ));
+            }
+        };
+
+        let target_db = match preferred_mysql_database(&databases) {
+            Some(database) => database,
+            None => {
+                close_pool(initial_pool).await;
+                return Err(
+                    "Connected to MySQL, but the server returned no accessible databases. Enter a Default database in the connection settings."
+                        .to_string(),
+                );
+            }
+        };
+
+        close_pool(initial_pool).await;
+        let final_pool = create_pool(&config, Some(&target_db)).await?;
+
+        state
+            .pools
+            .lock()
+            .unwrap()
+            .insert(connection_id.clone(), final_pool);
+        state.configs.lock().unwrap().insert(connection_id, config);
+
+        return Ok(ConnectResult {
+            databases,
+            active_database: target_db,
+        });
+    }
+
     // Connect to a catalog-safe database to list available databases.
     // Postgres: "postgres" (always exists). MySQL: no database needed.
     let initial_db = match config.db_type.as_str() {
@@ -495,4 +577,39 @@ pub async fn switch_database(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::preferred_mysql_database;
+
+    #[test]
+    fn mysql_prefers_a_user_database_over_system_databases() {
+        let databases = vec![
+            "information_schema".to_string(),
+            "mysql".to_string(),
+            "production".to_string(),
+            "sys".to_string(),
+        ];
+
+        assert_eq!(
+            preferred_mysql_database(&databases),
+            Some("production".to_string())
+        );
+    }
+
+    #[test]
+    fn mysql_falls_back_to_an_available_system_database() {
+        let databases = vec!["information_schema".to_string(), "mysql".to_string()];
+
+        assert_eq!(
+            preferred_mysql_database(&databases),
+            Some("information_schema".to_string())
+        );
+    }
+
+    #[test]
+    fn mysql_returns_none_when_no_databases_are_available() {
+        assert_eq!(preferred_mysql_database(&[]), None);
+    }
 }

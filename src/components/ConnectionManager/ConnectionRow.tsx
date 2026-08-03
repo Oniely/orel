@@ -7,6 +7,7 @@ import { Button, Spinner, toast } from "@heroui/react";
 
 import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
 import { PencilLineIcon, TrashIcon } from "@phosphor-icons/react";
+import { getErrorMessage } from "../../lib/error";
 const appWindow = getCurrentWindow();
 
 export default function ConnectionRow({
@@ -35,7 +36,7 @@ export default function ConnectionRow({
         navigate({ to: "/dashboard" });
       },
       onError: (error) => {
-        toast.danger(error instanceof Error ? error.message : "Connection failed");
+        toast.danger(getErrorMessage(error, "Connection failed"));
       },
     });
   };
