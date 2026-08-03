@@ -275,6 +275,7 @@ interface DataGridProps {
   onRowContextMenu: (index: number, x: number, y: number) => void;
   onInspectRow: (index: number) => void;
   isLoading: boolean;
+  error: string | null;
   activeTable: string | null;
   wq: WriteQueueActions;
 }
@@ -287,6 +288,7 @@ function DataGrid({
   onRowContextMenu,
   onInspectRow,
   isLoading,
+  error,
   activeTable,
   wq,
 }: DataGridProps) {
@@ -691,7 +693,15 @@ function DataGrid({
             );
           })}
 
-          {rows.length === 0 && wq.insertedRows.length === 0 && (
+          {!isLoading && error && (
+            <tr>
+              <td colSpan={colInfos.length + 1} className="text-center py-12 px-6 text-sm text-danger">
+                {error}
+              </td>
+            </tr>
+          )}
+
+          {!isLoading && !error && rows.length === 0 && wq.insertedRows.length === 0 && (
             <tr>
               <td colSpan={colInfos.length + 1} className="text-center py-12 text-sm text-muted">
                 No rows
@@ -801,6 +811,7 @@ interface ContentAreaProps {
   onSqlChange: (id: string, sql: string) => void;
   queryResult: QueryResult | null;
   isLoading: boolean;
+  error: string | null;
   selectedRowIndex: number | null;
   onRowClick: (index: number) => void;
   onInspectRow: (index: number) => void;
@@ -817,6 +828,7 @@ export function ContentArea({
   onSqlChange,
   queryResult,
   isLoading,
+  error,
   selectedRowIndex,
   onRowClick,
   onInspectRow,
@@ -838,9 +850,9 @@ export function ContentArea({
     setActiveView("Data");
   }, [activeTableName]);
 
-  const columns = queryResult?.columns ?? [];
-  const rows = queryResult?.rows ?? [];
-  const totalEstimate = queryResult?.totalEstimate ?? null;
+  const columns = error ? [] : (queryResult?.columns ?? []);
+  const rows = error ? [] : (queryResult?.rows ?? []);
+  const totalEstimate = error ? null : (queryResult?.totalEstimate ?? null);
 
   const firstCol = columns[0]?.name ?? "";
 
@@ -936,6 +948,7 @@ export function ContentArea({
             onRowContextMenu={(index, x, y) => setContextMenu({ rowIndex: index, x, y })}
             onInspectRow={onInspectRow}
             isLoading={isLoading}
+            error={error}
             activeTable={activeTableName}
             wq={wq}
           />

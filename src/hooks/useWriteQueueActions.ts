@@ -11,6 +11,7 @@ const SAVED_HIGHLIGHT_MS = 3000;
 export function useWriteQueueActions(
   scopeKey: string | null,
   connectionId: string | null,
+  activeDatabase: string | null,
   activeTableName: string | null,
   queryResult: QueryResult | null,
 ) {
@@ -96,7 +97,7 @@ export function useWriteQueueActions(
   };
 
   const handleApplyRow = async (rowIndex: number): Promise<boolean> => {
-    if (!scopeKey || !connectionId || !activeTableName) return false;
+    if (!scopeKey || !connectionId || !activeDatabase || !activeTableName) return false;
     const identity = getIdentity(rowIndex);
     if (!identity) return false;
     const rowChanges = useWriteQueueStore.getState().getRowChanges(scopeKey, identity);
@@ -104,7 +105,12 @@ export function useWriteQueueActions(
 
     const changedColumns = rowChanges[0]?.kind === "Update" ? rowChanges[0].changes.map((c) => c.column) : [];
 
-    await applyRowMutation.mutateAsync({ connectionId, table: activeTableName, changes: rowChanges });
+    await applyRowMutation.mutateAsync({
+      connectionId,
+      database: activeDatabase,
+      table: activeTableName,
+      changes: rowChanges,
+    });
 
     const iKey = identityKey(identity);
     useWriteQueueStore.getState().unstageRow(scopeKey, identity);
@@ -119,7 +125,7 @@ export function useWriteQueueActions(
   };
 
   const handleApply = async () => {
-    if (!scopeKey || !connectionId || !activeTableName) return;
+    if (!scopeKey || !connectionId || !activeDatabase || !activeTableName) return;
     const changes = useWriteQueueStore.getState().getChanges(scopeKey);
     if (changes.length === 0) return;
 
@@ -130,7 +136,13 @@ export function useWriteQueueActions(
       }
     }
 
-    await applyMutation.mutateAsync({ connectionId, table: activeTableName, changes, scopeKey });
+    await applyMutation.mutateAsync({
+      connectionId,
+      database: activeDatabase,
+      table: activeTableName,
+      changes,
+      scopeKey,
+    });
     markCellsSaved(savedEntries);
   };
 

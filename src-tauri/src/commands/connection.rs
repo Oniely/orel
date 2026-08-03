@@ -52,7 +52,6 @@ pub struct AppState {
     pub db: SqlitePool,                                   // app db
     pub pools: Mutex<HashMap<String, DbPool>>,            // connections pool
     pub configs: Mutex<HashMap<String, SavedConnection>>, // connection config
-    pub engine_cache: Mutex<HashMap<String, HashMap<String, bool>>>, // connection_id -> table -> is_transactional
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -62,6 +61,17 @@ async fn close_pool(pool: DbPool) {
         DbPool::Postgres(pg) => pg.close().await,
         DbPool::MySql(mysql) => mysql.close().await,
         DbPool::Sqlite(sqlite) => sqlite.close().await,
+    }
+}
+
+async fn replace_connected_pool(state: &AppState, connection_id: &str, pool: DbPool) {
+    let old_pool = state
+        .pools
+        .lock()
+        .unwrap()
+        .insert(connection_id.to_string(), pool);
+    if let Some(old_pool) = old_pool {
+        close_pool(old_pool).await;
     }
 }
 
@@ -116,13 +126,58 @@ async fn fetch_databases(pool: &DbPool) -> Result<Vec<String>, String> {
         .fetch_all(pg)
         .await
         .map_err(|e| e.to_string()),
-        DbPool::MySql(mysql) => sqlx::query_scalar::<_, String>("SHOW DATABASES")
-            .fetch_all(mysql)
-            .await
-            .map_err(|e| e.to_string()),
+        DbPool::MySql(mysql) => fetch_mysql_databases(mysql).await,
         DbPool::Sqlite(_) => {
             // SQLite has no concept of multiple databases
             Ok(vec!["main".to_string()])
+        }
+    }
+}
+
+const MYSQL_SYSTEM_DATABASES: [&str; 4] =
+    ["information_schema", "mysql", "performance_schema", "sys"];
+
+fn is_mysql_system_database(database: &str) -> bool {
+    MYSQL_SYSTEM_DATABASES
+        .iter()
+        .any(|system| database.eq_ignore_ascii_case(system))
+}
+
+fn mysql_user_databases(databases: Vec<String>) -> Vec<String> {
+    databases
+        .into_iter()
+        .filter(|database| !is_mysql_system_database(database))
+        .collect()
+}
+
+async fn fetch_mysql_databases(pool: &MySqlPool) -> Result<Vec<String>, String> {
+    match sqlx::query_scalar::<_, String>(
+        "SELECT CAST(SCHEMA_NAME AS CHAR) FROM information_schema.SCHEMATA ORDER BY SCHEMA_NAME",
+    )
+    .fetch_all(pool)
+    .await
+    {
+        Ok(databases) => Ok(mysql_user_databases(databases)),
+        Err(schemata_error) => {
+            let raw_databases = sqlx::query_scalar::<_, Vec<u8>>("SHOW DATABASES")
+                .fetch_all(pool)
+                .await
+                .map_err(|show_error| {
+                    format!(
+                        "database discovery failed via information_schema.SCHEMATA ({schemata_error}) and SHOW DATABASES ({show_error})"
+                    )
+                })?;
+
+            let databases = raw_databases
+                .into_iter()
+                .map(|database| {
+                    String::from_utf8(database).map_err(|error| {
+                        format!("MySQL returned a non-UTF-8 database name: {error}")
+                    })
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+
+            Ok(mysql_user_databases(databases))
         }
     }
 }
@@ -162,7 +217,10 @@ fn sqlite_opts(path: &str) -> Result<sqlx::sqlite::SqliteConnectOptions, String>
 
     SqliteConnectOptions::from_str(path)
         .map_err(|e| e.to_string())
-        .map(|o| o.journal_mode(SqliteJournalMode::Wal).create_if_missing(false))
+        .map(|o| {
+            o.journal_mode(SqliteJournalMode::Wal)
+                .create_if_missing(false)
+        })
 }
 
 fn mysql_opts(
@@ -194,18 +252,11 @@ fn mysql_opts(
     opts
 }
 
-fn preferred_mysql_database(databases: &[String]) -> Option<String> {
-    const SYSTEM_DATABASES: [&str; 4] = ["information_schema", "mysql", "performance_schema", "sys"];
-
-    databases
-        .iter()
-        .find(|database| {
-            !SYSTEM_DATABASES
-                .iter()
-                .any(|system| database.eq_ignore_ascii_case(system))
-        })
-        .or_else(|| databases.first())
-        .cloned()
+fn configured_default_database(config: &SavedConnection) -> Option<&str> {
+    config
+        .default_database
+        .as_deref()
+        .filter(|database| !database.is_empty())
 }
 
 // ── Commands ──────────────────────────────────────────────────────────────────
@@ -298,7 +349,6 @@ pub async fn disconnect(state: tauri::State<'_, AppState>, id: String) -> Result
     }
 
     state.configs.lock().unwrap().remove(&id);
-
     Ok(())
 }
 
@@ -393,7 +443,7 @@ pub async fn connect(
             .map(|f| f.to_string_lossy().to_string())
             .unwrap_or_else(|| "database".to_string());
 
-        state.pools.lock().unwrap().insert(connection_id.clone(), pool);
+        replace_connected_pool(&state, &connection_id, pool).await;
         state.configs.lock().unwrap().insert(connection_id, config);
 
         return Ok(ConnectResult {
@@ -402,12 +452,11 @@ pub async fn connect(
         });
     }
 
-    let default_db = config.default_database.as_deref().filter(|s| !s.is_empty());
+    let default_db = configured_default_database(&config);
 
-    // A MySQL account can be allowed to connect to a specific database while
-    // being denied a server-wide catalog connection or SHOW DATABASES. When a
-    // default is configured, connect to that known-good database first and
-    // treat catalog discovery as optional.
+    // Connect to the configured default first when present. Database discovery
+    // remains optional because some MySQL accounts can access one database but
+    // cannot inspect the server-wide catalog.
     if config.db_type == "mysql" {
         if let Some(database) = default_db {
             let database = database.to_string();
@@ -416,16 +465,12 @@ pub async fn connect(
                 .await
                 .unwrap_or_else(|_| vec![database.clone()]);
 
-            if !databases.iter().any(|item| item == &database) {
+            if !databases.iter().any(|candidate| candidate == &database) {
                 databases.push(database.clone());
+                databases.sort();
             }
-            databases.sort();
 
-            state
-                .pools
-                .lock()
-                .unwrap()
-                .insert(connection_id.clone(), pool);
+            replace_connected_pool(&state, &connection_id, pool).await;
             state.configs.lock().unwrap().insert(connection_id, config);
 
             return Ok(ConnectResult {
@@ -445,12 +490,12 @@ pub async fn connect(
             }
         };
 
-        let target_db = match preferred_mysql_database(&databases) {
+        let target_db = match databases.first().cloned() {
             Some(database) => database,
             None => {
                 close_pool(initial_pool).await;
                 return Err(
-                    "Connected to MySQL, but the server returned no accessible databases. Enter a Default database in the connection settings."
+                    "Connected to MySQL, but the server returned no accessible user databases. Enter a Default database in the connection settings."
                         .to_string(),
                 );
             }
@@ -459,11 +504,7 @@ pub async fn connect(
         close_pool(initial_pool).await;
         let final_pool = create_pool(&config, Some(&target_db)).await?;
 
-        state
-            .pools
-            .lock()
-            .unwrap()
-            .insert(connection_id.clone(), final_pool);
+        replace_connected_pool(&state, &connection_id, final_pool).await;
         state.configs.lock().unwrap().insert(connection_id, config);
 
         return Ok(ConnectResult {
@@ -506,11 +547,7 @@ pub async fn connect(
         create_pool(&config, Some(&target_db)).await?
     };
 
-    state
-        .pools
-        .lock()
-        .unwrap()
-        .insert(connection_id.clone(), final_pool);
+    replace_connected_pool(&state, &connection_id, final_pool).await;
     state.configs.lock().unwrap().insert(connection_id, config);
 
     Ok(ConnectResult {
@@ -524,6 +561,19 @@ pub async fn list_databases(
     connection_id: String,
     state: tauri::State<'_, AppState>,
 ) -> Result<Vec<String>, String> {
+    let configured_mysql_default = {
+        let configs = state.configs.lock().unwrap();
+        let config = configs
+            .get(&connection_id)
+            .ok_or_else(|| "Connection not found".to_string())?;
+
+        if config.db_type == "mysql" {
+            configured_default_database(config).map(str::to_owned)
+        } else {
+            None
+        }
+    };
+
     let pool = {
         let pools = state.pools.lock().unwrap();
         pools
@@ -532,7 +582,23 @@ pub async fn list_databases(
             .clone()
     };
 
-    fetch_databases(&pool).await
+    match fetch_databases(&pool).await {
+        Ok(mut databases) => {
+            if let Some(default_database) = configured_mysql_default {
+                if !databases
+                    .iter()
+                    .any(|database| database == &default_database)
+                {
+                    databases.push(default_database);
+                    databases.sort();
+                }
+            }
+            Ok(databases)
+        }
+        Err(error) => configured_mysql_default
+            .map(|default_database| vec![default_database])
+            .ok_or(error),
+    }
 }
 
 #[tauri::command]
@@ -569,22 +635,15 @@ pub async fn switch_database(
         close_pool(old_pool).await;
     }
 
-    {
-        let mut configs = state.configs.lock().unwrap();
-        if let Some(existing) = configs.get_mut(&connection_id) {
-            existing.default_database = Some(database);
-        }
-    }
-
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
-    use super::preferred_mysql_database;
+    use super::mysql_user_databases;
 
     #[test]
-    fn mysql_prefers_a_user_database_over_system_databases() {
+    fn mysql_filters_system_databases() {
         let databases = vec![
             "information_schema".to_string(),
             "mysql".to_string(),
@@ -592,24 +651,13 @@ mod tests {
             "sys".to_string(),
         ];
 
-        assert_eq!(
-            preferred_mysql_database(&databases),
-            Some("production".to_string())
-        );
+        assert_eq!(mysql_user_databases(databases), vec!["production"]);
     }
 
     #[test]
-    fn mysql_falls_back_to_an_available_system_database() {
-        let databases = vec!["information_schema".to_string(), "mysql".to_string()];
+    fn mysql_system_database_filter_is_case_insensitive() {
+        let databases = vec!["INFORMATION_SCHEMA".to_string(), "app".to_string()];
 
-        assert_eq!(
-            preferred_mysql_database(&databases),
-            Some("information_schema".to_string())
-        );
-    }
-
-    #[test]
-    fn mysql_returns_none_when_no_databases_are_available() {
-        assert_eq!(preferred_mysql_database(&[]), None);
+        assert_eq!(mysql_user_databases(databases), vec!["app"]);
     }
 }

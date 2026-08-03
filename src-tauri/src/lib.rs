@@ -108,7 +108,6 @@ pub fn run() {
                 db: pool,
                 pools: Mutex::new(HashMap::new()),
                 configs: Mutex::new(HashMap::new()),
-                engine_cache: Mutex::new(HashMap::new()),
             });
 
             Ok(())

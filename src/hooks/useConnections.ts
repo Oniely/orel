@@ -4,6 +4,7 @@ import { toast } from "@heroui/react";
 import { useConnectionStore } from "../stores/connection.store";
 import type { SavedConnection } from "../types/connection";
 import { getErrorMessage } from "../lib/error";
+import { databaseQueryKeys } from "./useTables";
 
 // Load all saved connections from Rust on mount
 export function useLoadConnections() {
@@ -112,7 +113,7 @@ export function useListDatabases(connectionId: string | null, enabled = true) {
   const updateActiveConnection = useConnectionStore((s) => s.updateActiveConnection);
 
   return useQuery({
-    queryKey: ["databases", connectionId],
+    queryKey: databaseQueryKeys.databases(connectionId),
     queryFn: async () => {
       const databases = await invoke<string[]>("list_databases", { connectionId: connectionId! });
       updateActiveConnection(connectionId!, { databases });
@@ -132,7 +133,9 @@ export function useDisconnect() {
     mutationFn: (id: string) => invoke("disconnect", { id }),
     onSuccess: (_, id) => {
       closeConnection(id);
-      queryClient.invalidateQueries({ queryKey: ["tables", id] });
+      queryClient.removeQueries({ queryKey: databaseQueryKeys.databases(id) });
+      queryClient.removeQueries({ queryKey: databaseQueryKeys.tablesForConnection(id) });
+      queryClient.removeQueries({ queryKey: databaseQueryKeys.rowsForConnection(id) });
     },
   });
 }

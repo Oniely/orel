@@ -9,6 +9,7 @@ import { formatNum } from "../../lib/format";
 interface SidebarProps {
   tables: TableInfo[];
   isLoading: boolean;
+  error: string | null;
   activeTable: string | null;
   onTableClick: (name: string) => void;
   onNewQuery: () => void;
@@ -19,6 +20,7 @@ interface SidebarProps {
 export function Sidebar({
   tables,
   isLoading,
+  error,
   activeTable,
   onTableClick,
   onNewQuery,
@@ -27,7 +29,8 @@ export function Sidebar({
 }: SidebarProps) {
   const [search, setSearch] = useState("");
 
-  const filtered = tables.filter((t) => t.name.toLowerCase().includes(search.toLowerCase()));
+  const visibleTables = error ? [] : tables;
+  const filtered = visibleTables.filter((t) => t.name.toLowerCase().includes(search.toLowerCase()));
   const tableList = filtered.filter((t) => t.tableType === "table");
   const viewList = filtered.filter((t) => t.tableType === "view");
 
@@ -63,7 +66,11 @@ export function Sidebar({
       <div className="flex-1 overflow-y-auto px-2 py-2 scrollbar-hide">
         {isLoading && <div className="px-3 py-4 text-center text-xs text-muted">Loading…</div>}
 
-        {!isLoading && tableList.length === 0 && !search && (
+        {!isLoading && error && (
+          <div className="px-3 py-4 text-center text-xs text-danger">{error}</div>
+        )}
+
+        {!isLoading && !error && tableList.length === 0 && !search && (
           <div className="px-3 py-4 text-center text-xs text-muted">No tables</div>
         )}
 

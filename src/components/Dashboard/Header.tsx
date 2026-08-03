@@ -46,6 +46,7 @@ export function Header({
   const { savedConnections, activeConnections, setFocusedConnection, closeConnection } = useConnectionStore();
   const connect = useConnect();
   const isConnecting = Object.values(activeConnections).some((c) => c.status === "connecting");
+  const hasFixedDatabase = connection.config.type === "sqlite";
 
   const handleConnect = (conn: SavedConnection) => {
     const existing = activeConnections[conn.id];
@@ -138,7 +139,7 @@ export function Header({
         </ToggleButton>
 
         {/* Database switcher — hidden for SQLite (single file = single database) */}
-        {connection.config.type === "sqlite" ? (
+        {hasFixedDatabase ? (
           <div className="flex items-center gap-3 px-3 py-1">
             <DatabaseIcon className="size-4 text-muted" />
             <span className="font-mono text-xs text-muted">{activeDatabase ?? "database"}</span>

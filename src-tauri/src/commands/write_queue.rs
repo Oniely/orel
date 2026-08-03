@@ -1,10 +1,7 @@
-use serde::{Deserialize, Serialize};
-use serde_json::Value;
-use std::collections::HashMap;
-use std::sync::Mutex;
-
 use crate::commands::connection::{AppState, DbPool};
 use crate::commands::query::{mysql_quote, pg_quote};
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -95,7 +92,13 @@ fn build_where_clause(identity: &RowIdentity, driver: &Driver) -> String {
         .pk_columns
         .iter()
         .zip(identity.pk_values.iter())
-        .map(|(col, val)| format!("{} = {}", quote_ident(col, driver), format_sql_value(val, driver)))
+        .map(|(col, val)| {
+            format!(
+                "{} = {}",
+                quote_ident(col, driver),
+                format_sql_value(val, driver)
+            )
+        })
         .collect::<Vec<_>>()
         .join(" AND ")
 }
@@ -126,7 +129,9 @@ fn change_to_sql(table: &str, change: &PendingChange, driver: &Driver) -> String
             if values.is_empty() {
                 // Empty insert — use DEFAULT VALUES for Postgres/SQLite, () VALUES () for MySQL
                 return match driver {
-                    Driver::Postgres | Driver::Sqlite => format!("INSERT INTO {} DEFAULT VALUES", qt),
+                    Driver::Postgres | Driver::Sqlite => {
+                        format!("INSERT INTO {} DEFAULT VALUES", qt)
+                    }
                     Driver::MySql => format!("INSERT INTO {} () VALUES ()", qt),
                 };
             }
@@ -155,25 +160,10 @@ fn driver_from_pool(pool: &DbPool) -> Driver {
 
 // ── Transaction capability check ─────────────────────────────────────────────
 
-async fn is_transactional(
-    pool: &DbPool,
-    connection_id: &str,
-    table: &str,
-    cache: &Mutex<HashMap<String, HashMap<String, bool>>>,
-) -> Result<bool, String> {
+async fn is_transactional(pool: &DbPool, table: &str) -> Result<bool, String> {
     // Postgres and SQLite always support transactions
     if matches!(pool, DbPool::Postgres(_) | DbPool::Sqlite(_)) {
         return Ok(true);
-    }
-
-    // Check cache first
-    {
-        let c = cache.lock().unwrap();
-        if let Some(inner) = c.get(connection_id) {
-            if let Some(&v) = inner.get(table) {
-                return Ok(v);
-            }
-        }
     }
 
     // MySQL: check engine type
@@ -183,24 +173,14 @@ async fn is_transactional(
     };
 
     let engine: String = sqlx::query_scalar(
-        "SELECT ENGINE FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?",
+        "SELECT CAST(ENGINE AS CHAR) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?",
     )
     .bind(table)
     .fetch_one(mysql)
     .await
     .map_err(|e| e.to_string())?;
 
-    let result = engine.eq_ignore_ascii_case("InnoDB");
-
-    // Cache the result
-    {
-        let mut c = cache.lock().unwrap();
-        c.entry(connection_id.to_string())
-            .or_default()
-            .insert(table.to_string(), result);
-    }
-
-    Ok(result)
+    Ok(engine.eq_ignore_ascii_case("InnoDB"))
 }
 
 // ── Commands ─────────────────────────────────────────────────────────────────
@@ -259,7 +239,7 @@ pub async fn apply_write_queue(
         });
     }
 
-    let transactional = is_transactional(&pool, &connection_id, &table, &state.engine_cache).await?;
+    let transactional = is_transactional(&pool, &table).await?;
 
     if transactional {
         apply_transactional(&pool, &sqls).await

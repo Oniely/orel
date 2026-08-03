@@ -37,13 +37,47 @@ pub(crate) fn mysql_quote(name: &str) -> String {
     format!("`{}`", name.replace('`', "``"))
 }
 
+fn mysql_utf8_literal(value: &str) -> String {
+    const HEX: &[u8; 16] = b"0123456789ABCDEF";
+    let bytes = value.as_bytes();
+    let mut encoded = String::with_capacity(bytes.len() * 2);
+
+    for byte in bytes {
+        encoded.push(HEX[(byte >> 4) as usize] as char);
+        encoded.push(HEX[(byte & 0x0f) as usize] as char);
+    }
+
+    format!("CONVERT(X'{encoded}' USING utf8mb4)")
+}
+
+fn parse_json_rows(raw: Vec<String>) -> Result<Vec<Value>, String> {
+    raw.into_iter()
+        .enumerate()
+        .map(|(index, row)| {
+            serde_json::from_str(&row).map_err(|error| {
+                format!("Failed to decode result row {} as JSON: {error}", index + 1)
+            })
+        })
+        .collect()
+}
 
 fn build_pk_order_clause(columns: &[ColumnInfo], quote_fn: fn(&str) -> String) -> String {
-    let pk_cols: Vec<&str> = columns.iter().filter(|c| c.is_primary).map(|c| c.name.as_str()).collect();
+    let pk_cols: Vec<&str> = columns
+        .iter()
+        .filter(|c| c.is_primary)
+        .map(|c| c.name.as_str())
+        .collect();
     if pk_cols.is_empty() {
         String::new()
     } else {
-        format!(" ORDER BY {}", pk_cols.iter().map(|c| quote_fn(c)).collect::<Vec<_>>().join(", "))
+        format!(
+            " ORDER BY {}",
+            pk_cols
+                .iter()
+                .map(|c| quote_fn(c))
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
     }
 }
 
@@ -92,13 +126,13 @@ pub async fn list_tables(
         }
         DbPool::MySql(mysql) => {
             let rows = sqlx::query_as::<_, (String, String, Option<i64>)>(
-                "SELECT TABLE_NAME, \
-                CASE TABLE_TYPE \
+                "SELECT CAST(TABLE_NAME AS CHAR), \
+                CAST(CASE TABLE_TYPE \
                     WHEN 'BASE TABLE' THEN 'table' \
                     WHEN 'VIEW' THEN 'view' \
                     ELSE 'table' \
-                END, \
-                TABLE_ROWS \
+                END AS CHAR), \
+                CAST(TABLE_ROWS AS SIGNED) \
                 FROM information_schema.TABLES \
                 WHERE TABLE_SCHEMA = DATABASE() \
                 ORDER BY TABLE_TYPE DESC, TABLE_NAME",
@@ -187,13 +221,15 @@ pub async fn fetch_rows(
 
             let columns: Vec<ColumnInfo> = col_rows
                 .into_iter()
-                .map(|(name, data_type, is_nullable, is_primary, has_default)| ColumnInfo {
-                    name,
-                    data_type,
-                    is_nullable: is_nullable == "YES",
-                    is_primary,
-                    has_default,
-                })
+                .map(
+                    |(name, data_type, is_nullable, is_primary, has_default)| ColumnInfo {
+                        name,
+                        data_type,
+                        is_nullable: is_nullable == "YES",
+                        is_primary,
+                        has_default,
+                    },
+                )
                 .collect();
 
             // Row count estimate
@@ -221,10 +257,7 @@ pub async fn fetch_rows(
                 .await
                 .map_err(|e| e.to_string())?;
 
-            let rows: Vec<Value> = raw
-                .iter()
-                .filter_map(|s| serde_json::from_str(s).ok())
-                .collect();
+            let rows = parse_json_rows(raw)?;
 
             Ok(QueryResult {
                 columns,
@@ -235,7 +268,8 @@ pub async fn fetch_rows(
         DbPool::MySql(mysql) => {
             // Column info
             let col_rows = sqlx::query_as::<_, (String, String, String, i8, i8)>(
-                "SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE, IF(COLUMN_KEY = 'PRI', 1, 0), \
+                "SELECT CAST(COLUMN_NAME AS CHAR), CAST(DATA_TYPE AS CHAR), \
+                CAST(IS_NULLABLE AS CHAR), IF(COLUMN_KEY = 'PRI', 1, 0), \
                 IF(COLUMN_DEFAULT IS NOT NULL OR EXTRA LIKE '%auto_increment%', 1, 0) \
                 FROM information_schema.COLUMNS \
                 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? \
@@ -248,18 +282,20 @@ pub async fn fetch_rows(
 
             let columns: Vec<ColumnInfo> = col_rows
                 .into_iter()
-                .map(|(name, data_type, is_nullable, is_primary, has_default)| ColumnInfo {
-                    name,
-                    data_type,
-                    is_nullable: is_nullable == "YES",
-                    is_primary: is_primary != 0,
-                    has_default: has_default != 0,
-                })
+                .map(
+                    |(name, data_type, is_nullable, is_primary, has_default)| ColumnInfo {
+                        name,
+                        data_type,
+                        is_nullable: is_nullable == "YES",
+                        is_primary: is_primary != 0,
+                        has_default: has_default != 0,
+                    },
+                )
                 .collect();
 
             // Row count estimate
             let total_estimate: Option<i64> = sqlx::query_scalar::<_, Option<i64>>(
-                "SELECT TABLE_ROWS FROM information_schema.TABLES \
+                "SELECT CAST(TABLE_ROWS AS SIGNED) FROM information_schema.TABLES \
                 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?",
             )
             .bind(&table)
@@ -281,15 +317,18 @@ pub async fn fetch_rows(
             let col_refs: String = columns
                 .iter()
                 .map(|c| {
-                    let quoted_col = c.name.replace('`', "``");
-                    format!("'{}', CAST(`{}` AS CHAR)", c.name, quoted_col)
+                    format!(
+                        "{}, CAST({} AS CHAR)",
+                        mysql_utf8_literal(&c.name),
+                        mysql_quote(&c.name)
+                    )
                 })
                 .collect::<Vec<_>>()
                 .join(", ");
             let quoted = mysql_quote(&table);
             let order_clause = build_pk_order_clause(&columns, mysql_quote);
             let row_query = format!(
-                "SELECT JSON_OBJECT({}) FROM {}{} LIMIT ? OFFSET ?",
+                "SELECT CAST(JSON_OBJECT({}) AS CHAR) FROM {}{} LIMIT ? OFFSET ?",
                 col_refs, quoted, order_clause
             );
             let raw: Vec<String> = sqlx::query_scalar(&row_query)
@@ -299,10 +338,7 @@ pub async fn fetch_rows(
                 .await
                 .map_err(|e| e.to_string())?;
 
-            let rows: Vec<Value> = raw
-                .iter()
-                .filter_map(|s| serde_json::from_str(s).ok())
-                .collect();
+            let rows = parse_json_rows(raw)?;
 
             Ok(QueryResult {
                 columns,
@@ -361,10 +397,7 @@ pub async fn fetch_rows(
                 .await
                 .map_err(|e| e.to_string())?;
 
-            let rows: Vec<Value> = raw
-                .iter()
-                .filter_map(|s| serde_json::from_str(s).ok())
-                .collect();
+            let rows = parse_json_rows(raw)?;
 
             Ok(QueryResult {
                 columns,
@@ -372,5 +405,34 @@ pub async fn fetch_rows(
                 total_estimate: None,
             })
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{mysql_utf8_literal, parse_json_rows};
+    use serde_json::json;
+
+    #[test]
+    fn mysql_utf8_literal_handles_quotes_backslashes_and_unicode() {
+        assert_eq!(
+            mysql_utf8_literal("owner's\\猫"),
+            "CONVERT(X'6F776E657227735CE78CAB' USING utf8mb4)"
+        );
+    }
+
+    #[test]
+    fn json_rows_preserve_every_valid_row() {
+        let rows = parse_json_rows(vec!["{\"id\":1}".to_string(), "{\"id\":2}".to_string()]);
+
+        assert_eq!(rows.unwrap(), vec![json!({ "id": 1 }), json!({ "id": 2 })]);
+    }
+
+    #[test]
+    fn invalid_json_row_returns_its_position() {
+        let error =
+            parse_json_rows(vec!["{\"id\":1}".to_string(), "invalid".to_string()]).unwrap_err();
+
+        assert!(error.contains("row 2"));
     }
 }

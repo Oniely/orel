@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useConnectionStore } from "../../stores/connection.store";
 import { useListDatabases, useSwitchDatabase, useDisconnect } from "../../hooks/useConnections";
-import { useListTables, useFetchRows } from "../../hooks/useTables";
+import { databaseQueryKeys, useListTables, useFetchRows } from "../../hooks/useTables";
 import { useQueryClient } from "@tanstack/react-query";
 import { Header } from "./Header";
 import { Sidebar } from "./Sidebar";
@@ -13,6 +13,7 @@ import { listen } from "@tauri-apps/api/event";
 import type { Tab } from "../../types/database";
 import { useWriteQueueActions } from "../../hooks/useWriteQueueActions";
 import { toast } from "@heroui/react";
+import { getErrorMessage } from "../../lib/error";
 
 type TabState = { tabs: Tab[]; activeTabId: string | null };
 const EMPTY_TAB_STATE: TabState = { tabs: [], activeTabId: null };
@@ -46,8 +47,16 @@ export function DashboardLayout() {
   useListDatabases(connectionId, connection?.status === "connected"); // Load databases of connectionId
   const switchDatabase = useSwitchDatabase();
   const disconnect = useDisconnect();
-  const { data: tables = [], isLoading: tablesLoading } = useListTables(connectionId);
-  const { data: queryResult = null, isLoading: rowsInitialLoading, isFetching: rowsFetching } = useFetchRows(connectionId, activeTableName);
+  const { data: tables = [], isLoading: tablesLoading, error: tablesError } = useListTables(
+    connectionId,
+    activeDatabase,
+  );
+  const {
+    data: queryResult = null,
+    isLoading: rowsInitialLoading,
+    isFetching: rowsFetching,
+    error: rowsError,
+  } = useFetchRows(connectionId, activeDatabase, activeTableName);
   const rowsLoading = rowsInitialLoading || rowsFetching;
 
   const updateTabState = (updater: (state: TabState) => TabState) =>
@@ -169,8 +178,8 @@ export function DashboardLayout() {
       { connectionId, database },
       {
         onSuccess: () => {
-          queryClient.invalidateQueries({ queryKey: ["rows", connectionId] });
-          queryClient.invalidateQueries({ queryKey: ["tables", connectionId] });
+          queryClient.invalidateQueries({ queryKey: databaseQueryKeys.rowsForDatabase(connectionId, database) });
+          queryClient.invalidateQueries({ queryKey: databaseQueryKeys.tables(connectionId, database) });
         },
       },
     );
@@ -186,10 +195,14 @@ export function DashboardLayout() {
   };
 
   const handleRefresh = useCallback(() => {
-    queryClient.refetchQueries({ queryKey: ["rows", connectionId, activeTableName] });
-    queryClient.refetchQueries({ queryKey: ["tables", connectionId] });
-    queryClient.refetchQueries({ queryKey: ["databases", connectionId] });
-  }, [queryClient, connectionId, activeTableName]);
+    if (connectionId && activeDatabase) {
+      queryClient.refetchQueries({
+        queryKey: databaseQueryKeys.rowsForDatabase(connectionId, activeDatabase),
+      });
+      queryClient.refetchQueries({ queryKey: databaseQueryKeys.tables(connectionId, activeDatabase) });
+    }
+    queryClient.refetchQueries({ queryKey: databaseQueryKeys.databases(connectionId) });
+  }, [queryClient, connectionId, activeDatabase]);
 
   // Listen for native menu refresh event (Cmd+R)
   useEffect(() => {
@@ -197,14 +210,20 @@ export function DashboardLayout() {
     return () => { unlisten.then((fn) => fn()); };
   }, [handleRefresh]);
 
-  const rows = queryResult?.rows ?? [];
+  const rows = rowsError ? [] : (queryResult?.rows ?? []);
   const columns = queryResult?.columns ?? [];
   const selectedRow = selectedRowIndex !== null ? (rows[selectedRowIndex] as Record<string, unknown>) : null;
 
   // ── Write Queue ──────────────────────────────────────────────────────────
   const scopeKey = databaseKey !== "__none__" && activeTableName ? `${databaseKey}::${activeTableName}` : null;
 
-  const wq = useWriteQueueActions(scopeKey, connectionId, activeTableName, queryResult);
+  const wq = useWriteQueueActions(
+    scopeKey,
+    connectionId,
+    activeDatabase,
+    activeTableName,
+    rowsError ? null : queryResult,
+  );
 
   if (!connection) return null;
 
@@ -230,6 +249,7 @@ export function DashboardLayout() {
         <Sidebar
           tables={tables}
           isLoading={tablesLoading}
+          error={tablesError ? getErrorMessage(tablesError, "Failed to load tables") : null}
           activeTable={activeTableName}
           onTableClick={handleTableClick}
           onNewQuery={handleNewQuery}
@@ -247,6 +267,7 @@ export function DashboardLayout() {
           onSqlChange={handleSqlChange}
           queryResult={queryResult}
           isLoading={rowsLoading}
+          error={rowsError ? getErrorMessage(rowsError, "Failed to load rows") : null}
           selectedRowIndex={selectedRowIndex}
           onRowClick={handleRowClick}
           onInspectRow={handleInspectRow}
