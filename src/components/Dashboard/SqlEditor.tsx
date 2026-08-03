@@ -158,7 +158,7 @@ export function SqlEditor({ sql, onSqlChange, commands }: SqlEditorProps) {
           options={{
             fontSize: 13,
             lineHeight: 20,
-            fontFamily: "ui-monospace, 'JetBrains Mono', 'SF Mono', Menlo, monospace",
+            fontFamily: "'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace",
             fontLigatures: true,
             minimap: { enabled: false },
             scrollBeyondLastLine: false,
