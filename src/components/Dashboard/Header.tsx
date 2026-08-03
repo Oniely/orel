@@ -14,6 +14,7 @@ import { INNER_W, SIDEBAR_PAD, SIDEBAR_WIDTH } from "./constants";
 import { useNavigate } from "@tanstack/react-router";
 import { useConnectionStore } from "../../stores/connection.store";
 import { useConnect } from "../../hooks/useConnections";
+import { UpdateAvailablePill } from "../UpdateAvailablePill";
 
 interface HeaderProps {
   connection: ActiveConnection;
@@ -173,6 +174,8 @@ export function Header({
         <div className="flex-1" />
 
         {/* Action buttons */}
+        <UpdateAvailablePill />
+
         <Button size="sm" variant="outline" className="flex items-center gap-1.5 text-xs">
           <ArrowLineUpIcon className="size-3" weight="bold" />
           Export

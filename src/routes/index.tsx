@@ -7,6 +7,7 @@ import { useConnectionStore } from "../stores/connection.store";
 import type { SavedConnection } from "../types/connection";
 import ConnectionRow from "../components/ConnectionManager/ConnectionRow";
 import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
+import { UpdateAvailablePill } from "../components/UpdateAvailablePill";
 
 export const Route = createFileRoute("/")({
   component: ConnectionManager,
@@ -59,14 +60,16 @@ function ConnectionManager() {
                 : `${savedConnections.length} connection${savedConnections.length !== 1 ? "s" : ""}`}
             </p>
           </div>
-          <Button
-            size="sm"
-            variant="outline"
-            onPress={() => {
-              setEditingConnection(null);
-              setModalOpen(true);
-            }}
-          >
+          <div className="flex items-center gap-2">
+            <UpdateAvailablePill />
+            <Button
+              size="sm"
+              variant="outline"
+              onPress={() => {
+                setEditingConnection(null);
+                setModalOpen(true);
+              }}
+            >
             <svg
               className="w-3.5 h-3.5 mr-1"
               viewBox="0 0 24 24"
@@ -77,8 +80,9 @@ function ConnectionManager() {
             >
               <path d="M12 5v14M5 12h14" />
             </svg>
-            New connection
-          </Button>
+              New connection
+            </Button>
+          </div>
         </div>
 
         {/* Loading */}
