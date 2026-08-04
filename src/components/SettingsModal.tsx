@@ -101,156 +101,155 @@ export function SettingsModal() {
                     </Modal.Header>
 
                     <div className="min-h-0 flex-1 overflow-y-auto px-8 py-7 scrollbar-hide">
-                    {section === "appearance" ? (
-                      <section>
-                        <h3 className="text-sm font-medium text-foreground">Theme</h3>
-                        <p className="mb-5 mt-1 text-xs text-muted">Select a color theme for the application.</p>
+                      {section === "appearance" ? (
+                        <section>
+                          <h3 className="text-sm font-medium text-foreground">Theme</h3>
+                          <p className="mb-5 mt-1 text-xs text-muted">Select a color theme for the application.</p>
 
-                        <div className="grid grid-cols-3 gap-3">
-                          {THEMES.map((theme) => {
-                            const isActive = themeId === theme.id;
-                            const swatches = getPreviewColors(theme);
+                          <div className="grid grid-cols-3 gap-3">
+                            {THEMES.map((theme) => {
+                              const isActive = themeId === theme.id;
+                              const swatches = getPreviewColors(theme);
 
-                            return (
-                              <button
-                                key={theme.id}
-                                type="button"
-                                onClick={() => setTheme(theme.id)}
-                                className="relative cursor-pointer rounded-lg border-2 p-3 text-left transition-all"
-                                style={{
-                                  background: theme.colors.background,
-                                  borderColor: isActive ? theme.colors.accent : theme.colors.separator,
-                                  boxShadow: isActive ? `0 0 0 1px ${theme.colors.accent}` : "none",
-                                }}
-                              >
-                                {isActive && (
-                                  <div
-                                    className="absolute right-2 top-2 flex size-5 items-center justify-center rounded-full"
-                                    style={{ background: theme.colors.accent }}
+                              return (
+                                <button
+                                  key={theme.id}
+                                  type="button"
+                                  onClick={() => setTheme(theme.id)}
+                                  className="relative cursor-pointer rounded-lg border-2 p-3 text-left transition-all"
+                                  style={{
+                                    background: theme.colors.background,
+                                    borderColor: isActive ? theme.colors.accent : theme.colors.separator,
+                                    boxShadow: isActive ? `0 0 0 1px ${theme.colors.accent}` : "none",
+                                  }}
+                                >
+                                  {isActive && (
+                                    <div
+                                      className="absolute right-2 top-2 flex size-5 items-center justify-center rounded-full"
+                                      style={{ background: theme.colors.accent }}
+                                    >
+                                      <CheckIcon
+                                        size={12}
+                                        weight="bold"
+                                        style={{ color: theme.colors["accent-foreground"] }}
+                                      />
+                                    </div>
+                                  )}
+
+                                  <span
+                                    className="mb-2.5 block text-xs font-semibold"
+                                    style={{ color: theme.colors.foreground }}
                                   >
-                                    <CheckIcon
-                                      size={12}
-                                      weight="bold"
-                                      style={{ color: theme.colors["accent-foreground"] }}
+                                    {theme.name}
+                                  </span>
+                                  <div className="flex gap-1.5">
+                                    {swatches.map((color, index) => (
+                                      <div key={index} className="size-6 rounded-md" style={{ background: color }} />
+                                    ))}
+                                  </div>
+                                  <div className="mt-2.5 h-2 rounded-sm" style={{ background: theme.colors.surface }} />
+                                  <div className="mt-1 flex gap-1">
+                                    <div
+                                      className="h-1.5 flex-1 rounded-sm"
+                                      style={{ background: theme.colors["surface-secondary"] }}
+                                    />
+                                    <div
+                                      className="h-1.5 flex-1 rounded-sm"
+                                      style={{ background: theme.colors.muted, opacity: 0.4 }}
                                     />
                                   </div>
-                                )}
-
-                                <span
-                                  className="mb-2.5 block text-xs font-semibold"
-                                  style={{ color: theme.colors.foreground }}
-                                >
-                                  {theme.name}
-                                </span>
-                                <div className="flex gap-1.5">
-                                  {swatches.map((color, index) => (
-                                    <div key={index} className="size-6 rounded-md" style={{ background: color }} />
-                                  ))}
-                                </div>
-                                <div
-                                  className="mt-2.5 h-2 rounded-sm"
-                                  style={{ background: theme.colors.surface }}
-                                />
-                                <div className="mt-1 flex gap-1">
-                                  <div
-                                    className="h-1.5 flex-1 rounded-sm"
-                                    style={{ background: theme.colors["surface-secondary"] }}
-                                  />
-                                  <div
-                                    className="h-1.5 flex-1 rounded-sm"
-                                    style={{ background: theme.colors.muted, opacity: 0.4 }}
-                                  />
-                                </div>
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </section>
-                    ) : (
-                      <section>
-                        <div className="flex items-start justify-between gap-4">
-                          <div>
-                            <h3 className="text-sm font-medium text-foreground">Update preferences</h3>
-                            <p className="mt-1 text-xs text-muted">Keep Orel current with the latest stable release.</p>
+                                </button>
+                              );
+                            })}
                           </div>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            isDisabled={updateQuery.isFetching || install.isPending}
-                            onPress={() => updateQuery.refetch()}
-                          >
-                            {updateQuery.isFetching ? (
-                              <Spinner size="sm" />
-                            ) : (
-                              <ArrowClockwiseIcon className="size-3.5" />
-                            )}
-                            Check again
-                          </Button>
-                        </div>
-
-                        <div className="mt-6 rounded-xl border border-separator bg-surface-secondary/30 p-4">
-                          <div className="flex items-center justify-between gap-4">
+                        </section>
+                      ) : (
+                        <section>
+                          <div className="flex items-start justify-between gap-4">
                             <div>
-                              <p className="text-xs text-muted">Installed version</p>
-                              <p className="mt-1 font-mono text-sm text-foreground">
-                                {appInfo.isLoading ? "Checking…" : `v${appInfo.data?.version ?? "unknown"}`}
+                              <h3 className="text-sm font-medium text-foreground">Update preferences</h3>
+                              <p className="mt-1 text-xs text-muted">
+                                Keep Orel current with the latest stable release.
                               </p>
                             </div>
-                            {update ? (
-                              <span className="rounded-full bg-accent/15 px-2.5 py-1 text-xs font-medium text-accent">
-                                v{update.version} available
-                              </span>
-                            ) : updateQuery.isFetching ? (
-                              <span className="text-xs text-muted">Checking for updates…</span>
-                            ) : updateQuery.isError ? (
-                              <span className="text-xs text-danger">Check failed</span>
-                            ) : (
-                              <span className="flex items-center gap-1.5 text-xs text-success">
-                                <CheckIcon size={13} weight="bold" /> Up to date
-                              </span>
-                            )}
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              isDisabled={updateQuery.isFetching || install.isPending}
+                              onPress={() => updateQuery.refetch()}
+                            >
+                              {updateQuery.isFetching ? (
+                                <Spinner size="sm" />
+                              ) : (
+                                <ArrowClockwiseIcon className="size-3.5" />
+                              )}
+                              Check again
+                            </Button>
                           </div>
-                        </div>
 
-                        {updateQuery.isError && (
-                          <div className="mt-4 rounded-lg border border-danger/30 bg-danger/10 p-3 text-xs text-danger">
-                            {checkError}
-                          </div>
-                        )}
-
-                        {install.isError && (
-                          <div className="mt-4 rounded-lg border border-danger/30 bg-danger/10 p-3 text-xs text-danger">
-                            {installError}
-                          </div>
-                        )}
-
-                        {update && (
-                          <div className="mt-5">
-                            <h4 className="text-xs font-medium text-foreground">What’s new in v{update.version}</h4>
-                            <div className="mt-2 max-h-40 overflow-y-auto whitespace-pre-wrap rounded-lg border border-separator p-3 text-xs leading-relaxed text-muted">
-                              {update.body?.trim() || "See the GitHub release for details."}
-                            </div>
-
-                            {isDeb ? (
-                              <div className="mt-4">
-                                <p className="mb-3 text-xs leading-relaxed text-muted">
-                                  Debian packages cannot be replaced in place. Download the latest .deb package and
-                                  install it with your package manager.
+                          <div className="mt-6 rounded-xl border border-separator bg-surface-secondary/30 p-4">
+                            <div className="flex items-center justify-between gap-4">
+                              <div>
+                                <p className="text-xs text-muted">Installed version</p>
+                                <p className="mt-1 font-mono text-sm text-foreground">
+                                  {appInfo.isLoading ? "Checking…" : `v${appInfo.data?.version ?? "unknown"}`}
                                 </p>
-                                <Button size="sm" onPress={() => openUrl(RELEASES_URL)}>
-                                  Open latest release
-                                </Button>
                               </div>
-                            ) : (
-                              <Button className="mt-4" size="sm" onPress={() => setConfirmOpen(true)}>
-                                <DownloadSimpleIcon className="size-4" />
-                                Update and restart
-                              </Button>
-                            )}
+                              {update ? (
+                                <span className="rounded-full bg-accent/15 px-2.5 py-1 text-xs font-medium text-accent">
+                                  v{update.version} available
+                                </span>
+                              ) : updateQuery.isFetching ? (
+                                <span className="text-xs text-muted">Checking for updates…</span>
+                              ) : updateQuery.isError ? (
+                                <span className="text-xs text-danger">Check failed</span>
+                              ) : (
+                                <span className="flex items-center gap-1.5 text-xs text-success">
+                                  <CheckIcon size={13} weight="bold" /> Up to date
+                                </span>
+                              )}
+                            </div>
                           </div>
-                        )}
-                      </section>
-                    )}
+
+                          {updateQuery.isError && (
+                            <div className="mt-4 rounded-lg border border-danger/30 bg-danger/10 p-3 text-xs text-danger">
+                              {checkError}
+                            </div>
+                          )}
+
+                          {install.isError && (
+                            <div className="mt-4 rounded-lg border border-danger/30 bg-danger/10 p-3 text-xs text-danger">
+                              {installError}
+                            </div>
+                          )}
+
+                          {update && (
+                            <div className="mt-5">
+                              <h4 className="text-xs font-medium text-foreground">What’s new in v{update.version}</h4>
+                              <div className="mt-2 max-h-40 overflow-y-auto whitespace-pre-wrap rounded-lg border border-separator p-3 text-xs leading-relaxed text-muted">
+                                {update.body?.trim() || "See the GitHub release for details."}
+                              </div>
+
+                              {isDeb ? (
+                                <div className="mt-4">
+                                  <p className="mb-3 text-xs leading-relaxed text-muted">
+                                    Debian packages cannot be replaced in place. Download the latest .deb package and
+                                    install it with your package manager.
+                                  </p>
+                                  <Button size="sm" onPress={() => openUrl(RELEASES_URL)}>
+                                    Open latest release
+                                  </Button>
+                                </div>
+                              ) : (
+                                <Button className="mt-4" size="sm" onPress={() => setConfirmOpen(true)}>
+                                  <DownloadSimpleIcon className="size-4" />
+                                  Update and restart
+                                </Button>
+                              )}
+                            </div>
+                          )}
+                        </section>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -278,9 +277,18 @@ export function SettingsModal() {
                 {install.isPending ? (
                   <div>
                     <p>Downloading and installing v{update?.version}…</p>
-                    <div className="mt-4 h-2 overflow-hidden rounded-full bg-surface-secondary">
+                    <div
+                      className="mt-4 h-2 overflow-hidden rounded-full bg-surface-secondary"
+                      role="progressbar"
+                      aria-label="Update download progress"
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                      aria-valuenow={install.progress}
+                    >
                       <div
-                        className="h-full rounded-full bg-accent transition-[width] duration-200"
+                        className={`h-full rounded-full bg-accent ${
+                          install.progress < 100 ? "transition-[width] duration-200" : ""
+                        }`}
                         style={{ width: `${install.progress}%` }}
                       />
                     </div>
