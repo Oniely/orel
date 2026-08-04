@@ -174,7 +174,7 @@ function FilterBar({ filters, columns, onFiltersChange, onApply }: FilterBarProp
             <Button
               variant="secondary"
               onClick={() => toggleConjunction(i)}
-              className="w-9 h-[30px] grid place-items-center rounded-[6px] text-[10px] font-semibold font-mono"
+              className="w-9 h-[30px] grid place-items-center rounded-[6px] text-xs font-semibold font-mono"
             >
               {f.conjunction}
             </Button>
@@ -475,7 +475,7 @@ function DataGrid({
         minSize: 52,
         enableResizing: false,
         header: () => null,
-        cell: ({ row }) => <span className="font-mono text-[11px] text-muted select-none">{row.index + 1}</span>,
+        cell: ({ row }) => <span className="font-mono text-xs text-muted select-none">{row.index + 1}</span>,
       },
       ...colInfos.map((c) => ({
         id: c.name,
@@ -487,7 +487,7 @@ function DataGrid({
             {c.isPrimary && <KeyIcon size={9} className="text-warning shrink-0" />}
             <span className="font-mono text-foreground shrink-0">{c.name}</span>
             <span
-              className="text-[9px] font-mono px-1 py-[1px] rounded min-w-0 truncate"
+              className="text-[10px] font-mono px-1 py-[1px] rounded min-w-0 truncate"
               style={{
                 color: getTypeColor(c.dataType),
                 background: `color-mix(in oklch, ${getTypeColor(c.dataType)} 12%, transparent)`,
@@ -545,7 +545,7 @@ function DataGrid({
               {headerGroup.headers.map((header) => (
                 <th
                   key={header.id}
-                  className="text-left relative select-none whitespace-nowrap overflow-hidden font-medium text-[11px] px-3.5 py-2.5 border-b-hairline"
+                  className="text-left relative select-none whitespace-nowrap overflow-hidden font-medium text-xs px-3.5 py-2.5 border-b-hairline"
                   style={{ width: header.getSize() }}
                 >
                   {flexRender(header.column.columnDef.header, header.getContext())}
@@ -650,7 +650,7 @@ function DataGrid({
                 {/* Row number cell — shows + by default, − on hover to remove */}
                 <td className="border-b-hairline px-[14px] overflow-hidden whitespace-nowrap">
                   <button
-                    className="insert-row-btn font-mono text-[11px] select-none"
+                    className="insert-row-btn font-mono text-xs select-none"
                     onClick={(e) => {
                       e.stopPropagation();
                       wq.handleRemoveInsert(insertIdx);
@@ -672,12 +672,10 @@ function DataGrid({
                     >
                       <div className="overflow-hidden text-ellipsis whitespace-nowrap">
                         {isAutoGenPK ? (
-                          <span className="font-mono text-[11px] text-muted italic select-none opacity-40">
-                            DEFAULT
-                          </span>
+                          <span className="font-mono text-xs text-muted italic select-none opacity-40">DEFAULT</span>
                         ) : !hasValue && c.hasDefault ? (
                           <span
-                            className="font-mono text-[11px] text-muted italic select-none underline decoration-dashed underline-offset-2"
+                            className="font-mono text-xs text-muted italic select-none underline decoration-dashed underline-offset-2"
                             style={{ textDecorationColor: "color-mix(in oklch, var(--muted) 50%, transparent)" }}
                           >
                             DEFAULT
@@ -750,7 +748,7 @@ function PillTabBar<T extends string>({ tabs, active, onChange }: PillTabBarProp
         <button
           key={t}
           onClick={() => onChange(t)}
-          className="px-2.5 py-[3px] rounded-[5px] text-[11px] transition-colors font-mono"
+          className="px-2.5 py-[3px] rounded-[5px] text-xs transition-colors font-mono"
           style={{
             background: active === t ? "var(--surface)" : "transparent",
             color: active === t ? "var(--foreground)" : "var(--muted)",
@@ -1021,7 +1019,7 @@ export function ContentArea({
 
       {/* Footer */}
       {!isQueryTab && activeTableName && (
-        <div className="flex items-center justify-between gap-4 px-4.5 border-t border-separator bg-surface shrink-0 font-mono text-muted py-2.5 h-14 text-[11px]">
+        <div className="flex items-center justify-between gap-4 px-4.5 border-t border-separator bg-surface shrink-0 font-mono text-muted py-2.5 h-14 text-xs">
           {/* View switcher */}
           <PillTabBar tabs={VIEWS} active={activeView} onChange={setActiveView} />
 

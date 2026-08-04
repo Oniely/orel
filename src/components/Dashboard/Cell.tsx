@@ -2,7 +2,7 @@ import { getTypeColor } from "../../lib/typeColors";
 
 export default function Cell({ value, type }: { value: unknown; type: string }) {
   if (value === null || value === undefined) {
-    return <span className="text-muted italic text-[11px]">NULL</span>;
+    return <span className="text-muted italic text-xs">NULL</span>;
   }
   const color = getTypeColor(type);
   const isBool = type === "boolean" || type === "bool";
@@ -21,7 +21,7 @@ export default function Cell({ value, type }: { value: unknown; type: string }) 
     return (
       <span className="inline-flex items-center gap-1.5">
         <img src={value} className="w-4 h-4 rounded-full object-cover" alt="" />
-        <span className="font-mono text-[11px] truncate" style={{ color }}>
+        <span className="font-mono text-xs truncate" style={{ color }}>
           {value.slice(0, 32)}…
         </span>
       </span>

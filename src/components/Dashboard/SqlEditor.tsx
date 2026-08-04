@@ -119,7 +119,7 @@ export function SqlEditor({ sql, onSqlChange, commands }: SqlEditorProps) {
           <PlayIcon className="size-2" weight="fill" />
           Run
           <span
-            className="text-[9px] px-1 py-[1px] rounded-xs ml-0.5"
+            className="text-[11px] px-1 py-[1px] rounded-xs ml-0.5"
             style={{ opacity: 0.7, background: "color-mix(in oklch, var(--accent-foreground) 18%, transparent)" }}
           >
             ⌘↵
@@ -128,7 +128,7 @@ export function SqlEditor({ sql, onSqlChange, commands }: SqlEditorProps) {
 
         <div className="flex-1" />
 
-        <span className="text-[11px] font-mono text-muted">
+        <span className="text-xs font-mono text-muted">
           {sql.length} chars · {lineCount} lines
         </span>
 
@@ -195,16 +195,16 @@ export function SqlEditor({ sql, onSqlChange, commands }: SqlEditorProps) {
 
           {/* Result header */}
           <div className="flex items-center gap-2 px-3.5 h-8 border-b border-separator shrink-0">
-            <span className="flex items-center gap-1.5 font-mono text-[11px] text-muted">
+            <span className="flex items-center gap-1.5 font-mono text-xs text-muted">
               <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: "var(--success)" }} />
               Query OK
             </span>
-            <span className="text-[11px] font-mono text-muted">·</span>
-            <span className="text-[11px] font-mono text-muted">
+            <span className="text-xs font-mono text-muted">·</span>
+            <span className="text-xs font-mono text-muted">
               <span className="text-foreground">12</span> rows in <span className="text-foreground">34ms</span>
             </span>
-            <span className="text-[11px] font-mono text-muted">·</span>
-            <span className="text-[11px] font-mono text-muted">
+            <span className="text-xs font-mono text-muted">·</span>
+            <span className="text-xs font-mono text-muted">
               <span className="text-foreground">5</span> columns
             </span>
 

@@ -362,7 +362,7 @@ export function RowInspector({ row, columns, rowIndex, totalRows, onPrev, onNext
       <div className="flex items-center gap-2 px-4.5 h-13 border-b border-separator">
         <BracketsCurlyIcon size={13} className="text-muted" />
         <span className="text-[13px] font-semibold">Row inspector</span>
-        <span className="text-muted text-[11px] font-mono">
+        <span className="text-muted text-xs font-mono">
           · {rowIndex + 1}/{totalRows}
         </span>
         <div className="flex-1" />
@@ -395,7 +395,7 @@ export function RowInspector({ row, columns, rowIndex, totalRows, onPrev, onNext
           <CaretRightIcon className="size-3" />
         </Button>
         <div className="flex-1" />
-        <span className="text-muted text-[10px] font-mono">{columns.length} columns</span>
+        <span className="text-muted text-[11px] font-mono">{columns.length} columns</span>
       </div>
 
       {/* JSON body */}

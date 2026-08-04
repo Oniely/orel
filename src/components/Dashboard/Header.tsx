@@ -99,8 +99,8 @@ export function Header({
                 />
               </span>
             )}
-            <span className="font-medium text-[12.5px] truncate flex-1 text-left">{connection.config.name}</span>
-            {latency !== null && <span className="font-mono text-[10.5px] text-muted shrink-0">{latency}ms</span>}
+            <span className="font-medium text-[13px] truncate flex-1 text-left">{connection.config.name}</span>
+            {latency !== null && <span className="font-mono text-[11px] text-muted shrink-0">{latency}ms</span>}
             <CaretDownIcon size={12} />
           </Button>
           <Dropdown.Popover className="w-[200px] p-1">

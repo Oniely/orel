@@ -97,7 +97,7 @@ export function Sidebar({
                 {t.name}
               </span>
               {t.rowEstimate !== null && (
-                <span className="text-[11px] text-muted font-mono shrink-0">{formatNum(t.rowEstimate)}</span>
+                <span className="text-xs text-muted font-mono shrink-0">{formatNum(t.rowEstimate)}</span>
               )}
             </Button>
           );
@@ -106,7 +106,7 @@ export function Sidebar({
         {/* Views */}
         {viewList.length > 0 && (
           <>
-            <div className="px-2.5 py-1 text-muted text-[11px] font-medium mt-3">Views</div>
+            <div className="px-2.5 py-1 text-muted text-xs font-medium mt-3">Views</div>
             {viewList.map((t) => (
               <Button
                 key={t.name}

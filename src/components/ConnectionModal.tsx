@@ -82,7 +82,12 @@ export function ConnectionModal({ isOpen, onClose, connection }: ConnectionModal
       setValue("ssl", false);
     } else {
       const currentHost = getValues("host");
-      if (!currentHost || currentHost.endsWith(".db") || currentHost.endsWith(".sqlite") || currentHost.endsWith(".sqlite3")) {
+      if (
+        !currentHost ||
+        currentHost.endsWith(".db") ||
+        currentHost.endsWith(".sqlite") ||
+        currentHost.endsWith(".sqlite3")
+      ) {
         setValue("host", "localhost");
       }
     }
@@ -349,7 +354,10 @@ export function ConnectionModal({ isOpen, onClose, connection }: ConnectionModal
                             onChange={field.onChange}
                           >
                             <Label className="text-xs font-medium text-muted">Host</Label>
-                            <Input placeholder="localhost" className="mt-1 border border-separator px-3 py-1.5 w-full" />
+                            <Input
+                              placeholder="localhost"
+                              className="mt-1 border border-separator px-3 py-1.5 w-full"
+                            />
                             <FieldError className="text-xs mt-1">{fieldState.error?.message}</FieldError>
                           </TextField>
                         )}
@@ -419,7 +427,7 @@ export function ConnectionModal({ isOpen, onClose, connection }: ConnectionModal
                       render={({ field, fieldState }) => (
                         <TextField isInvalid={!!fieldState.error} value={field.value ?? ""} onChange={field.onChange}>
                           <Label className="text-xs font-medium text-muted">
-                            Default database <span className="text-[10px] text-muted font-normal">optional</span>
+                            Default database <span className="text-xs text-muted font-normal">optional</span>
                           </Label>
                           <Input
                             placeholder="Leave empty to browse all"

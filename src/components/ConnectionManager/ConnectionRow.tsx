@@ -62,7 +62,7 @@ export default function ConnectionRow({
 
         <div className="flex items-center gap-2">
           {/* DB type badge */}
-          <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-surface-secondary text-accent">
+          <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-surface-secondary text-accent">
             {DB_LABELS[connection.type]}
           </span>
 
