@@ -359,7 +359,7 @@ export function RowInspector({ row, columns, rowIndex, totalRows, onPrev, onNext
   return (
     <div className="w-[340px] flex flex-col shrink-0 border-l border-separator bg-surface">
       {/* Header */}
-      <div className="flex items-center gap-2 px-4.5 py-3.5 border-b border-separator">
+      <div className="flex items-center gap-2 px-4.5 h-13 border-b border-separator">
         <BracketsCurlyIcon size={13} className="text-muted" />
         <span className="text-[13px] font-semibold">Row inspector</span>
         <span className="text-muted text-[11px] font-mono">
@@ -375,7 +375,7 @@ export function RowInspector({ row, columns, rowIndex, totalRows, onPrev, onNext
       </div>
 
       {/* Navigation */}
-      <div className="flex items-center gap-1 px-4.5 py-2 border-b border-separator">
+      <div className="flex items-center gap-1 px-4.5 py-[13px] border-b border-separator">
         <Button
           variant="outline"
           onClick={onPrev}
@@ -432,7 +432,7 @@ export function RowInspector({ row, columns, rowIndex, totalRows, onPrev, onNext
       </div>
 
       {/* Footer actions */}
-      <div className="border-t border-separator px-4.5 py-2.5 flex gap-2">
+      <div className="border-t border-separator px-4.5 py-2.5 h-14 flex gap-2">
         <Button
           className="flex-1 text-xs font-medium"
           style={{ background: "var(--accent)", color: "var(--accent-foreground)" }}

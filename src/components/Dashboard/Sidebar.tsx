@@ -66,9 +66,7 @@ export function Sidebar({
       <div className="flex-1 overflow-y-auto px-2 py-2 scrollbar-hide">
         {isLoading && <div className="px-3 py-4 text-center text-xs text-muted">Loading…</div>}
 
-        {!isLoading && error && (
-          <div className="px-3 py-4 text-center text-xs text-danger">{error}</div>
-        )}
+        {!isLoading && error && <div className="px-3 py-4 text-center text-xs text-danger">{error}</div>}
 
         {!isLoading && !error && tableList.length === 0 && !search && (
           <div className="px-3 py-4 text-center text-xs text-muted">No tables</div>
@@ -125,7 +123,7 @@ export function Sidebar({
 
       {/* Bottom: New query button */}
       <div
-        className="border-t border-separator flex items-center flex-row-reverse gap-2"
+        className="border-t border-separator flex items-center flex-row-reverse gap-2 py-2.5 h-14"
         style={{ padding: `10px ${SIDEBAR_PAD}px` }}
       >
         <Button variant="tertiary" onClick={onNewQuery} className="text-xs flex-1">

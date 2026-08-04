@@ -844,6 +844,25 @@ export function ContentArea({
   ]);
   const [activeView, setActiveView] = useState<ViewType>("Data");
   const [contextMenu, setContextMenu] = useState<{ rowIndex: number; x: number; y: number } | null>(null);
+  const tabStripRef = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    const strip = tabStripRef.current;
+    const tab = strip?.querySelector<HTMLElement>("[data-active-tab='true']");
+    if (!strip || !tab) return;
+
+    const padding = 12;
+    const stripBounds = strip.getBoundingClientRect();
+    const tabBounds = tab.getBoundingClientRect();
+    const leftDelta = tabBounds.left - stripBounds.left;
+    const rightDelta = tabBounds.right - stripBounds.right;
+
+    if (leftDelta < padding) {
+      strip.scrollTo({ left: Math.max(0, strip.scrollLeft + leftDelta - padding), behavior: "smooth" });
+    } else if (rightDelta > -padding) {
+      strip.scrollTo({ left: strip.scrollLeft + rightDelta + padding, behavior: "smooth" });
+    }
+  }, [activeTabId, showInspector]);
 
   // Reset to Data view whenever the active table changes
   useEffect(() => {
@@ -876,14 +895,18 @@ export function ContentArea({
   return (
     <div className="flex-1 flex flex-col min-w-0 bg-background">
       {/* Browser-style tabs */}
-      <div className="h-10 flex items-center gap-1 px-3 border-b border-separator bg-surface shrink-0">
+      <div
+        ref={tabStripRef}
+        className="h-13 flex items-center gap-1 px-3 border-b border-separator bg-surface shrink-0 min-w-0 overflow-x-auto scrollbar-hide"
+      >
         {openTabs.map((tab) => {
           const isActive = activeTabId === tab.id;
           return (
             <div
               key={tab.id}
+              data-active-tab={isActive}
               onClick={() => onTabChange(tab.id)}
-              className="flex items-center gap-2 px-3 h-7 rounded-lg cursor-pointer text-xs font-mono transition-colors"
+              className="flex items-center gap-2 px-3 h-7 rounded-lg cursor-pointer text-xs font-mono transition-colors shrink-0"
               style={{
                 background: isActive ? "var(--surface-secondary)" : "transparent",
                 border: isActive
@@ -914,7 +937,7 @@ export function ContentArea({
             </div>
           );
         })}
-        <Button size="sm" variant="ghost" onClick={onNewQuery} className="ml-0.5" isIconOnly>
+        <Button size="sm" variant="ghost" onClick={onNewQuery} className="ml-0.5 shrink-0" isIconOnly>
           <PlusIcon className="size-3" />
         </Button>
       </div>
@@ -998,7 +1021,7 @@ export function ContentArea({
 
       {/* Footer */}
       {!isQueryTab && activeTableName && (
-        <div className="flex items-center justify-between gap-4 px-4.5 border-t border-separator bg-surface shrink-0 font-mono text-muted py-3.5 text-[11px]">
+        <div className="flex items-center justify-between gap-4 px-4.5 border-t border-separator bg-surface shrink-0 font-mono text-muted py-2.5 h-14 text-[11px]">
           {/* View switcher */}
           <PillTabBar tabs={VIEWS} active={activeView} onChange={setActiveView} />
 
