@@ -748,7 +748,7 @@ function PillTabBar<T extends string>({ tabs, active, onChange }: PillTabBarProp
         <button
           key={t}
           onClick={() => onChange(t)}
-          className="px-2.5 py-[3px] rounded-[5px] text-xs transition-colors font-mono"
+          className="px-2.5 py-[3px] rounded-[5px] text-xs transition-colors font-sans"
           style={{
             background: active === t ? "var(--surface)" : "transparent",
             color: active === t ? "var(--foreground)" : "var(--muted)",
