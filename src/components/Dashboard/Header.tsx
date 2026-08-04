@@ -107,17 +107,20 @@ export function Header({
                 if (key === "new-connection") navigate({ to: "/" });
               }}
             >
-              {savedConnections.length > 0 &&
-                savedConnections.map((saved_connection) => {
-                  if (saved_connection.id !== connection.config.id)
-                    return (
-                      <Dropdown.Item key={saved_connection.id} onClick={() => handleConnect(saved_connection)}>
-                        <DatabaseIcon className="size-4" />
-                        <Label>{saved_connection.name}</Label>
-                      </Dropdown.Item>
-                    );
-                })}
-              <Separator className="my-1" />
+              {savedConnections.length > 0 && (
+                <>
+                  {savedConnections.map((saved_connection) => {
+                    if (saved_connection.id !== connection.config.id)
+                      return (
+                        <Dropdown.Item key={saved_connection.id} onClick={() => handleConnect(saved_connection)}>
+                          <DatabaseIcon className="size-4" />
+                          <Label>{saved_connection.name}</Label>
+                        </Dropdown.Item>
+                      );
+                  })}
+                  <Separator className="my-1" />
+                </>
+              )}
               <Dropdown.Item id="new-connection" textValue="New Connection">
                 <PlusIcon className="size-4" />
                 <Label>New Connection</Label>

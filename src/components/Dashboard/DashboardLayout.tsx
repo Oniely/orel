@@ -8,7 +8,7 @@ import { Header } from "./Header";
 import { Sidebar } from "./Sidebar";
 import { ContentArea } from "./ContentArea";
 import { RowInspector } from "./RowInspector";
-import { useHotkeys } from "react-hotkeys-hook";
+import { useHotkeys, type Options as HotkeyOptions } from "react-hotkeys-hook";
 import { listen } from "@tauri-apps/api/event";
 import type { Tab } from "../../types/database";
 import { useWriteQueueActions } from "../../hooks/useWriteQueueActions";
@@ -17,6 +17,12 @@ import { getErrorMessage } from "../../lib/error";
 
 type TabState = { tabs: Tab[]; activeTabId: string | null };
 const EMPTY_TAB_STATE: TabState = { tabs: [], activeTabId: null };
+const APP_HOTKEY_OPTIONS: HotkeyOptions = {
+  preventDefault: true,
+  enableOnFormTags: true,
+  enableOnContentEditable: true,
+  eventListenerOptions: { capture: true },
+};
 
 export function DashboardLayout() {
   const navigate = useNavigate();
@@ -115,51 +121,59 @@ export function DashboardLayout() {
   const activeTabIdRef = useRef(activeTabId);
   activeTabIdRef.current = activeTabId;
 
-  // Dashboard Layout Shortcuts - Tab Switching
-  useHotkeys("meta+1,meta+2,meta+3,meta+4,meta+5,meta+6,meta+7,meta+8,meta+9", (e) => {
-    const tab = openTabsRef.current[parseInt(e.key) - 1];
-    if (tab) handleTabChange(tab.id);
-  });
-  useHotkeys("meta+w", (e) => {
-    e.preventDefault();
-    if (activeTabId) handleTabClose(activeTabId);
-  });
-  useHotkeys("meta+t", (e) => {
-    e.preventDefault();
-    handleNewQuery();
-  });
   const cycleTab = (direction: 1 | -1): void => {
     const tabs = openTabsRef.current;
     if (tabs.length < 2) return;
     const idx = tabs.findIndex((t) => t.id === activeTabIdRef.current);
     handleTabChange(tabs[(idx + direction + tabs.length) % tabs.length].id);
   };
-  useHotkeys("ctrl+tab", (e) => {
-    e.preventDefault();
-    cycleTab(1);
-  });
-  useHotkeys("ctrl+shift+tab", (e) => {
-    e.preventDefault();
-    cycleTab(-1);
-  });
 
+  useHotkeys(
+    "mod+1,mod+2,mod+3,mod+4,mod+5,mod+6,mod+7,mod+8,mod+9",
+    (event) => {
+      event.stopPropagation();
+      const tab = openTabsRef.current[Number(event.code.slice(-1)) - 1];
+      if (tab) handleTabChange(tab.id);
+    },
+    APP_HOTKEY_OPTIONS,
+    [databaseKey],
+  );
+  useHotkeys(
+    "mod+t",
+    (event) => {
+      event.stopPropagation();
+      if (!event.repeat) handleNewQuery();
+    },
+    APP_HOTKEY_OPTIONS,
+    [databaseKey],
+  );
+  useHotkeys(
+    "mod+w",
+    (event) => {
+      event.stopPropagation();
+      const tabId = activeTabIdRef.current;
+      if (!event.repeat && tabId) handleTabClose(tabId);
+    },
+    APP_HOTKEY_OPTIONS,
+    [databaseKey],
+  );
+  useHotkeys(
+    "ctrl+tab",
+    (event) => {
+      event.preventDefault();
+      cycleTab(1);
+    },
+    [databaseKey],
+  );
+  useHotkeys(
+    "ctrl+shift+tab",
+    (event) => {
+      event.preventDefault();
+      cycleTab(-1);
+    },
+    [databaseKey],
+  );
   useHotkeys("alt+z", () => setSidebarOpen((v) => !v));
-
-  // Write queue shortcuts
-  useHotkeys("meta+s", (e) => {
-    e.preventDefault();
-    if (showInspector && selectedRowIndex !== null) {
-      wq.handleApplyRow(selectedRowIndex).then((applied) => {
-        if (applied) toast.success("Row saved");
-      });
-    } else {
-      wq.handleApply();
-    }
-  });
-  useHotkeys("meta+shift+s", (e) => {
-    e.preventDefault();
-    wq.handleCopySql();
-  });
 
   const handleRowClick = (index: number) => {
     setSelectedRowIndex(index);
@@ -204,6 +218,16 @@ export function DashboardLayout() {
     queryClient.refetchQueries({ queryKey: databaseQueryKeys.databases(connectionId) });
   }, [queryClient, connectionId, activeDatabase]);
 
+  useHotkeys(
+    "mod+r",
+    (event) => {
+      event.stopPropagation();
+      handleRefresh();
+    },
+    APP_HOTKEY_OPTIONS,
+    [handleRefresh],
+  );
+
   // Listen for native menu refresh event (Cmd+R)
   useEffect(() => {
     const unlisten = listen("refresh", () => handleRefresh());
@@ -223,6 +247,31 @@ export function DashboardLayout() {
     activeDatabase,
     activeTableName,
     rowsError ? null : queryResult,
+  );
+
+  useHotkeys(
+    "mod+s",
+    (event) => {
+      event.stopPropagation();
+      if (showInspector && selectedRowIndex !== null) {
+        wq.handleApplyRow(selectedRowIndex).then((applied) => {
+          if (applied) toast.success("Row saved");
+        });
+      } else {
+        wq.handleApply();
+      }
+    },
+    APP_HOTKEY_OPTIONS,
+    [wq, showInspector, selectedRowIndex],
+  );
+  useHotkeys(
+    "mod+shift+s",
+    (event) => {
+      event.stopPropagation();
+      wq.handleCopySql();
+    },
+    APP_HOTKEY_OPTIONS,
+    [wq],
   );
 
   if (!connection) return null;
