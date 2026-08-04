@@ -51,7 +51,11 @@ export function WriteQueueFooter({ changeCount, onReset, onApply, onCopySql, isA
             >
               <CaretDownIcon size={10} />
             </Button>
-            <Dropdown.Popover className="w-[160px] p-1">
+            <Dropdown.Popover
+              placement="top end"
+              className="w-[220px] min-w-[220px] p-1"
+              style={{ maxHeight: "none", overflowY: "visible" }}
+            >
               <Dropdown.Menu
                 onAction={(key) => {
                   if (key === "apply") onApply();
