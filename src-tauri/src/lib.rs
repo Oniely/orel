@@ -2,6 +2,12 @@ mod commands;
 
 use std::{collections::HashMap, io, sync::Mutex};
 
+#[cfg(target_os = "windows")]
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
+
 use commands::connection::{
     connect, delete_connection, disconnect, list_databases, load_connections, save_connection,
     switch_database, test_connection, update_connection, AppState,
@@ -52,9 +58,15 @@ pub fn run() {
                 .quit()
                 .build()?;
 
-            let view_submenu = SubmenuBuilder::new(app, "View")
-                .item(&refresh_item)
-                .build()?;
+            #[cfg(target_os = "windows")]
+            let toggle_menu_item = MenuItemBuilder::with_id("toggle-menu-bar", "Toggle Menu Bar")
+                .accelerator("Ctrl+Shift+M")
+                .build(app)?;
+
+            let view_submenu_builder = SubmenuBuilder::new(app, "View").item(&refresh_item);
+            #[cfg(target_os = "windows")]
+            let view_submenu_builder = view_submenu_builder.separator().item(&toggle_menu_item);
+            let view_submenu = view_submenu_builder.build()?;
 
             // Replace the default app submenu with ours
             let default_items = menu.items()?;
@@ -74,14 +86,32 @@ pub fn run() {
             }
 
             app.set_menu(menu)?;
+            #[cfg(target_os = "windows")]
+            app.hide_menu()?;
 
             // Listen for menu events
             let app_handle = app.handle().clone();
+            #[cfg(target_os = "windows")]
+            let menu_visible = Arc::new(AtomicBool::new(false));
             app.on_menu_event(move |_app, event| {
                 if event.id() == "settings" {
                     let _ = app_handle.emit("open-settings", ());
                 } else if event.id() == "refresh" {
                     let _ = app_handle.emit("refresh", ());
+                } else if event.id() == "toggle-menu-bar" {
+                    #[cfg(target_os = "windows")]
+                    {
+                        let is_visible = menu_visible.load(Ordering::Relaxed);
+                        let result = if is_visible {
+                            _app.hide_menu()
+                        } else {
+                            _app.show_menu()
+                        };
+
+                        if result.is_ok() {
+                            menu_visible.store(!is_visible, Ordering::Relaxed);
+                        }
+                    }
                 }
             });
             let app_path = app.path().app_data_dir()?;
