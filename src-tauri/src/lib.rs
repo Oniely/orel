@@ -89,13 +89,6 @@ pub fn run() {
             #[cfg(target_os = "windows")]
             app.hide_menu()?;
 
-            // Keep WebView2 content zoom independent from Windows display DPI.
-            // DPI scaling is handled by Tao/WebView2; page zoom must remain 100%.
-            #[cfg(target_os = "windows")]
-            if let Some(window) = app.get_webview_window("main") {
-                window.set_zoom(1.0)?;
-            }
-
             // Listen for menu events
             let app_handle = app.handle().clone();
             #[cfg(target_os = "windows")]
