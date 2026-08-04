@@ -1,11 +1,10 @@
-import { Button, Dropdown, Label, Separator, Spinner, toast, ToggleButton, Tooltip } from "@heroui/react";
+import { Button, Dropdown, Label, Separator, Spinner, toast, ToggleButton } from "@heroui/react";
 import type { ActiveConnection, SavedConnection } from "../../types/connection";
 import {
   ArrowClockwiseIcon,
   ArrowLineUpIcon,
   CaretDownIcon,
   DatabaseIcon,
-  GearSixIcon,
   PlusIcon,
   SignOutIcon,
   SidebarIcon,
@@ -15,8 +14,7 @@ import { INNER_W, SIDEBAR_PAD, SIDEBAR_WIDTH } from "./constants";
 import { useNavigate } from "@tanstack/react-router";
 import { useConnectionStore } from "../../stores/connection.store";
 import { useConnect } from "../../hooks/useConnections";
-import { UpdateAvailablePill } from "../UpdateAvailablePill";
-import { useSettingsStore } from "../../stores/settings.store";
+import { SettingsButton } from "../SettingsButton";
 
 interface HeaderProps {
   connection: ActiveConnection;
@@ -47,7 +45,6 @@ export function Header({
   const navigate = useNavigate();
   const { savedConnections, activeConnections, setFocusedConnection, closeConnection } = useConnectionStore();
   const connect = useConnect();
-  const openSettings = useSettingsStore((state) => state.openSettings);
   const isConnecting = Object.values(activeConnections).some((c) => c.status === "connecting");
   const hasFixedDatabase = connection.config.type === "sqlite";
 
@@ -181,8 +178,6 @@ export function Header({
         <div className="flex-1" />
 
         {/* Action buttons */}
-        <UpdateAvailablePill />
-
         <Button size="sm" variant="outline" className="flex items-center gap-1.5 text-xs">
           <ArrowLineUpIcon className="size-3" weight="bold" />
           Export
@@ -207,20 +202,7 @@ export function Header({
           <SidebarSimpleIcon className="size-4 rotate-y-180" />
         </ToggleButton>
 
-        <Tooltip>
-          <Tooltip.Trigger>
-            <Button
-              size="sm"
-              variant="tertiary"
-              onPress={() => openSettings("appearance")}
-              aria-label="Open settings"
-              className="size-8 min-w-8 rounded-full p-0"
-            >
-              <GearSixIcon className="size-4" />
-            </Button>
-          </Tooltip.Trigger>
-          <Tooltip.Content>Settings</Tooltip.Content>
-        </Tooltip>
+        <SettingsButton />
       </div>
     </div>
   );

@@ -148,6 +148,27 @@ body {
   background: color-mix(in oklch, var(--foreground) 4%, transparent);
 }
 
+.settings-update-glow {
+  box-shadow:
+    0 0 0 1px color-mix(in oklch, var(--accent) 60%, transparent),
+    0 0 12px color-mix(in oklch, var(--accent) 45%, transparent);
+  animation: settings-update-pulse 2.2s ease-in-out infinite;
+}
+
+@keyframes settings-update-pulse {
+  50% {
+    box-shadow:
+      0 0 0 1px color-mix(in oklch, var(--accent) 80%, transparent),
+      0 0 18px color-mix(in oklch, var(--accent) 65%, transparent);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .settings-update-glow {
+    animation: none;
+  }
+}
+
 /* Long-press hold indicator — radial glow originating beneath the pointer */
 tr[data-holding] > td:first-child {
   position: relative;

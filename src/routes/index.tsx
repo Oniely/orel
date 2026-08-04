@@ -1,15 +1,13 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { Button, Spinner, Tooltip } from "@heroui/react";
+import { Button, Spinner } from "@heroui/react";
 import { ConnectionModal } from "../components/ConnectionModal";
 import { useLoadConnections } from "../hooks/useConnections";
 import { useConnectionStore } from "../stores/connection.store";
 import type { SavedConnection } from "../types/connection";
 import ConnectionRow from "../components/ConnectionManager/ConnectionRow";
 import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
-import { UpdateAvailablePill } from "../components/UpdateAvailablePill";
-import { GearSixIcon } from "@phosphor-icons/react";
-import { useSettingsStore } from "../stores/settings.store";
+import { SettingsButton } from "../components/SettingsButton";
 
 export const Route = createFileRoute("/")({
   component: ConnectionManager,
@@ -32,7 +30,6 @@ function ConnectionManager() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editingConnection, setEditingConnection] = useState<SavedConnection | null>(null);
   const { savedConnections } = useConnectionStore();
-  const openSettings = useSettingsStore((state) => state.openSettings);
   const { isLoading, error } = useLoadConnections();
 
   const handleEdit = (connection: SavedConnection) => {
@@ -64,21 +61,7 @@ function ConnectionManager() {
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <Tooltip>
-              <Tooltip.Trigger>
-                <Button
-                  size="sm"
-                  variant="tertiary"
-                  onPress={() => openSettings("appearance")}
-                  aria-label="Open settings"
-                  className="size-8 min-w-8 rounded-full p-0"
-                >
-                  <GearSixIcon className="size-4" />
-                </Button>
-              </Tooltip.Trigger>
-              <Tooltip.Content>Settings</Tooltip.Content>
-            </Tooltip>
-            <UpdateAvailablePill />
+            <SettingsButton />
             <Button
               size="sm"
               variant="outline"
