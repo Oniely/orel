@@ -2,6 +2,19 @@
 @import "@heroui/styles";
 @import "@fontsource-variable/inter";
 @import "@fontsource/ibm-plex-mono";
+@import "@fontsource/ibm-plex-mono/500.css";
+@import "@fontsource/ibm-plex-mono/600.css";
+
+/*
+ * Keep the application font tokens separate from HeroUI/Tailwind's own
+ * --font-sans and --font-mono defaults. Tailwind utilities are then mapped to
+ * these tokens explicitly, so inherited text and font-* utilities cannot
+ * resolve to different font stacks in different cascade layers.
+ */
+@theme inline {
+  --font-sans: var(--orel-font-sans);
+  --font-mono: var(--orel-font-mono);
+}
 
 /*
  * HeroUI Theme Customization
@@ -53,14 +66,15 @@
   --field-radius: 0.75rem;
 
   /* Font Family */
-  --font-sans: "Inter Variable", Inter, ui-sans-serif, system-ui, sans-serif;
-  --font-mono:
+  --orel-font-sans: "Inter Variable", Inter, ui-sans-serif, system-ui, sans-serif;
+  --orel-font-mono:
     "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
 }
 
 html,
 body {
-  font-family: var(--font-sans);
+  font-family: var(--orel-font-sans);
+  font-synthesis-weight: none;
 }
 
 .dark,
