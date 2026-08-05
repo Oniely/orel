@@ -1,6 +1,9 @@
 @import "tailwindcss";
 @import "@heroui/styles";
 @import "@fontsource-variable/inter";
+@import "@fontsource/jetbrains-mono";
+@import "@fontsource/jetbrains-mono/500.css";
+@import "@fontsource/jetbrains-mono/600.css";
 @import "@fontsource/ibm-plex-mono";
 @import "@fontsource/ibm-plex-mono/500.css";
 @import "@fontsource/ibm-plex-mono/600.css";
@@ -68,7 +71,8 @@
   /* Font Family */
   --orel-font-sans: "Inter Variable", Inter, ui-sans-serif, system-ui, sans-serif;
   --orel-font-mono:
-    "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    "JetBrains Mono", "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New",
+    monospace;
 }
 
 html,
