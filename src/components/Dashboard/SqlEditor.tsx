@@ -1,17 +1,31 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Editor, { type OnMount, type Monaco } from "@monaco-editor/react";
-import { Button } from "@heroui/react";
+import { Button, Spinner, toast } from "@heroui/react";
 import {
-  PlayIcon,
+  CaretDownIcon,
+  CaretUpIcon,
+  CheckIcon,
   ClockCounterClockwiseIcon,
   DotsThreeIcon,
+  GitCommitIcon,
+  PlayIcon,
   XIcon,
-  CaretUpIcon,
-  CaretDownIcon,
 } from "@phosphor-icons/react";
 import { buildOrelTheme, THEME_DARK, THEME_LIGHT } from "../../lib/monacoTheme";
+import { getErrorMessage } from "../../lib/error";
 import { useThemeStore } from "../../stores/theme.store";
 import { THEMES } from "../../lib/themes";
+import {
+  useBeginEditorTransaction,
+  useCommitEditorTransaction,
+  useExecuteEditorSql,
+  useDiscardEditorSession,
+  useRollbackEditorTransaction,
+} from "../../hooks/useSqlEditor";
+import type { SqlEditorState, StatementResult } from "../../types/editor";
+import Cell from "./Cell";
+import { KeyIcon } from "./icons";
+import { getTypeColor } from "../../lib/typeColors";
 
 export interface SqlEditorCommands {
   closeTab: () => void;
@@ -22,84 +36,356 @@ export interface SqlEditorCommands {
 }
 
 interface SqlEditorProps {
+  editorId: string;
+  connectionId: string;
   sql: string;
+  state: SqlEditorState;
   onSqlChange: (sql: string) => void;
+  onStateChange: (state: SqlEditorState) => void;
+  onDataChanged: () => void;
   commands?: SqlEditorCommands;
 }
 
-const MIN_RESULT_HEIGHT = 80;
-const DEFAULT_RESULT_HEIGHT = 200;
+const MIN_RESULT_HEIGHT = 120;
+const DEFAULT_RESULT_HEIGHT = 360;
 
+function ResultGrid({ result }: { result: StatementResult }) {
+  if (result.kind === "error" && result.error) {
+    return (
+      <div className="h-full overflow-auto p-5">
+        <div className="rounded-lg border border-danger/30 bg-danger/5 p-4 font-mono text-xs">
+          <p className="font-semibold text-danger">Statement {result.index} failed</p>
+          {result.error.code && <p className="mt-2 text-muted">Code: {result.error.code}</p>}
+          <pre className="mt-2 whitespace-pre-wrap text-foreground">{result.error.message}</pre>
+          {result.message && <p className="mt-3 text-warning">{result.message}</p>}
+        </div>
+      </div>
+    );
+  }
 
-export function SqlEditor({ sql, onSqlChange, commands }: SqlEditorProps) {
+  if (result.kind === "message") {
+    return <div className="grid h-full place-items-center text-sm text-muted">{result.message}</div>;
+  }
+
+  if (result.kind === "affected") {
+    return (
+      <div className="grid h-full place-items-center">
+        <div className="rounded-lg border border-separator bg-surface px-4 py-3 text-sm">
+          <div className="flex items-center gap-2">
+            <CheckIcon className="text-success" size={16} weight="bold" />
+            <span>
+              Query completed · <strong>{result.rowsAffected}</strong> row{result.rowsAffected === 1 ? "" : "s"} affected
+            </span>
+          </div>
+          {result.message && <p className="mt-2 text-xs text-warning">{result.message}</p>}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="h-full overflow-auto bg-background">
+      {result.message && <div className="sticky left-0 top-0 z-[2] border-b border-warning/30 bg-warning/10 px-3.5 py-2 text-xs text-warning">{result.message}</div>}
+      <table
+        className="min-w-full border-collapse table-fixed text-xs"
+        style={{ width: Math.max(640, 52 + result.columns.length * 210) }}
+      >
+        <colgroup>
+          <col style={{ width: 52 }} />
+          {result.columns.map((_, index) => <col key={index} style={{ width: 210 }} />)}
+        </colgroup>
+        <thead>
+          <tr className="sticky top-0 z-[1] bg-background">
+            <th className="w-[52px] border-b-hairline px-3.5 py-2.5" />
+            {result.columns.map((column, index) => (
+              <th
+                key={`${column.name}-${index}`}
+                className="border-b-hairline px-3.5 py-2.5 text-left text-xs font-medium whitespace-nowrap overflow-hidden"
+              >
+                <div className="flex items-center gap-1.5 overflow-hidden">
+                  {column.isPrimary && <KeyIcon size={9} className="text-warning shrink-0" />}
+                  <span className="font-mono text-foreground shrink-0">{column.name}</span>
+                  <span
+                    className="min-w-0 truncate rounded px-1 py-px font-mono text-[10px]"
+                    style={{
+                      color: getTypeColor(column.dataType),
+                      background: `color-mix(in oklch, ${getTypeColor(column.dataType)} 12%, transparent)`,
+                    }}
+                  >
+                    {column.dataType.toLowerCase()}
+                  </span>
+                </div>
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {result.rows.map((row, rowIndex) => (
+            <tr key={rowIndex} className="h-10">
+              <td className="border-b-hairline px-3.5 font-mono text-xs text-muted select-none">
+                {rowIndex + 1}
+              </td>
+              {result.columns.map((column, columnIndex) => {
+                const value = row[columnIndex];
+                return (
+                  <td key={columnIndex} className="border-b-hairline overflow-hidden whitespace-nowrap px-3.5">
+                    <div className="truncate">
+                      <Cell value={value?.display ?? null} type={value?.kind === "boolean" ? "boolean" : column.dataType} />
+                    </div>
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+          {result.rows.length === 0 && (
+            <tr>
+              <td colSpan={Math.max(1, result.columns.length + 1)} className="py-12 text-center text-muted">No rows</td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+export function SqlEditor({
+  editorId,
+  connectionId,
+  sql,
+  state,
+  onSqlChange,
+  onStateChange,
+  onDataChanged,
+  commands,
+}: SqlEditorProps) {
   const editorRef = useRef<Parameters<OnMount>[0] | null>(null);
   const monacoRef = useRef<Monaco | null>(null);
+  const stateRef = useRef(state);
+  const onStateChangeRef = useRef(onStateChange);
+  const viewStateRef = useRef(state.viewState);
+  stateRef.current = state;
+  onStateChangeRef.current = onStateChange;
   const commandsRef = useRef(commands);
   commandsRef.current = commands;
+  const runRef = useRef<() => void>(() => undefined);
   const themeId = useThemeStore((s) => s.themeId);
-  const currentTheme = THEMES.find((t) => t.id === themeId) ?? THEMES.find((t) => t.id === "dark")!;
+  const currentTheme = THEMES.find((theme) => theme.id === themeId) ?? THEMES.find((theme) => theme.id === "dark")!;
   const [editorTheme, setEditorTheme] = useState(() => currentTheme.isDark ? THEME_DARK : THEME_LIGHT);
-  const [showResult, setShowResult] = useState(false);
+  const [hasSelection, setHasSelection] = useState(false);
+  const [showResult, setShowResult] = useState(state.results.length > 0);
   const [resultHeight, setResultHeight] = useState(DEFAULT_RESULT_HEIGHT);
   const [resultCollapsed, setResultCollapsed] = useState(false);
 
+  const executeSql = useExecuteEditorSql();
+  const beginTransaction = useBeginEditorTransaction();
+  const commitTransaction = useCommitEditorTransaction();
+  const rollbackTransaction = useRollbackEditorTransaction();
+  const discardSession = useDiscardEditorSession();
+  const mountedRef = useRef(true);
+  const isBusy = state.operationPending || executeSql.isPending || beginTransaction.isPending || commitTransaction.isPending || rollbackTransaction.isPending;
+
   const dragState = useRef<{ startY: number; startHeight: number } | null>(null);
   const dragCleanupRef = useRef<(() => void) | null>(null);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      dragCleanupRef.current?.();
+    };
+  }, []);
+  useEffect(() => () => {
+    const viewState = viewStateRef.current;
+    if (!viewState) return;
 
-  useEffect(() => () => { dragCleanupRef.current?.(); }, []);
+    onStateChangeRef.current({
+      ...stateRef.current,
+      viewState,
+    });
+  }, []);
 
-  // Re-register Monaco theme when the app theme changes via store
   useEffect(() => {
     if (!monacoRef.current) return;
-    const theme = THEMES.find((t) => t.id === themeId);
+    const theme = THEMES.find((candidate) => candidate.id === themeId);
     if (!theme) return;
-    const name = buildOrelTheme(monacoRef.current, theme.colors, theme.isDark);
-    setEditorTheme(name);
+    setEditorTheme(buildOrelTheme(monacoRef.current, theme.colors, theme.isDark));
   }, [themeId]);
 
-  const handleMount: OnMount = (editorInstance, monaco: Monaco) => {
+  const updateState = (patch: Partial<SqlEditorState>) => {
+    const nextState = { ...stateRef.current, ...patch };
+    stateRef.current = nextState;
+    onStateChangeRef.current(nextState);
+  };
+
+  const settleUnmountedOperation = async (discardBackendSession: boolean) => {
+    if (discardBackendSession) {
+      await discardSession.mutateAsync(editorId).catch(() => undefined);
+    }
+    updateState({
+      transactionState: "inactive",
+      operationPending: false,
+      viewState: viewStateRef.current ?? stateRef.current.viewState,
+    });
+  };
+
+  const handleOperationError = async (error: unknown, fallbackMessage: string) => {
+    if (!mountedRef.current) {
+      await settleUnmountedOperation(true);
+      return;
+    }
+    updateState({ operationPending: false });
+    toast.danger(getErrorMessage(error, fallbackMessage));
+  };
+
+  const setMode = (mode: SqlEditorState["mode"]) => {
+    if (stateRef.current.mode !== mode) updateState({ mode });
+  };
+
+  const selectedSql = () => {
+    const editor = editorRef.current;
+    const selection = editor?.getSelection();
+    const model = editor?.getModel();
+    if (selection && model && !selection.isEmpty()) {
+      const selected = model.getValueInRange(selection);
+      if (selected.trim()) return selected;
+    }
+    return sql;
+  };
+
+  const handleRun = () => {
+    const query = selectedSql();
+    if (!query.trim() || isBusy) return;
+    updateState({ operationPending: true });
+    void executeSql
+      .mutateAsync({ connectionId, editorId, sql: query, mode: stateRef.current.mode })
+      .then(async (response) => {
+        if (!mountedRef.current) {
+          await settleUnmountedOperation(response.transactionState !== "inactive");
+          return;
+        }
+        const errorIndex = response.results.findIndex((result) => result.kind === "error");
+        updateState({
+          mode: response.forceManual ? "manual" : stateRef.current.mode,
+          transactionState: response.transactionState,
+          operationPending: false,
+          results: response.results,
+          activeResultIndex: errorIndex >= 0 ? errorIndex : 0,
+        });
+        setShowResult(true);
+        setResultCollapsed(false);
+        const failed = response.results.find((result) => result.error)?.error;
+        if (failed) toast.danger(failed.message);
+        if (
+          response.transactionState === "inactive" &&
+          response.results.some((result) => result.kind === "affected")
+        ) {
+          onDataChanged();
+        }
+      })
+      .catch((error: unknown) => handleOperationError(error, "Failed to execute SQL"));
+  };
+  runRef.current = handleRun;
+
+  const handleMount: OnMount = (editorInstance, monaco) => {
     editorRef.current = editorInstance;
     monacoRef.current = monaco;
-    // Re-apply theme on mount to guarantee correct colors
-    const name = buildOrelTheme(monaco, currentTheme.colors, currentTheme.isDark);
-    setEditorTheme(name);
-    editorInstance.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, handleRun);
+    setEditorTheme(buildOrelTheme(monaco, currentTheme.colors, currentTheme.isDark));
+    const captureViewState = () => {
+      const selection = editorInstance.getSelection();
+      if (!selection) return;
+      viewStateRef.current = {
+        selectionStartLineNumber: selection.selectionStartLineNumber,
+        selectionStartColumn: selection.selectionStartColumn,
+        positionLineNumber: selection.positionLineNumber,
+        positionColumn: selection.positionColumn,
+        scrollTop: editorInstance.getScrollTop(),
+        scrollLeft: editorInstance.getScrollLeft(),
+      };
+    };
+    const savedViewState = stateRef.current.viewState;
+    if (savedViewState) {
+      editorInstance.setSelection(savedViewState);
+      editorInstance.setScrollPosition({
+        scrollTop: savedViewState.scrollTop,
+        scrollLeft: savedViewState.scrollLeft,
+      });
+      const restoredSelection = editorInstance.getSelection();
+      const selected = restoredSelection
+        ? editorInstance.getModel()?.getValueInRange(restoredSelection) ?? ""
+        : "";
+      setHasSelection(selected.trim().length > 0);
+    }
+    captureViewState();
+    editorInstance.onDidChangeCursorSelection(() => {
+      const selection = editorInstance.getSelection();
+      const selected = selection ? editorInstance.getModel()?.getValueInRange(selection) ?? "" : "";
+      setHasSelection(selected.trim().length > 0);
+      captureViewState();
+    });
+    editorInstance.onDidScrollChange(captureViewState);
+    editorInstance.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => runRef.current());
     editorInstance.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyW, () => commandsRef.current?.closeTab());
     editorInstance.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyT, () => commandsRef.current?.newQuery());
     editorInstance.addCommand(monaco.KeyMod.WinCtrl | monaco.KeyCode.Tab, () => commandsRef.current?.nextTab());
     editorInstance.addCommand(monaco.KeyMod.WinCtrl | monaco.KeyMod.Shift | monaco.KeyCode.Tab, () => commandsRef.current?.prevTab());
-    ([1, 2, 3, 4, 5, 6, 7, 8, 9] as const).forEach((n) => {
+    ([1, 2, 3, 4, 5, 6, 7, 8, 9] as const).forEach((number) => {
       editorInstance.addCommand(
-        monaco.KeyMod.CtrlCmd | monaco.KeyCode[`Digit${n}` as keyof typeof monaco.KeyCode],
-        () => commandsRef.current?.switchTab(n - 1),
+        monaco.KeyMod.CtrlCmd | monaco.KeyCode[`Digit${number}` as keyof typeof monaco.KeyCode],
+        () => commandsRef.current?.switchTab(number - 1),
       );
     });
     editorInstance.focus();
   };
 
-  const handleRun = () => {
-    // TODO: wire to actual query execution
-    setShowResult(true);
-    setResultCollapsed(false);
+  const handleBegin = () => {
+    if (isBusy) return;
+    updateState({ operationPending: true });
+    void beginTransaction
+      .mutateAsync({ connectionId, editorId })
+      .then(async (transactionState) => {
+        if (!mountedRef.current) {
+          await settleUnmountedOperation(true);
+          return;
+        }
+        updateState({ transactionState, operationPending: false });
+        toast.success("Transaction started");
+      })
+      .catch((error: unknown) => handleOperationError(error, "Failed to begin transaction"));
   };
 
-  const handleDragStart = (e: React.MouseEvent) => {
-    e.preventDefault();
-    dragState.current = { startY: e.clientY, startHeight: resultHeight };
+  const completeTransaction = (action: "commit" | "rollback") => {
+    if (isBusy) return;
+    const mutation = action === "commit" ? commitTransaction : rollbackTransaction;
+    updateState({ operationPending: true });
+    void mutation
+      .mutateAsync(editorId)
+      .then(async () => {
+        if (!mountedRef.current) {
+          await settleUnmountedOperation(false);
+          return;
+        }
+        updateState({ transactionState: "inactive", operationPending: false });
+        toast.success(action === "commit" ? "Transaction committed" : "Transaction rolled back");
+        if (action === "commit") onDataChanged();
+      })
+      .catch((error: unknown) => handleOperationError(error, `Failed to ${action} transaction`));
+  };
 
-    const onMouseMove = (ev: MouseEvent) => {
+  const activeResult = state.results[state.activeResultIndex] ?? state.results[0] ?? null;
+  const lineCount = useMemo(() => (sql.match(/\n/g) ?? []).length + 1, [sql]);
+
+  const handleDragStart = (event: React.MouseEvent) => {
+    event.preventDefault();
+    dragState.current = { startY: event.clientY, startHeight: resultHeight };
+    const onMouseMove = (moveEvent: MouseEvent) => {
       if (!dragState.current) return;
-      const delta = dragState.current.startY - ev.clientY;
-      setResultHeight(Math.max(MIN_RESULT_HEIGHT, dragState.current.startHeight + delta));
+      setResultHeight(Math.max(MIN_RESULT_HEIGHT, dragState.current.startHeight + dragState.current.startY - moveEvent.clientY));
     };
-
     const onMouseUp = () => {
       dragState.current = null;
       dragCleanupRef.current = null;
       window.removeEventListener("mousemove", onMouseMove);
       window.removeEventListener("mouseup", onMouseUp);
     };
-
     dragCleanupRef.current = () => {
       window.removeEventListener("mousemove", onMouseMove);
       window.removeEventListener("mouseup", onMouseUp);
@@ -108,42 +394,74 @@ export function SqlEditor({ sql, onSqlChange, commands }: SqlEditorProps) {
     window.addEventListener("mouseup", onMouseUp);
   };
 
-  const lineCount = useMemo(() => (sql.match(/\n/g) ?? []).length + 1, [sql]);
-  const effectiveResultHeight = resultCollapsed ? 0 : resultHeight;
-
   return (
     <div className="flex-1 flex flex-col min-h-0">
-      {/* Toolbar */}
-      <div className="h-12 px-3.5 flex items-center gap-2 border-b border-separator bg-surface shrink-0">
-        <Button size="sm" className="flex items-center gap-1.5 text-xs" onClick={handleRun}>
-          <PlayIcon className="size-2" weight="fill" />
-          Run
-          <span
-            className="text-[11px] px-1 py-[1px] rounded-xs ml-0.5"
-            style={{ opacity: 0.7, background: "color-mix(in oklch, var(--accent-foreground) 18%, transparent)" }}
-          >
-            ⌘↵
-          </span>
+      <div className="min-h-12 px-3.5 py-2 flex flex-wrap items-center gap-2 border-b border-separator bg-surface shrink-0">
+        <Button size="sm" className="flex items-center gap-1.5 text-xs" onClick={handleRun} isDisabled={!sql.trim() || isBusy}>
+          {executeSql.isPending ? <Spinner size="sm" /> : <PlayIcon className="size-2" weight="fill" />}
+          {hasSelection ? "Run Selection" : "Run All"}
+          <span className="text-[11px] px-1 py-px rounded-xs ml-0.5 opacity-70 bg-default/20">⌘↵</span>
         </Button>
+
+        {state.transactionState === "inactive" ? (
+          <div key="transaction-inactive" className="transaction-controls-enter flex items-center">
+            <div className="flex rounded-lg border border-separator bg-surface-secondary p-0.5">
+              <button onClick={() => setMode("autoCommit")} className={`rounded-md px-2.5 py-1 text-xs ${state.mode === "autoCommit" ? "bg-surface text-foreground shadow-sm" : "text-muted"}`}>
+                Auto Commit
+              </button>
+              <button onClick={() => setMode("manual")} className={`rounded-md px-2.5 py-1 text-xs ${state.mode === "manual" ? "bg-surface text-foreground shadow-sm" : "text-muted"}`}>
+                Manual
+              </button>
+            </div>
+            <div className="transaction-begin-slot" data-visible={state.mode === "manual"} aria-hidden={state.mode !== "manual"}>
+              <div className="min-w-0 overflow-hidden">
+                <div className="flex rounded-lg border border-separator bg-surface-secondary p-0.5">
+                  <button
+                    onClick={handleBegin}
+                    disabled={state.mode !== "manual" || isBusy}
+                    tabIndex={state.mode === "manual" ? 0 : -1}
+                    className="whitespace-nowrap rounded-md bg-surface px-2.5 py-1 text-xs text-foreground shadow-sm transition-colors hover:text-accent disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    Begin
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div key={`transaction-${state.transactionState}`} className="transaction-controls-enter flex items-center gap-2">
+            <div className={`transaction-status-control flex rounded-lg border p-0.5 ${state.transactionState === "failed" ? "transaction-status-control-failed" : "transaction-status-control-active"}`}>
+              <span className="flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-semibold">
+                <GitCommitIcon size={14} weight="bold" />
+                {state.transactionState === "failed" ? "Transaction failed — rollback required" : "Transaction active"}
+              </span>
+            </div>
+            <div className="flex rounded-lg border border-separator bg-surface-secondary p-0.5">
+              <button
+                onClick={() => completeTransaction("commit")}
+                disabled={state.transactionState !== "active" || isBusy}
+                className="rounded-md px-2.5 py-1 text-xs text-foreground transition-colors hover:bg-surface hover:text-success disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Commit
+              </button>
+              <button
+                onClick={() => completeTransaction("rollback")}
+                disabled={isBusy}
+                className="rounded-md px-2.5 py-1 text-xs text-danger transition-colors hover:bg-surface disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Rollback
+              </button>
+            </div>
+          </div>
+        )}
 
         <div className="flex-1" />
-
-        <span className="text-xs font-mono text-muted">
-          {sql.length} chars · {lineCount} lines
-        </span>
-
+        <span className="text-xs font-mono text-muted">{sql.length} chars · {lineCount} lines</span>
         <div className="w-px h-3.5 shrink-0 bg-separator" />
-
-        <Button size="sm" variant="ghost" isIconOnly aria-label="History">
-          <ClockCounterClockwiseIcon size={13} />
-        </Button>
-
-        <Button size="sm" variant="ghost" isIconOnly aria-label="More">
-          <DotsThreeIcon size={15} />
-        </Button>
+        <Button size="sm" variant="ghost" isIconOnly aria-label="History"><ClockCounterClockwiseIcon size={13} /></Button>
+        <Button size="sm" variant="ghost" isIconOnly aria-label="More"><DotsThreeIcon size={15} /></Button>
       </div>
 
-      {/* Monaco editor — fills remaining space */}
       <div className="flex-1 min-h-0">
         <Editor
           height="100%"
@@ -151,9 +469,7 @@ export function SqlEditor({ sql, onSqlChange, commands }: SqlEditorProps) {
           value={sql}
           onChange={(value) => onSqlChange(value ?? "")}
           theme={editorTheme}
-          beforeMount={(monaco) => {
-            buildOrelTheme(monaco, currentTheme.colors, currentTheme.isDark);
-          }}
+          beforeMount={(monaco) => { buildOrelTheme(monaco, currentTheme.colors, currentTheme.isDark); }}
           onMount={handleMount}
           options={{
             fontSize: 13,
@@ -170,76 +486,40 @@ export function SqlEditor({ sql, onSqlChange, commands }: SqlEditorProps) {
             folding: false,
             automaticLayout: true,
             tabSize: 2,
-            scrollbar: {
-              verticalScrollbarSize: 6,
-              horizontalScrollbarSize: 6,
-            },
+            scrollbar: { verticalScrollbarSize: 6, horizontalScrollbarSize: 6 },
           }}
         />
       </div>
 
-      {/* Result panel — hidden until first run */}
-      {showResult && (
+      {showResult && activeResult && (
         <div className="flex flex-col shrink-0 border-t border-separator bg-surface">
-          {/* Drag handle */}
-          <div
-            onMouseDown={handleDragStart}
-            className="h-1 w-full cursor-row-resize shrink-0 group"
-            style={{ background: "transparent" }}
-          >
-            <div
-              className="h-px w-full transition-colors group-hover:bg-accent"
-              style={{ background: "var(--separator)" }}
-            />
+          <div onMouseDown={handleDragStart} className="h-1 w-full cursor-row-resize shrink-0 group">
+            <div className="h-px w-full bg-separator transition-colors group-hover:bg-accent" />
           </div>
-
-          {/* Result header */}
-          <div className="flex items-center gap-2 px-3.5 h-8 border-b border-separator shrink-0">
-            <span className="flex items-center gap-1.5 font-mono text-xs text-muted">
-              <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: "var(--success)" }} />
-              Query OK
-            </span>
-            <span className="text-xs font-mono text-muted">·</span>
-            <span className="text-xs font-mono text-muted">
-              <span className="text-foreground">12</span> rows in <span className="text-foreground">34ms</span>
-            </span>
-            <span className="text-xs font-mono text-muted">·</span>
-            <span className="text-xs font-mono text-muted">
-              <span className="text-foreground">5</span> columns
-            </span>
-
+          <div className="flex items-center gap-1 px-3.5 h-9 border-b border-separator shrink-0 overflow-x-auto scrollbar-hide">
+            {state.results.map((result, index) => (
+              <button
+                key={`${result.index}-${index}`}
+                onClick={() => updateState({ activeResultIndex: index })}
+                className={`shrink-0 rounded-md px-2.5 py-1 font-mono text-xs ${state.activeResultIndex === index ? "bg-surface-secondary text-foreground" : "text-muted"}`}
+              >
+                Result {result.index}{result.kind === "error" ? " · Error" : ""}
+              </button>
+            ))}
             <div className="flex-1" />
-
-            <Button
-              size="sm"
-              variant="ghost"
-              isIconOnly
-              aria-label={resultCollapsed ? "Expand results" : "Collapse results"}
-              onClick={() => setResultCollapsed((v) => !v)}
-            >
+            <span className="shrink-0 font-mono text-[11px] text-muted">
+              {activeResult.kind === "error" ? "Error" : activeResult.kind === "rows" ? `${activeResult.rowCount} rows` : `${activeResult.rowsAffected} affected`} · {activeResult.elapsedMs}ms
+              {activeResult.truncated ? ` · showing first ${activeResult.rowLimit}` : ""}
+            </span>
+            <Button size="sm" variant="ghost" isIconOnly aria-label={resultCollapsed ? "Expand results" : "Collapse results"} onClick={() => setResultCollapsed((value) => !value)}>
               {resultCollapsed ? <CaretUpIcon size={12} /> : <CaretDownIcon size={12} />}
             </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              isIconOnly
-              aria-label="Close results"
-              onClick={() => setShowResult(false)}
-            >
-              <XIcon size={12} />
-            </Button>
+            <Button size="sm" variant="ghost" isIconOnly aria-label="Close results" onClick={() => setShowResult(false)}><XIcon size={12} /></Button>
           </div>
-
-          {/* Result content */}
-          {!resultCollapsed && (
-            <div className="overflow-auto bg-background" style={{ height: effectiveResultHeight }}>
-              <div className="flex items-center justify-center h-full text-sm text-muted">
-                Results will appear here
-              </div>
-            </div>
-          )}
+          {!resultCollapsed && <div className="bg-background" style={{ height: resultHeight }}><ResultGrid result={activeResult} /></div>}
         </div>
       )}
+
     </div>
   );
 }

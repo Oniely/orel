@@ -44,4 +44,5 @@ export interface Tab {
   type: "table" | "query";
   label: string;
   sql?: string;
+  editorState?: import("./editor").SqlEditorState;
 }

@@ -12,6 +12,10 @@ use commands::connection::{
     connect, delete_connection, disconnect, list_databases, load_connections, save_connection,
     switch_database, test_connection, update_connection, AppState,
 };
+use commands::editor::{
+    begin_editor_transaction, commit_editor_transaction, discard_editor_session,
+    execute_editor_sql, rollback_editor_transaction,
+};
 use commands::query::{fetch_rows, list_tables};
 use commands::write_queue::{apply_write_queue, generate_sql};
 use sqlx::{
@@ -138,6 +142,7 @@ pub fn run() {
                 db: pool,
                 pools: Mutex::new(HashMap::new()),
                 configs: Mutex::new(HashMap::new()),
+                editor_sessions: tokio::sync::Mutex::new(HashMap::new()),
             });
 
             Ok(())
@@ -156,6 +161,11 @@ pub fn run() {
             fetch_rows,
             apply_write_queue,
             generate_sql,
+            execute_editor_sql,
+            begin_editor_transaction,
+            commit_editor_transaction,
+            rollback_editor_transaction,
+            discard_editor_session,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

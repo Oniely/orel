@@ -167,7 +167,78 @@ body {
   }
 }
 
+@keyframes transaction-controls-enter {
+  from {
+    opacity: 0;
+    transform: translateX(-6px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+
+.transaction-controls-enter {
+  animation: transaction-controls-enter 220ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.transaction-begin-slot {
+  display: grid;
+  grid-template-columns: 0fr;
+  margin-left: 0;
+  opacity: 0;
+  transform: translateX(-6px) scale(0.98);
+  transform-origin: left center;
+  transition:
+    grid-template-columns 220ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    margin-left 220ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    opacity 150ms ease-in,
+    transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  pointer-events: none;
+}
+
+.transaction-begin-slot[data-visible="true"] {
+  grid-template-columns: 1fr;
+  margin-left: 0.5rem;
+  opacity: 1;
+  transform: translateX(0) scale(1);
+  transition:
+    grid-template-columns 220ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    margin-left 220ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    opacity 180ms ease-out 40ms,
+    transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  pointer-events: auto;
+}
+
+.transaction-status-control {
+  transition:
+    border-color 180ms ease,
+    background-color 180ms ease,
+    box-shadow 180ms ease;
+}
+
+.transaction-status-control-active {
+  color: var(--warning);
+  border-color: color-mix(in oklch, var(--warning) 50%, var(--separator));
+  background: color-mix(in oklch, var(--warning) 7%, var(--surface-secondary));
+  box-shadow: 0 0 10px color-mix(in oklch, var(--warning) 18%, transparent);
+}
+
+.transaction-status-control-failed {
+  color: var(--danger);
+  border-color: color-mix(in oklch, var(--danger) 50%, var(--separator));
+  background: color-mix(in oklch, var(--danger) 7%, var(--surface-secondary));
+  box-shadow: 0 0 10px color-mix(in oklch, var(--danger) 14%, transparent);
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .transaction-controls-enter {
+    animation: none;
+  }
+  .transaction-begin-slot,
+  .transaction-begin-slot[data-visible="true"] {
+    transition: none;
+  }
   .settings-update-glow {
     animation: none;
   }

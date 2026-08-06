@@ -11,11 +11,19 @@ import { RowInspector } from "./RowInspector";
 import { useHotkeys, type Options as HotkeyOptions } from "react-hotkeys-hook";
 import { listen } from "@tauri-apps/api/event";
 import type { Tab } from "../../types/database";
+import { createSqlEditorState, type SqlEditorState } from "../../types/editor";
 import { useWriteQueueActions } from "../../hooks/useWriteQueueActions";
-import { toast } from "@heroui/react";
+import { AlertDialog, Button, Spinner, toast } from "@heroui/react";
 import { getErrorMessage } from "../../lib/error";
+import { useCommitEditorTransaction, useRollbackEditorTransaction } from "../../hooks/useSqlEditor";
 
 type TabState = { tabs: Tab[]; activeTabId: string | null };
+type TransactionGuard = {
+  editorIds: string[];
+  title: string;
+  description: string;
+  onResolved: () => void;
+};
 const EMPTY_TAB_STATE: TabState = { tabs: [], activeTabId: null };
 const APP_HOTKEY_OPTIONS: HotkeyOptions = {
   preventDefault: true,
@@ -39,6 +47,9 @@ export function DashboardLayout() {
   const [showInspector, setShowInspector] = useState(false);
 
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [transactionGuard, setTransactionGuard] = useState<TransactionGuard | null>(null);
+  const commitEditorTransaction = useCommitEditorTransaction();
+  const rollbackEditorTransaction = useRollbackEditorTransaction();
 
   const connectionId = connection?.config.id ?? null;
   const activeDatabase =
@@ -48,6 +59,13 @@ export function DashboardLayout() {
   const { tabs: openTabs, activeTabId } = tabState[databaseKey] ?? EMPTY_TAB_STATE;
   const activeTab = openTabs.find((t) => t.id === activeTabId) ?? null;
   const activeTableName = activeTab?.type === "table" ? activeTab.label : null;
+  const activeEditorOperationPending = activeTab?.type === "query" && activeTab.editorState?.operationPending === true;
+
+  const blockPendingEditorNavigation = () => {
+    if (!activeEditorOperationPending) return false;
+    toast.warning("Wait for the current editor operation to finish before leaving this query tab");
+    return true;
+  };
 
   // Data queries
   useListDatabases(connectionId, connection?.status === "connected"); // Load databases of connectionId
@@ -72,6 +90,7 @@ export function DashboardLayout() {
     }));
 
   const handleTableClick = (name: string) => {
+    if (blockPendingEditorNavigation()) return;
     const id = `t-${name}`;
     updateTabState((state) => {
       if (state.tabs.some((t) => t.id === id)) {
@@ -83,11 +102,12 @@ export function DashboardLayout() {
   };
 
   const handleTabChange = (id: string) => {
+    if (id !== activeTabId && blockPendingEditorNavigation()) return;
     updateTabState((state) => ({ ...state, activeTabId: id }));
     setSelectedRowIndex(null);
   };
 
-  const handleTabClose = (id: string) => {
+  const closeTabNow = (id: string) => {
     updateTabState((state) => {
       const idx = state.tabs.findIndex((t) => t.id === id);
       const nextTabs = state.tabs.filter((t) => t.id !== id);
@@ -99,12 +119,31 @@ export function DashboardLayout() {
     }
   };
 
+  const handleTabClose = (id: string) => {
+    if (id === activeTabId && blockPendingEditorNavigation()) return;
+    const tab = openTabs.find((candidate) => candidate.id === id);
+    if (tab?.editorState?.transactionState && tab.editorState.transactionState !== "inactive") {
+      setTransactionGuard({
+        editorIds: [id],
+        title: "Close query with an active transaction?",
+        description: "Commit or roll back the transaction before closing this query tab.",
+        onResolved: () => closeTabNow(id),
+      });
+      return;
+    }
+    closeTabNow(id);
+  };
+
   // new query tab (sql editor)
   const handleNewQuery = () => {
+    if (blockPendingEditorNavigation()) return;
     const id = `q-${Date.now()}`;
     updateTabState((state) => {
       const n = state.tabs.filter((t) => t.type === "query").length + 1;
-      return { tabs: [...state.tabs, { id, type: "query", label: `Query ${n}`, sql: "" }], activeTabId: id };
+      return {
+        tabs: [...state.tabs, { id, type: "query", label: `Query ${n}`, sql: "", editorState: createSqlEditorState() }],
+        activeTabId: id,
+      };
     });
   };
 
@@ -113,6 +152,13 @@ export function DashboardLayout() {
     updateTabState((state) => ({
       ...state,
       tabs: state.tabs.map((t) => (t.id === id ? { ...t, sql } : t)),
+    }));
+  };
+
+  const handleEditorStateChange = (id: string, editorState: SqlEditorState) => {
+    updateTabState((state) => ({
+      ...state,
+      tabs: state.tabs.map((tab) => (tab.id === id ? { ...tab, editorState } : tab)),
     }));
   };
 
@@ -184,7 +230,7 @@ export function DashboardLayout() {
     setShowInspector(true);
   };
 
-  const handleDatabaseSelect = (database: string) => {
+  const switchDatabaseNow = (database: string) => {
     if (!connectionId || !database || database === activeDatabase) return;
     setSelectedRowIndex(null);
     setShowInspector(false);
@@ -199,13 +245,87 @@ export function DashboardLayout() {
     );
   };
 
-  const handleDisconnect = () => {
+  const activeEditorIdsForKeys = (keys: string[]) => keys.flatMap((key) =>
+    (tabState[key]?.tabs ?? [])
+      .filter((tab) => tab.editorState?.transactionState && tab.editorState.transactionState !== "inactive")
+      .map((tab) => tab.id),
+  );
+
+  const handleDatabaseSelect = (database: string) => {
+    if (!connectionId || !database || database === activeDatabase) return;
+    if (blockPendingEditorNavigation()) return;
+    const editorIds = activeEditorIdsForKeys([databaseKey]);
+    if (editorIds.length > 0) {
+      setTransactionGuard({
+        editorIds,
+        title: "Resolve transactions before switching database",
+        description: "Each active query transaction must be committed or rolled back before Orel can replace the database pool.",
+        onResolved: () => switchDatabaseNow(database),
+      });
+      return;
+    }
+    switchDatabaseNow(database);
+  };
+
+  const disconnectNow = () => {
     if (connectionId)
       disconnect.mutate(connectionId, {
         onSuccess: () => {
           navigate({ to: "/" });
         },
       });
+  };
+
+  const handleDisconnect = () => {
+    if (!connectionId) return;
+    if (blockPendingEditorNavigation()) return;
+    const connectionKeys = Object.keys(tabState).filter((key) => key.startsWith(`${connectionId}::`));
+    const editorIds = activeEditorIdsForKeys(connectionKeys);
+    if (editorIds.length > 0) {
+      setTransactionGuard({
+        editorIds,
+        title: "Resolve transactions before disconnecting",
+        description: "Choose whether to commit or roll back each active query transaction before disconnecting.",
+        onResolved: disconnectNow,
+      });
+      return;
+    }
+    disconnectNow();
+  };
+
+  const markEditorTransactionInactive = (editorId: string) => {
+    setTabState((previous) => Object.fromEntries(
+      Object.entries(previous).map(([key, value]) => [
+        key,
+        {
+          ...value,
+          tabs: value.tabs.map((tab) => tab.id === editorId && tab.editorState
+            ? { ...tab, editorState: { ...tab.editorState, transactionState: "inactive" as const } }
+            : tab),
+        },
+      ]),
+    ));
+  };
+
+  const resolveGuardTransaction = (editorId: string, action: "commit" | "rollback") => {
+    if (!transactionGuard) return;
+    const mutation = action === "commit" ? commitEditorTransaction : rollbackEditorTransaction;
+    mutation.mutate(editorId, {
+      onSuccess: () => {
+        markEditorTransactionInactive(editorId);
+        if (action === "commit") handleRefresh();
+        toast.success(action === "commit" ? "Transaction committed" : "Transaction rolled back");
+        const remaining = transactionGuard.editorIds.filter((id) => id !== editorId);
+        if (remaining.length === 0) {
+          const onResolved = transactionGuard.onResolved;
+          setTransactionGuard(null);
+          onResolved();
+        } else {
+          setTransactionGuard({ ...transactionGuard, editorIds: remaining });
+        }
+      },
+      onError: (error) => toast.danger(getErrorMessage(error, `Failed to ${action} transaction`)),
+    });
   };
 
   const handleRefresh = useCallback(() => {
@@ -308,12 +428,15 @@ export function DashboardLayout() {
 
         {/* Content */}
         <ContentArea
+          connectionId={connection.config.id}
           openTabs={openTabs}
           activeTabId={activeTabId}
           onTabChange={handleTabChange}
           onTabClose={handleTabClose}
           onNewQuery={handleNewQuery}
           onSqlChange={handleSqlChange}
+          onEditorStateChange={handleEditorStateChange}
+          onEditorDataChanged={handleRefresh}
           queryResult={queryResult}
           isLoading={rowsLoading}
           error={rowsError ? getErrorMessage(rowsError, "Failed to load rows") : null}
@@ -338,6 +461,47 @@ export function DashboardLayout() {
           />
         )}
       </div>
+
+      <AlertDialog>
+        <AlertDialog.Backdrop
+          isOpen={transactionGuard !== null}
+          isDismissable={!commitEditorTransaction.isPending && !rollbackEditorTransaction.isPending}
+          isKeyboardDismissDisabled={commitEditorTransaction.isPending || rollbackEditorTransaction.isPending}
+          onOpenChange={(open) => { if (!open) setTransactionGuard(null); }}
+        >
+          <AlertDialog.Container size="sm">
+            <AlertDialog.Dialog>
+              <AlertDialog.Header>
+                <AlertDialog.Heading>{transactionGuard?.title}</AlertDialog.Heading>
+              </AlertDialog.Header>
+              <AlertDialog.Body>
+                <p>{transactionGuard?.description}</p>
+                <div className="mt-4 space-y-2">
+                  {transactionGuard?.editorIds.map((editorId) => {
+                    const guardedTab = Object.values(tabState).flatMap((value) => value.tabs).find((tab) => tab.id === editorId);
+                    const failed = guardedTab?.editorState?.transactionState === "failed";
+                    const pending = commitEditorTransaction.isPending || rollbackEditorTransaction.isPending;
+                    return (
+                      <div key={editorId} className="flex items-center gap-2 rounded-lg border border-separator bg-surface-secondary p-2.5">
+                        <span className="min-w-0 flex-1 truncate font-mono text-xs">{guardedTab?.label ?? editorId}</span>
+                        <Button size="sm" variant="danger-soft" isDisabled={pending} onClick={() => resolveGuardTransaction(editorId, "rollback")}>
+                          {rollbackEditorTransaction.isPending ? <Spinner size="sm" /> : "Rollback"}
+                        </Button>
+                        <Button size="sm" isDisabled={pending || failed} onClick={() => resolveGuardTransaction(editorId, "commit")}>
+                          {commitEditorTransaction.isPending ? <Spinner size="sm" /> : "Commit"}
+                        </Button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </AlertDialog.Body>
+              <AlertDialog.Footer>
+                <Button variant="outline" isDisabled={commitEditorTransaction.isPending || rollbackEditorTransaction.isPending} onClick={() => setTransactionGuard(null)}>Cancel</Button>
+              </AlertDialog.Footer>
+            </AlertDialog.Dialog>
+          </AlertDialog.Container>
+        </AlertDialog.Backdrop>
+      </AlertDialog>
     </div>
   );
 }

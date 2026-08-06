@@ -22,6 +22,7 @@ import { parseEditValue } from "../../lib/parseValue";
 import { SqlEditor, type SqlEditorCommands } from "./SqlEditor";
 import Cell from "./Cell";
 import { WriteQueueFooter } from "./WriteQueueFooter";
+import { createSqlEditorState, type SqlEditorState } from "../../types/editor";
 
 const ROW_NUMBER_COL = "__row_number";
 
@@ -801,12 +802,15 @@ const VIEWS = ["Data", "Structure"] as const;
 type ViewType = (typeof VIEWS)[number];
 
 interface ContentAreaProps {
+  connectionId: string;
   openTabs: Tab[];
   activeTabId: string | null;
   onTabChange: (id: string) => void;
   onTabClose: (id: string) => void;
   onNewQuery: () => void;
   onSqlChange: (id: string, sql: string) => void;
+  onEditorStateChange: (id: string, state: SqlEditorState) => void;
+  onEditorDataChanged: () => void;
   queryResult: QueryResult | null;
   isLoading: boolean;
   error: string | null;
@@ -818,12 +822,15 @@ interface ContentAreaProps {
 }
 
 export function ContentArea({
+  connectionId,
   openTabs,
   activeTabId,
   onTabChange,
   onTabClose,
   onNewQuery,
   onSqlChange,
+  onEditorStateChange,
+  onEditorDataChanged,
   queryResult,
   isLoading,
   error,
@@ -943,8 +950,13 @@ export function ContentArea({
       {isQueryTab && activeTab ? (
         <SqlEditor
           key={activeTab.id}
+          editorId={activeTab.id}
+          connectionId={connectionId}
           sql={activeTab.sql ?? ""}
+          state={activeTab.editorState ?? createSqlEditorState()}
           onSqlChange={(sql) => onSqlChange(activeTab.id, sql)}
+          onStateChange={(state) => onEditorStateChange(activeTab.id, state)}
+          onDataChanged={onEditorDataChanged}
           commands={editorCommands}
         />
       ) : activeView === "Data" ? (

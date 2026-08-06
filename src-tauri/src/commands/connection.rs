@@ -3,6 +3,8 @@ use sqlx::{MySqlPool, PgPool, SqlitePool};
 use std::collections::HashMap;
 use std::sync::Mutex;
 
+use super::editor::EditorSession;
+
 // Mirrors the SavedConnection from Frontend TypeScript type.
 // #[serde(rename_all = "camelCase")] maps snake_case fields to camelCase JSON.
 #[derive(Debug, Serialize, Deserialize, Clone, sqlx::FromRow)]
@@ -52,6 +54,7 @@ pub struct AppState {
     pub db: SqlitePool,                                   // app db
     pub pools: Mutex<HashMap<String, DbPool>>,            // connections pool
     pub configs: Mutex<HashMap<String, SavedConnection>>, // connection config
+    pub editor_sessions: tokio::sync::Mutex<HashMap<String, EditorSession>>,
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -65,6 +68,7 @@ async fn close_pool(pool: DbPool) {
 }
 
 async fn replace_connected_pool(state: &AppState, connection_id: &str, pool: DbPool) {
+    super::editor::discard_sessions_for_connection(state, connection_id).await;
     let old_pool = state
         .pools
         .lock()
@@ -108,13 +112,26 @@ async fn create_pool(config: &SavedConnection, database: Option<&str>) -> Result
 
             let path = database.unwrap_or(&config.host);
             let pool = SqlitePoolOptions::new()
-                .max_connections(1)
+                .max_connections(sqlite_pool_max_connections(path))
                 .connect_with(sqlite_opts(path)?)
                 .await
                 .map_err(|e| e.to_string())?;
             Ok(DbPool::Sqlite(pool))
         }
         other => Err(format!("Unsupported database type: {}", other)),
+    }
+}
+
+fn sqlite_pool_max_connections(path: &str) -> u32 {
+    let normalized = path.trim().to_ascii_lowercase();
+    if normalized == ":memory:"
+        || normalized.ends_with("::memory:")
+        || normalized.starts_with("file::memory:")
+        || normalized.contains("mode=memory")
+    {
+        1
+    } else {
+        4
     }
 }
 
@@ -339,6 +356,7 @@ pub async fn delete_connection(
 
 #[tauri::command]
 pub async fn disconnect(state: tauri::State<'_, AppState>, id: String) -> Result<(), String> {
+    super::editor::discard_sessions_for_connection(&state, &id).await;
     let old_pool = {
         let mut pools = state.pools.lock().unwrap();
         pools.remove(&id)
@@ -624,6 +642,8 @@ pub async fn switch_database(
         return Err("SQLite does not support database switching".to_string());
     }
 
+    super::editor::discard_sessions_for_connection(&state, &connection_id).await;
+
     let new_pool = create_pool(&config, Some(&database)).await?;
 
     let old_pool = {
@@ -639,25 +659,5 @@ pub async fn switch_database(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::mysql_user_databases;
-
-    #[test]
-    fn mysql_filters_system_databases() {
-        let databases = vec![
-            "information_schema".to_string(),
-            "mysql".to_string(),
-            "production".to_string(),
-            "sys".to_string(),
-        ];
-
-        assert_eq!(mysql_user_databases(databases), vec!["production"]);
-    }
-
-    #[test]
-    fn mysql_system_database_filter_is_case_insensitive() {
-        let databases = vec!["INFORMATION_SCHEMA".to_string(), "app".to_string()];
-
-        assert_eq!(mysql_user_databases(databases), vec!["app"]);
-    }
-}
+#[path = "test/connection.test.rs"]
+mod tests;
