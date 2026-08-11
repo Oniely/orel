@@ -1,5 +1,5 @@
 import { Button, Dropdown, Label, Separator, Spinner, toast, ToggleButton } from "@heroui/react";
-import type { ActiveConnection, SavedConnection } from "../../types/connection";
+import type { SavedConnection } from "../../../types/connection";
 import {
   ArrowClockwiseIcon,
   ArrowLineUpIcon,
@@ -10,43 +10,33 @@ import {
   SidebarIcon,
   SidebarSimpleIcon,
 } from "@phosphor-icons/react";
-import { INNER_W, SIDEBAR_PAD, SIDEBAR_WIDTH } from "./constants";
+import { INNER_W, SIDEBAR_PAD, SIDEBAR_WIDTH } from "../shared/constants";
 import { useNavigate } from "@tanstack/react-router";
-import { useConnectionStore } from "../../stores/connection.store";
-import { useConnect } from "../../hooks/useConnections";
-import { SettingsButton } from "../SettingsButton";
+import { useConnectionStore } from "../../../stores/connection.store";
+import { useConnect } from "../../../hooks/useConnections";
+import { SettingsButton } from "../../SettingsButton";
 
-interface HeaderProps {
-  connection: ActiveConnection;
-  activeDatabase: string | null;
-  showInspector: boolean;
-  onToggleInspector: () => void;
-  onRefresh: () => void;
-  onDatabaseSelect: (database: string) => void;
-  sidebarOpen: boolean;
-  onToggleSidebar: () => void;
-  onDisconnect: () => void;
-  onAddRow?: () => void;
-}
+import { useDashboardStore } from "../../../stores/dashboard.store";
+import { useDashboardContext } from "../../../hooks/dashboard/useDashboardContext";
+import { useDashboardCommands } from "../../../hooks/dashboard/useDashboardCommands";
+import { useActiveTable } from "../../../hooks/dashboard/useActiveTable";
 
-export function Header({
-  connection,
-  activeDatabase,
-  showInspector,
-  onToggleInspector,
-  onRefresh,
-  onDatabaseSelect,
-  sidebarOpen,
-  onToggleSidebar,
-  onDisconnect,
-  onAddRow,
-}: HeaderProps) {
+export function Header() {
   const latency = null; // TODO: track latency after connect
   const navigate = useNavigate();
+  const { connection, activeDatabase } = useDashboardContext();
+  const showInspector = useDashboardStore((state) => state.showInspector);
+  const sidebarOpen = useDashboardStore((state) => state.sidebarOpen);
+  const toggleInspector = useDashboardStore((state) => state.toggleInspector);
+  const toggleSidebar = useDashboardStore((state) => state.toggleSidebar);
+  const commands = useDashboardCommands();
+  const { writeQueue } = useActiveTable();
   const { savedConnections, activeConnections, setFocusedConnection, closeConnection } = useConnectionStore();
   const connect = useConnect();
   const isConnecting = Object.values(activeConnections).some((c) => c.status === "connecting");
-  const hasFixedDatabase = connection.config.type === "sqlite";
+  if (!connection) return null;
+
+  const hasFixedDatabase = connection.config.type === "sqlite" || connection.databases?.length === 1;
 
   const handleConnect = (conn: SavedConnection) => {
     const existing = activeConnections[conn.id];
@@ -103,7 +93,7 @@ export function Header({
           <Dropdown.Popover className="w-[200px] p-1">
             <Dropdown.Menu
               onAction={(key) => {
-                if (key === "disconnect") onDisconnect();
+                if (key === "disconnect") commands.disconnect();
                 if (key === "new-connection") navigate({ to: "/" });
               }}
             >
@@ -137,7 +127,7 @@ export function Header({
       {/* Right zone — content header */}
       <div className="flex-1 flex items-center gap-2.5 px-4 min-w-0">
         {/* Sidebar Toggle */}
-        <ToggleButton size="sm" isSelected={sidebarOpen} onChange={onToggleSidebar} className="grid place-items-center">
+        <ToggleButton size="sm" isSelected={sidebarOpen} onChange={toggleSidebar} className="grid place-items-center">
           <SidebarIcon className="size-4" />
         </ToggleButton>
 
@@ -157,7 +147,7 @@ export function Header({
               <CaretDownIcon />
             </Button>
             <Dropdown.Popover className="w-[225px] p-1">
-              <Dropdown.Menu onAction={(key) => onDatabaseSelect(String(key))}>
+              <Dropdown.Menu onAction={(key) => commands.selectDatabase(String(key))}>
                 {connection.databases.length === 0 ? (
                   <Dropdown.Item id="no-databases" textValue="No databases" isDisabled>
                     <Label>No databases</Label>
@@ -183,19 +173,24 @@ export function Header({
           Export
         </Button>
 
-        <Button size="sm" variant="outline" className="flex items-center gap-1.5 text-xs" onClick={onAddRow}>
+        <Button
+          size="sm"
+          variant="outline"
+          className="flex items-center gap-1.5 text-xs"
+          onClick={writeQueue.handleAddRow}
+        >
           <PlusIcon className="size-3" weight="bold" />
           Add row
         </Button>
 
-        <Button onClick={onRefresh} size="sm" variant="outline" className="grid place-items-center">
+        <Button onClick={commands.refresh} size="sm" variant="outline" className="grid place-items-center">
           <ArrowClockwiseIcon className="size-4" />
         </Button>
 
         <ToggleButton
           size="sm"
           isSelected={showInspector}
-          onChange={onToggleInspector}
+          onChange={toggleInspector}
           className="grid place-items-center transition-colors border"
           style={{ background: showInspector ? "var(--surface-secondary)" : "transparent" }}
         >

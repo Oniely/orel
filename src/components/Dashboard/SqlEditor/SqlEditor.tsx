@@ -1,31 +1,29 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Editor, { type OnMount, type Monaco } from "@monaco-editor/react";
-import { Button, Spinner, toast } from "@heroui/react";
+import { Button, Kbd, Spinner, toast } from "@heroui/react";
 import {
   CaretDownIcon,
   CaretUpIcon,
-  CheckIcon,
   ClockCounterClockwiseIcon,
   DotsThreeIcon,
   GitCommitIcon,
   PlayIcon,
   XIcon,
 } from "@phosphor-icons/react";
-import { buildOrelTheme, THEME_DARK, THEME_LIGHT } from "../../lib/monacoTheme";
-import { getErrorMessage } from "../../lib/error";
-import { useThemeStore } from "../../stores/theme.store";
-import { THEMES } from "../../lib/themes";
+import { buildOrelTheme, THEME_DARK, THEME_LIGHT } from "../../../lib/monacoTheme";
+import { getErrorMessage } from "../../../lib/error";
+import { useThemeStore } from "../../../stores/theme.store";
+import { THEMES } from "../../../lib/themes";
 import {
   useBeginEditorTransaction,
   useCommitEditorTransaction,
   useExecuteEditorSql,
   useDiscardEditorSession,
   useRollbackEditorTransaction,
-} from "../../hooks/useSqlEditor";
-import type { SqlEditorState, StatementResult } from "../../types/editor";
-import Cell from "./Cell";
-import { KeyIcon } from "./icons";
-import { getTypeColor } from "../../lib/typeColors";
+} from "../../../hooks/useSqlEditor";
+import type { SqlEditorState } from "../../../types/editor";
+import { EditorResultGrid } from "./EditorResultGrid";
+import { usePlatform } from "../../../hooks/dashboard/useDashboardEffects";
 
 export interface SqlEditorCommands {
   closeTab: () => void;
@@ -49,105 +47,6 @@ interface SqlEditorProps {
 const MIN_RESULT_HEIGHT = 120;
 const DEFAULT_RESULT_HEIGHT = 360;
 
-function ResultGrid({ result }: { result: StatementResult }) {
-  if (result.kind === "error" && result.error) {
-    return (
-      <div className="h-full overflow-auto p-5">
-        <div className="rounded-lg border border-danger/30 bg-danger/5 p-4 font-mono text-xs">
-          <p className="font-semibold text-danger">Statement {result.index} failed</p>
-          {result.error.code && <p className="mt-2 text-muted">Code: {result.error.code}</p>}
-          <pre className="mt-2 whitespace-pre-wrap text-foreground">{result.error.message}</pre>
-          {result.message && <p className="mt-3 text-warning">{result.message}</p>}
-        </div>
-      </div>
-    );
-  }
-
-  if (result.kind === "message") {
-    return <div className="grid h-full place-items-center text-sm text-muted">{result.message}</div>;
-  }
-
-  if (result.kind === "affected") {
-    return (
-      <div className="grid h-full place-items-center">
-        <div className="rounded-lg border border-separator bg-surface px-4 py-3 text-sm">
-          <div className="flex items-center gap-2">
-            <CheckIcon className="text-success" size={16} weight="bold" />
-            <span>
-              Query completed · <strong>{result.rowsAffected}</strong> row{result.rowsAffected === 1 ? "" : "s"} affected
-            </span>
-          </div>
-          {result.message && <p className="mt-2 text-xs text-warning">{result.message}</p>}
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="h-full overflow-auto bg-background">
-      {result.message && <div className="sticky left-0 top-0 z-[2] border-b border-warning/30 bg-warning/10 px-3.5 py-2 text-xs text-warning">{result.message}</div>}
-      <table
-        className="min-w-full border-collapse table-fixed text-xs"
-        style={{ width: Math.max(640, 52 + result.columns.length * 210) }}
-      >
-        <colgroup>
-          <col style={{ width: 52 }} />
-          {result.columns.map((_, index) => <col key={index} style={{ width: 210 }} />)}
-        </colgroup>
-        <thead>
-          <tr className="sticky top-0 z-[1] bg-background">
-            <th className="w-[52px] border-b-hairline px-3.5 py-2.5" />
-            {result.columns.map((column, index) => (
-              <th
-                key={`${column.name}-${index}`}
-                className="border-b-hairline px-3.5 py-2.5 text-left text-xs font-medium whitespace-nowrap overflow-hidden"
-              >
-                <div className="flex items-center gap-1.5 overflow-hidden">
-                  {column.isPrimary && <KeyIcon size={9} className="text-warning shrink-0" />}
-                  <span className="font-mono text-foreground shrink-0">{column.name}</span>
-                  <span
-                    className="min-w-0 truncate rounded px-1 py-px font-mono text-[10px]"
-                    style={{
-                      color: getTypeColor(column.dataType),
-                      background: `color-mix(in oklch, ${getTypeColor(column.dataType)} 12%, transparent)`,
-                    }}
-                  >
-                    {column.dataType.toLowerCase()}
-                  </span>
-                </div>
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {result.rows.map((row, rowIndex) => (
-            <tr key={rowIndex} className="h-10">
-              <td className="border-b-hairline px-3.5 font-mono text-xs text-muted select-none">
-                {rowIndex + 1}
-              </td>
-              {result.columns.map((column, columnIndex) => {
-                const value = row[columnIndex];
-                return (
-                  <td key={columnIndex} className="border-b-hairline overflow-hidden whitespace-nowrap px-3.5">
-                    <div className="truncate">
-                      <Cell value={value?.display ?? null} type={value?.kind === "boolean" ? "boolean" : column.dataType} />
-                    </div>
-                  </td>
-                );
-              })}
-            </tr>
-          ))}
-          {result.rows.length === 0 && (
-            <tr>
-              <td colSpan={Math.max(1, result.columns.length + 1)} className="py-12 text-center text-muted">No rows</td>
-            </tr>
-          )}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
 export function SqlEditor({
   editorId,
   connectionId,
@@ -170,11 +69,13 @@ export function SqlEditor({
   const runRef = useRef<() => void>(() => undefined);
   const themeId = useThemeStore((s) => s.themeId);
   const currentTheme = THEMES.find((theme) => theme.id === themeId) ?? THEMES.find((theme) => theme.id === "dark")!;
-  const [editorTheme, setEditorTheme] = useState(() => currentTheme.isDark ? THEME_DARK : THEME_LIGHT);
+  const [editorTheme, setEditorTheme] = useState(() => (currentTheme.isDark ? THEME_DARK : THEME_LIGHT));
   const [hasSelection, setHasSelection] = useState(false);
   const [showResult, setShowResult] = useState(state.results.length > 0);
   const [resultHeight, setResultHeight] = useState(DEFAULT_RESULT_HEIGHT);
   const [resultCollapsed, setResultCollapsed] = useState(false);
+
+  const os = usePlatform();
 
   const executeSql = useExecuteEditorSql();
   const beginTransaction = useBeginEditorTransaction();
@@ -182,7 +83,12 @@ export function SqlEditor({
   const rollbackTransaction = useRollbackEditorTransaction();
   const discardSession = useDiscardEditorSession();
   const mountedRef = useRef(true);
-  const isBusy = state.operationPending || executeSql.isPending || beginTransaction.isPending || commitTransaction.isPending || rollbackTransaction.isPending;
+  const isBusy =
+    state.operationPending ||
+    executeSql.isPending ||
+    beginTransaction.isPending ||
+    commitTransaction.isPending ||
+    rollbackTransaction.isPending;
 
   const dragState = useRef<{ startY: number; startHeight: number } | null>(null);
   const dragCleanupRef = useRef<(() => void) | null>(null);
@@ -193,15 +99,18 @@ export function SqlEditor({
       dragCleanupRef.current?.();
     };
   }, []);
-  useEffect(() => () => {
-    const viewState = viewStateRef.current;
-    if (!viewState) return;
+  useEffect(
+    () => () => {
+      const viewState = viewStateRef.current;
+      if (!viewState) return;
 
-    onStateChangeRef.current({
-      ...stateRef.current,
-      viewState,
-    });
-  }, []);
+      onStateChangeRef.current({
+        ...stateRef.current,
+        viewState,
+      });
+    },
+    [],
+  );
 
   useEffect(() => {
     if (!monacoRef.current) return;
@@ -274,10 +183,7 @@ export function SqlEditor({
         setResultCollapsed(false);
         const failed = response.results.find((result) => result.error)?.error;
         if (failed) toast.danger(failed.message);
-        if (
-          response.transactionState === "inactive" &&
-          response.results.some((result) => result.kind === "affected")
-        ) {
+        if (response.transactionState === "inactive" && response.results.some((result) => result.kind === "affected")) {
           onDataChanged();
         }
       })
@@ -309,15 +215,13 @@ export function SqlEditor({
         scrollLeft: savedViewState.scrollLeft,
       });
       const restoredSelection = editorInstance.getSelection();
-      const selected = restoredSelection
-        ? editorInstance.getModel()?.getValueInRange(restoredSelection) ?? ""
-        : "";
+      const selected = restoredSelection ? (editorInstance.getModel()?.getValueInRange(restoredSelection) ?? "") : "";
       setHasSelection(selected.trim().length > 0);
     }
     captureViewState();
     editorInstance.onDidChangeCursorSelection(() => {
       const selection = editorInstance.getSelection();
-      const selected = selection ? editorInstance.getModel()?.getValueInRange(selection) ?? "" : "";
+      const selected = selection ? (editorInstance.getModel()?.getValueInRange(selection) ?? "") : "";
       setHasSelection(selected.trim().length > 0);
       captureViewState();
     });
@@ -326,7 +230,9 @@ export function SqlEditor({
     editorInstance.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyW, () => commandsRef.current?.closeTab());
     editorInstance.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyT, () => commandsRef.current?.newQuery());
     editorInstance.addCommand(monaco.KeyMod.WinCtrl | monaco.KeyCode.Tab, () => commandsRef.current?.nextTab());
-    editorInstance.addCommand(monaco.KeyMod.WinCtrl | monaco.KeyMod.Shift | monaco.KeyCode.Tab, () => commandsRef.current?.prevTab());
+    editorInstance.addCommand(monaco.KeyMod.WinCtrl | monaco.KeyMod.Shift | monaco.KeyCode.Tab, () =>
+      commandsRef.current?.prevTab(),
+    );
     ([1, 2, 3, 4, 5, 6, 7, 8, 9] as const).forEach((number) => {
       editorInstance.addCommand(
         monaco.KeyMod.CtrlCmd | monaco.KeyCode[`Digit${number}` as keyof typeof monaco.KeyCode],
@@ -378,7 +284,9 @@ export function SqlEditor({
     dragState.current = { startY: event.clientY, startHeight: resultHeight };
     const onMouseMove = (moveEvent: MouseEvent) => {
       if (!dragState.current) return;
-      setResultHeight(Math.max(MIN_RESULT_HEIGHT, dragState.current.startHeight + dragState.current.startY - moveEvent.clientY));
+      setResultHeight(
+        Math.max(MIN_RESULT_HEIGHT, dragState.current.startHeight + dragState.current.startY - moveEvent.clientY),
+      );
     };
     const onMouseUp = () => {
       dragState.current = null;
@@ -397,23 +305,41 @@ export function SqlEditor({
   return (
     <div className="flex-1 flex flex-col min-h-0">
       <div className="min-h-12 px-3.5 py-2 flex flex-wrap items-center gap-2 border-b border-separator bg-surface shrink-0">
-        <Button size="sm" className="flex items-center gap-1.5 text-xs" onClick={handleRun} isDisabled={!sql.trim() || isBusy}>
+        <Button
+          size="sm"
+          className="flex items-center gap-1.5 text-xs"
+          onClick={handleRun}
+          isDisabled={!sql.trim() || isBusy}
+        >
           {executeSql.isPending ? <Spinner size="sm" /> : <PlayIcon className="size-2" weight="fill" />}
           {hasSelection ? "Run Selection" : "Run All"}
-          <span className="text-[11px] px-1 py-px rounded-xs ml-0.5 opacity-70 bg-default/20">⌘↵</span>
+          <Kbd className="scale-80">
+            <Kbd.Abbr keyValue={os === "macos" ? "command" : "ctrl"} />
+            <Kbd.Abbr keyValue="enter" />
+          </Kbd>
         </Button>
 
         {state.transactionState === "inactive" ? (
           <div key="transaction-inactive" className="transaction-controls-enter flex items-center">
             <div className="flex rounded-lg border border-separator bg-surface-secondary p-0.5">
-              <button onClick={() => setMode("autoCommit")} className={`rounded-md px-2.5 py-1 text-xs ${state.mode === "autoCommit" ? "bg-surface text-foreground shadow-sm" : "text-muted"}`}>
+              <button
+                onClick={() => setMode("autoCommit")}
+                className={`rounded-md px-2.5 py-1 text-xs ${state.mode === "autoCommit" ? "bg-surface text-foreground shadow-sm" : "text-muted"}`}
+              >
                 Auto Commit
               </button>
-              <button onClick={() => setMode("manual")} className={`rounded-md px-2.5 py-1 text-xs ${state.mode === "manual" ? "bg-surface text-foreground shadow-sm" : "text-muted"}`}>
+              <button
+                onClick={() => setMode("manual")}
+                className={`rounded-md px-2.5 py-1 text-xs ${state.mode === "manual" ? "bg-surface text-foreground shadow-sm" : "text-muted"}`}
+              >
                 Manual
               </button>
             </div>
-            <div className="transaction-begin-slot" data-visible={state.mode === "manual"} aria-hidden={state.mode !== "manual"}>
+            <div
+              className="transaction-begin-slot"
+              data-visible={state.mode === "manual"}
+              aria-hidden={state.mode !== "manual"}
+            >
               <div className="min-w-0 overflow-hidden">
                 <div className="flex rounded-lg border border-separator bg-surface-secondary p-0.5">
                   <button
@@ -429,8 +355,13 @@ export function SqlEditor({
             </div>
           </div>
         ) : (
-          <div key={`transaction-${state.transactionState}`} className="transaction-controls-enter flex items-center gap-2">
-            <div className={`transaction-status-control flex rounded-lg border p-0.5 ${state.transactionState === "failed" ? "transaction-status-control-failed" : "transaction-status-control-active"}`}>
+          <div
+            key={`transaction-${state.transactionState}`}
+            className="transaction-controls-enter flex items-center gap-2"
+          >
+            <div
+              className={`transaction-status-control flex rounded-lg border p-0.5 ${state.transactionState === "failed" ? "transaction-status-control-failed" : "transaction-status-control-active"}`}
+            >
               <span className="flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-semibold">
                 <GitCommitIcon size={14} weight="bold" />
                 {state.transactionState === "failed" ? "Transaction failed — rollback required" : "Transaction active"}
@@ -456,10 +387,16 @@ export function SqlEditor({
         )}
 
         <div className="flex-1" />
-        <span className="text-xs font-mono text-muted">{sql.length} chars · {lineCount} lines</span>
+        <span className="text-xs font-mono text-muted">
+          {sql.length} chars · {lineCount} lines
+        </span>
         <div className="w-px h-3.5 shrink-0 bg-separator" />
-        <Button size="sm" variant="ghost" isIconOnly aria-label="History"><ClockCounterClockwiseIcon size={13} /></Button>
-        <Button size="sm" variant="ghost" isIconOnly aria-label="More"><DotsThreeIcon size={15} /></Button>
+        <Button size="sm" variant="ghost" isIconOnly aria-label="History">
+          <ClockCounterClockwiseIcon size={13} />
+        </Button>
+        <Button size="sm" variant="ghost" isIconOnly aria-label="More">
+          <DotsThreeIcon size={15} />
+        </Button>
       </div>
 
       <div className="flex-1 min-h-0">
@@ -469,7 +406,9 @@ export function SqlEditor({
           value={sql}
           onChange={(value) => onSqlChange(value ?? "")}
           theme={editorTheme}
-          beforeMount={(monaco) => { buildOrelTheme(monaco, currentTheme.colors, currentTheme.isDark); }}
+          beforeMount={(monaco) => {
+            buildOrelTheme(monaco, currentTheme.colors, currentTheme.isDark);
+          }}
           onMount={handleMount}
           options={{
             fontSize: 13,
@@ -503,23 +442,46 @@ export function SqlEditor({
                 onClick={() => updateState({ activeResultIndex: index })}
                 className={`shrink-0 rounded-md px-2.5 py-1 font-mono text-xs ${state.activeResultIndex === index ? "bg-surface-secondary text-foreground" : "text-muted"}`}
               >
-                Result {result.index}{result.kind === "error" ? " · Error" : ""}
+                Result {result.index}
+                {result.kind === "error" ? " · Error" : ""}
               </button>
             ))}
             <div className="flex-1" />
             <span className="shrink-0 font-mono text-[11px] text-muted">
-              {activeResult.kind === "error" ? "Error" : activeResult.kind === "rows" ? `${activeResult.rowCount} rows` : `${activeResult.rowsAffected} affected`} · {activeResult.elapsedMs}ms
+              {activeResult.kind === "error"
+                ? "Error"
+                : activeResult.kind === "rows"
+                  ? `${activeResult.rowCount} rows`
+                  : `${activeResult.rowsAffected} affected`}{" "}
+              · {activeResult.elapsedMs}ms
               {activeResult.truncated ? ` · showing first ${activeResult.rowLimit}` : ""}
             </span>
-            <Button size="sm" variant="ghost" isIconOnly aria-label={resultCollapsed ? "Expand results" : "Collapse results"} onClick={() => setResultCollapsed((value) => !value)}>
+            <Button
+              size="sm"
+              variant="ghost"
+              isIconOnly
+              aria-label={resultCollapsed ? "Expand results" : "Collapse results"}
+              onClick={() => setResultCollapsed((value) => !value)}
+            >
               {resultCollapsed ? <CaretUpIcon size={12} /> : <CaretDownIcon size={12} />}
             </Button>
-            <Button size="sm" variant="ghost" isIconOnly aria-label="Close results" onClick={() => setShowResult(false)}><XIcon size={12} /></Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              isIconOnly
+              aria-label="Close results"
+              onClick={() => setShowResult(false)}
+            >
+              <XIcon size={12} />
+            </Button>
           </div>
-          {!resultCollapsed && <div className="bg-background" style={{ height: resultHeight }}><ResultGrid result={activeResult} /></div>}
+          {!resultCollapsed && (
+            <div className="bg-background" style={{ height: resultHeight }}>
+              <EditorResultGrid result={activeResult} />
+            </div>
+          )}
         </div>
       )}
-
     </div>
   );
 }

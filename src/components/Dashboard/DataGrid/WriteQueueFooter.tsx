@@ -1,5 +1,6 @@
 import { Button, Dropdown, Kbd, Label } from "@heroui/react";
 import { CaretDownIcon } from "@phosphor-icons/react";
+import { usePlatform } from "../../../hooks/dashboard/useDashboardEffects";
 
 interface WriteQueueFooterProps {
   changeCount: number;
@@ -10,6 +11,8 @@ interface WriteQueueFooterProps {
 }
 
 export function WriteQueueFooter({ changeCount, onReset, onApply, onCopySql, isApplying }: WriteQueueFooterProps) {
+  const os = usePlatform();
+
   return (
     <div
       className="flex items-center justify-between gap-3 px-4.5 shrink-0 font-mono text-xs h-10"
@@ -66,7 +69,7 @@ export function WriteQueueFooter({ changeCount, onReset, onApply, onCopySql, isA
                   <div className="flex items-center justify-between w-full">
                     <Label>Apply changes</Label>
                     <Kbd>
-                      <Kbd.Abbr keyValue="command" />
+                      <Kbd.Abbr keyValue={os === "macos" ? "command" : "ctrl"} />
                       <Kbd.Content>S</Kbd.Content>
                     </Kbd>
                   </div>
@@ -76,7 +79,7 @@ export function WriteQueueFooter({ changeCount, onReset, onApply, onCopySql, isA
                     <Label>Copy SQL</Label>
                     <Kbd>
                       <Kbd.Abbr keyValue="shift" />
-                      <Kbd.Abbr keyValue="command" />
+                      <Kbd.Abbr keyValue={os === "macos" ? "command" : "ctrl"} />
                       <Kbd.Content>S</Kbd.Content>
                     </Kbd>
                   </div>

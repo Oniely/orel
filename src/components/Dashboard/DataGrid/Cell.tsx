@@ -1,4 +1,4 @@
-import { getTypeColor } from "../../lib/typeColors";
+import { getTypeColor } from "../../../lib/typeColors";
 
 export default function Cell({ value, type }: { value: unknown; type: string }) {
   if (value === null || value === undefined) {
@@ -33,3 +33,5 @@ export default function Cell({ value, type }: { value: unknown; type: string }) 
     </span>
   );
 }
+
+

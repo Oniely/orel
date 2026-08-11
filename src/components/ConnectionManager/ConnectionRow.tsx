@@ -1,4 +1,4 @@
-import { useNavigate } from "@tanstack/react-router";
+import { useNavigate, useRouter } from "@tanstack/react-router";
 import { useDeleteConnection, useConnect } from "../../hooks/useConnections";
 import { useConnectionStore } from "../../stores/connection.store";
 import { SavedConnection } from "../../types/connection";
@@ -18,6 +18,7 @@ export default function ConnectionRow({
   onEdit: (connection: SavedConnection) => void;
 }) {
   const navigate = useNavigate();
+  const router = useRouter();
   const deleteConnection = useDeleteConnection();
   const connect = useConnect();
   const isConnecting = connect.isPending;
@@ -31,9 +32,12 @@ export default function ConnectionRow({
     if (isAnyConnecting) return;
     connect.mutate(connection, {
       onSuccess: async () => {
+        // Load the dashboard chunk while the connection manager is still visible.
+        // This keeps the native resize and route transition visually contiguous.
+        await router.preloadRoute({ to: "/dashboard" }).catch(() => undefined);
         await appWindow.setSize(new LogicalSize(1400, 900));
         await appWindow.center();
-        navigate({ to: "/dashboard" });
+        await navigate({ to: "/dashboard" });
       },
       onError: (error) => {
         toast.danger(getErrorMessage(error, "Connection failed"));

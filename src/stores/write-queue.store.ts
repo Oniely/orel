@@ -13,6 +13,7 @@ const emptyTable = (): TableChanges => ({ changes: new Map(), inserts: [] });
 
 interface WriteQueueStore {
   tables: Record<string, TableChanges>;
+  recentlySaved: Record<string, Map<string, string[]>>;
 
   stageUpdate: (scope: string, identity: RowIdentity, columnChanges: ColumnChange[]) => void;
   stageDelete: (scope: string, identity: RowIdentity) => void;
@@ -22,6 +23,8 @@ interface WriteQueueStore {
   updateInsert: (scope: string, index: number, column: string, value: unknown) => void;
   clearTable: (scope: string) => void;
   clearAll: () => void;
+  markRecentlySaved: (scope: string, entries: Array<[string, string[]]>) => void;
+  clearRecentlySavedRow: (scope: string, identity: string) => void;
 
   // Read helpers (non-reactive — call inside components via getState or selectors)
   getChanges: (scope: string) => PendingChange[];
@@ -34,6 +37,7 @@ interface WriteQueueStore {
 
 export const useWriteQueueStore = create<WriteQueueStore>((set, get) => ({
   tables: {},
+  recentlySaved: {},
 
   stageUpdate: (scope, identity, columnChanges) =>
     set((state) => {
@@ -143,7 +147,27 @@ export const useWriteQueueStore = create<WriteQueueStore>((set, get) => ({
       return { tables: rest };
     }),
 
-  clearAll: () => set({ tables: {} }),
+  clearAll: () => set({ tables: {}, recentlySaved: {} }),
+
+  markRecentlySaved: (scope, entries) =>
+    set((state) => {
+      const saved = new Map(state.recentlySaved[scope] ?? []);
+      for (const [identity, columns] of entries) saved.set(identity, columns);
+      return { recentlySaved: { ...state.recentlySaved, [scope]: saved } };
+    }),
+
+  clearRecentlySavedRow: (scope, identity) =>
+    set((state) => {
+      const current = state.recentlySaved[scope];
+      if (!current?.has(identity)) return state;
+      const saved = new Map(current);
+      saved.delete(identity);
+      if (saved.size === 0) {
+        const { [scope]: _removed, ...remaining } = state.recentlySaved;
+        return { recentlySaved: remaining };
+      }
+      return { recentlySaved: { ...state.recentlySaved, [scope]: saved } };
+    }),
 
   getChanges: (scope) => {
     const table = get().tables[scope];
