@@ -1,12 +1,13 @@
-import { useState, useRef } from "react";
 import type { QueryResult } from "../types/database";
 import type { PendingChange } from "../types/write-queue";
 import { buildRowIdentity, identityKey } from "../types/write-queue";
 import { useWriteQueueStore } from "../stores/write-queue.store";
 import { useApplyWriteQueue, useApplyRowChanges, useCopySql } from "./useWriteQueue";
+import { useIsMutating } from "@tanstack/react-query";
 
 const EMPTY_INSERTS: PendingChange[] = [];
 const SAVED_HIGHLIGHT_MS = 3000;
+const savedHighlightTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 export function useWriteQueueActions(
   scopeKey: string | null,
@@ -15,9 +16,12 @@ export function useWriteQueueActions(
   activeTableName: string | null,
   queryResult: QueryResult | null,
 ) {
-  const applyMutation = useApplyWriteQueue();
-  const applyRowMutation = useApplyRowChanges();
+  const applyMutation = useApplyWriteQueue(scopeKey);
+  const applyRowMutation = useApplyRowChanges(scopeKey);
   const copySqlMutation = useCopySql();
+  const isApplying = useIsMutating({ mutationKey: ["write-queue", "apply", scopeKey] }) > 0;
+  const isApplyingRow =
+    useIsMutating({ mutationKey: ["write-queue", "apply-row", scopeKey] }) > 0;
 
   const columns = queryResult?.columns ?? [];
   const rows = queryResult?.rows ?? [];
@@ -25,33 +29,27 @@ export function useWriteQueueActions(
 
   const tableChanges = useWriteQueueStore((s) => (scopeKey ? s.tables[scopeKey] : undefined));
 
-  const [recentlySaved, setRecentlySaved] = useState<Map<string, string[]>>(new Map());
-  const timersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const recentlySaved = useWriteQueueStore((state) =>
+    scopeKey ? state.recentlySaved[scopeKey] : undefined,
+  );
   const changeCount = tableChanges ? tableChanges.changes.size + tableChanges.inserts.length : 0;
   const insertedRows = tableChanges?.inserts ?? EMPTY_INSERTS;
 
   const markCellsSaved = (entries: Array<[string, string[]]>) => {
-    if (entries.length === 0) return;
+    if (!scopeKey || entries.length === 0) return;
+    useWriteQueueStore.getState().markRecentlySaved(scopeKey, entries);
     for (const [key] of entries) {
-      const old = timersRef.current.get(key);
+      const timerKey = `${scopeKey}::${key}`;
+      const old = savedHighlightTimers.get(timerKey);
       if (old) clearTimeout(old);
-      timersRef.current.set(
-        key,
+      savedHighlightTimers.set(
+        timerKey,
         setTimeout(() => {
-          timersRef.current.delete(key);
-          setRecentlySaved((p) => {
-            const n = new Map(p);
-            n.delete(key);
-            return n;
-          });
+          savedHighlightTimers.delete(timerKey);
+          useWriteQueueStore.getState().clearRecentlySavedRow(scopeKey, key);
         }, SAVED_HIGHLIGHT_MS),
       );
     }
-    setRecentlySaved((prev) => {
-      const next = new Map(prev);
-      for (const [key, cols] of entries) next.set(key, cols);
-      return next;
-    });
   };
 
   // Helper: get identity for a row index (deduplicates the repeated pattern)
@@ -166,8 +164,8 @@ export function useWriteQueueActions(
     changeCount,
     insertedRows,
     tableChanges,
-    isApplying: applyMutation.isPending,
-    isApplyingRow: applyRowMutation.isPending,
+    isApplying,
+    isApplyingRow,
     handleCellEdit,
     handleDeleteRow,
     handleUndoDeleteRow,

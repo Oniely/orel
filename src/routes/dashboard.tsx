@@ -1,5 +1,5 @@
 import { createFileRoute, redirect } from "@tanstack/react-router";
-import { DashboardLayout } from "../components/Dashboard/DashboardLayout";
+import { DashboardLayout } from "../components/Dashboard";
 import { useConnectionStore } from "../stores/connection.store";
 
 export const Route = createFileRoute("/dashboard")({

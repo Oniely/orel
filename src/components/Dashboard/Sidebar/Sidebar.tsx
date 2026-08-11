@@ -1,33 +1,22 @@
 import { useState } from "react";
-import type { TableInfo } from "../../types/database";
-import { INNER_W, SIDEBAR_PAD, SIDEBAR_WIDTH } from "./constants";
-import { ViewIcon } from "./icons";
-import { MeteorIcon, PicnicTableIcon, PlusIcon } from "@phosphor-icons/react";
+import { INNER_W, SIDEBAR_PAD, SIDEBAR_WIDTH } from "../shared/constants";
+import { EyeIcon, MeteorIcon, PicnicTableIcon, PlusIcon } from "@phosphor-icons/react";
 import { Button, SearchField } from "@heroui/react";
-import { formatNum } from "../../lib/format";
+import { formatNum } from "../../../lib/format";
 
-interface SidebarProps {
-  tables: TableInfo[];
-  isLoading: boolean;
-  error: string | null;
-  activeTable: string | null;
-  onTableClick: (name: string) => void;
-  onNewQuery: () => void;
-  sidebarOpen: boolean;
-  onDisconnect: () => void;
-}
+import { useListTables } from "../../../hooks/useTables";
+import { getErrorMessage } from "../../../lib/error";
+import { useDashboardStore } from "../../../stores/dashboard.store";
+import { useDashboardCommands } from "../../../hooks/dashboard/useDashboardCommands";
+import { useDashboardContext } from "../../../hooks/dashboard/useDashboardContext";
 
-export function Sidebar({
-  tables,
-  isLoading,
-  error,
-  activeTable,
-  onTableClick,
-  onNewQuery,
-  sidebarOpen,
-  onDisconnect,
-}: SidebarProps) {
+export function Sidebar() {
   const [search, setSearch] = useState("");
+  const { connectionId, activeDatabase, activeTableName } = useDashboardContext();
+  const sidebarOpen = useDashboardStore((state) => state.sidebarOpen);
+  const commands = useDashboardCommands();
+  const { data: tables = [], isLoading, error: tablesError } = useListTables(connectionId, activeDatabase);
+  const error = tablesError ? getErrorMessage(tablesError, "Failed to load tables") : null;
 
   const visibleTables = error ? [] : tables;
   const filtered = visibleTables.filter((t) => t.name.toLowerCase().includes(search.toLowerCase()));
@@ -51,7 +40,7 @@ export function Sidebar({
           <SearchField.Group>
             <SearchField.SearchIcon />
             <SearchField.Input placeholder="Search…" className="text-xs font-medium" />
-            <SearchField.ClearButton className="-ml-2" />
+            <SearchField.ClearButton className="-ml-4" />
           </SearchField.Group>
         </SearchField>
       </div>
@@ -73,11 +62,11 @@ export function Sidebar({
         )}
 
         {tableList.map((t) => {
-          const isActive = activeTable === t.name;
+          const isActive = activeTableName === t.name;
           return (
             <Button
               key={t.name}
-              onClick={() => onTableClick(t.name)}
+              onClick={() => commands.openTable(t.name)}
               className="flex items-center text-left gap-2.5 w-full h-[34px] px-2.5 mb-0.5"
               style={{
                 background: isActive ? "color-mix(in oklch, var(--accent) 18%, transparent)" : "transparent",
@@ -110,10 +99,10 @@ export function Sidebar({
             {viewList.map((t) => (
               <Button
                 key={t.name}
-                onClick={() => onTableClick(t.name)}
+                onClick={() => commands.openTable(t.name)}
                 className="flex items-center gap-2.5 w-full h-[34px] px-2.5 text-left mb-[1px]"
               >
-                <ViewIcon size={11} className="text-muted opacity-70 shrink-0" />
+                <EyeIcon size={11} className="text-muted opacity-70 shrink-0" />
                 <span className="flex-1 font-mono text-[12px] truncate text-foreground">{t.name}</span>
               </Button>
             ))}
@@ -126,11 +115,11 @@ export function Sidebar({
         className="border-t border-separator flex items-center flex-row-reverse gap-2 py-2.5 h-14"
         style={{ padding: `10px ${SIDEBAR_PAD}px` }}
       >
-        <Button variant="tertiary" onClick={onNewQuery} className="text-xs flex-1">
+        <Button variant="tertiary" onClick={commands.openQuery} className="text-xs flex-1">
           <PlusIcon className="size-3" weight="bold" />
           New query
         </Button>
-        <Button variant="danger-soft" onClick={onDisconnect}>
+        <Button variant="danger-soft" onClick={commands.disconnect}>
           <MeteorIcon className="size-4" />
         </Button>
       </div>

@@ -31,11 +31,12 @@ function invalidateDatabaseData(queryClient: QueryClient, target: DatabaseTarget
   });
 }
 
-export function useApplyWriteQueue() {
+export function useApplyWriteQueue(scopeKey: string | null) {
   const queryClient = useQueryClient();
   const clearTable = useWriteQueueStore((s) => s.clearTable);
 
   return useMutation({
+    mutationKey: ["write-queue", "apply", scopeKey],
     mutationFn: (input: ApplyInput) =>
       invoke<ApplyResult>("apply_write_queue", {
         connectionId: input.connectionId,
@@ -69,10 +70,11 @@ export function useApplyWriteQueue() {
   });
 }
 
-export function useApplyRowChanges() {
+export function useApplyRowChanges(scopeKey: string | null) {
   const queryClient = useQueryClient();
 
   return useMutation({
+    mutationKey: ["write-queue", "apply-row", scopeKey],
     mutationFn: (input: { connectionId: string; database: string; table: string; changes: PendingChange[] }) =>
       invoke<ApplyResult>("apply_write_queue", {
         connectionId: input.connectionId,

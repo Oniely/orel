@@ -38,11 +38,3 @@ export interface FilterRow {
   val: string;
   conjunction: "AND" | "OR";
 }
-
-export interface Tab {
-  id: string;
-  type: "table" | "query";
-  label: string;
-  sql?: string;
-  editorState?: import("./editor").SqlEditorState;
-}
