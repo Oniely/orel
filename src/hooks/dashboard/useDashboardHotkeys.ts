@@ -1,13 +1,12 @@
-import { useEffect } from "react";
-import { listen } from "@tauri-apps/api/event";
 import { useHotkeys, type Options as HotkeyOptions } from "react-hotkeys-hook";
 import { toast } from "@heroui/react";
+import { useShallow } from "zustand/react/shallow";
+import { platform, type Platform } from "@tauri-apps/plugin-os";
 import { useFetchRows } from "../useTables";
 import { useWriteQueueActions } from "../useWriteQueueActions";
 import { useDashboardStore } from "../../stores/dashboard.store";
 import { useDashboardCommands } from "./useDashboardCommands";
 import { useDashboardContext } from "./useDashboardContext";
-import { platform, type Platform } from "@tauri-apps/plugin-os";
 
 const os: Platform = platform();
 const EMPTY_FILTERS: never[] = [];
@@ -23,15 +22,20 @@ const APP_HOTKEY_OPTIONS: HotkeyOptions = {
   eventListenerOptions: { capture: true },
 };
 
-export function useDashboardEffects() {
+export function useDashboardHotkeys() {
   const { connectionId, activeDatabase, openTabs, activeTabId, activeTableName, scopeKey } = useDashboardContext();
-  const showInspector = useDashboardStore((state) => state.showInspector);
-  const selectedRowIndex = useDashboardStore((state) => state.selectedRowIndex);
-  const toggleSidebar = useDashboardStore((state) => state.toggleSidebar);
-  const showFilterBar = useDashboardStore((state) => !!state.showFilterBar[scopeKey ?? ""]);
-  const setShowFilterBar = useDashboardStore((state) => state.setShowFilterBar);
-  const filters = useDashboardStore((state) => state.tableFilters[scopeKey ?? ""] ?? EMPTY_FILTERS);
-  const setFilters = useDashboardStore((state) => state.setFilters);
+  const { showInspector, selectedRowIndex, toggleSidebar, showFilterBar, setShowFilterBar, filters, setFilters } =
+    useDashboardStore(
+      useShallow((s) => ({
+        showInspector: s.showInspector,
+        selectedRowIndex: s.selectedRowIndex,
+        toggleSidebar: s.toggleSidebar,
+        showFilterBar: !!s.showFilterBar[scopeKey ?? ""],
+        setShowFilterBar: s.setShowFilterBar,
+        filters: s.tableFilters[scopeKey ?? ""] ?? EMPTY_FILTERS,
+        setFilters: s.setFilters,
+      })),
+    );
   const commands = useDashboardCommands();
   const { data: queryResult = null, error } = useFetchRows(connectionId, activeDatabase, activeTableName);
   const writeQueue = useWriteQueueActions(
@@ -106,7 +110,6 @@ export function useDashboardEffects() {
     APP_HOTKEY_OPTIONS,
     [writeQueue],
   );
-
   useHotkeys(
     "mod+f",
     (event) => {
@@ -123,11 +126,4 @@ export function useDashboardEffects() {
     APP_HOTKEY_OPTIONS,
     [scopeKey, showFilterBar, filters, setShowFilterBar, setFilters],
   );
-
-  useEffect(() => {
-    const unlisten = listen("refresh", commands.refresh);
-    return () => {
-      void unlisten.then((stopListening) => stopListening());
-    };
-  }, [commands.refresh]);
 }

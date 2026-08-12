@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { useShallow } from "zustand/react/shallow";
 import type { FilterRow } from "../../types/database";
 
 const DEFAULT_FILTER_ROW: FilterRow[] = [{ col: "", op: "equals", val: "", conjunction: "AND" }];
@@ -16,17 +17,33 @@ import { SqlWorkspace } from "./SqlEditor/SqlWorkspace";
 export function DashboardWorkspace() {
   const { activeTab, activeTableName, scopeKey } = useDashboardContext();
   const { queryResult, error, writeQueue: wq } = useActiveTable();
-  const setSelectedRowIndex = useDashboardStore((state) => state.setSelectedRowIndex);
-  const showInspector = useDashboardStore((state) => state.showInspector);
-  const setShowInspector = useDashboardStore((state) => state.setShowInspector);
-  const filters = useDashboardStore((state) => state.tableFilters[scopeKey ?? ""] ?? DEFAULT_FILTER_ROW);
-  const setFilters = useDashboardStore((state) => state.setFilters);
-  const showFilterBar = useDashboardStore((state) => !!state.showFilterBar[scopeKey ?? ""]);
-  const setShowFilterBar = useDashboardStore((state) => state.setShowFilterBar);
-  const activeView = useDashboardStore((state) => state.activeView);
-  const setActiveView = useDashboardStore((state) => state.setActiveView);
-  const contextMenu = useDashboardStore((state) => state.contextMenu);
-  const setContextMenu = useDashboardStore((state) => state.setContextMenu);
+  const {
+    setSelectedRowIndex,
+    showInspector,
+    setShowInspector,
+    filters,
+    setFilters,
+    showFilterBar,
+    setShowFilterBar,
+    activeView,
+    setActiveView,
+    contextMenu,
+    setContextMenu,
+  } = useDashboardStore(
+    useShallow((s) => ({
+      setSelectedRowIndex: s.setSelectedRowIndex,
+      showInspector: s.showInspector,
+      setShowInspector: s.setShowInspector,
+      filters: s.tableFilters[scopeKey ?? ""] ?? DEFAULT_FILTER_ROW,
+      setFilters: s.setFilters,
+      showFilterBar: !!s.showFilterBar[scopeKey ?? ""],
+      setShowFilterBar: s.setShowFilterBar,
+      activeView: s.activeView,
+      setActiveView: s.setActiveView,
+      contextMenu: s.contextMenu,
+      setContextMenu: s.setContextMenu,
+    })),
+  );
   const isQueryTab = activeTab?.type === "query";
   // Reset to Data view whenever the active table changes
   useEffect(() => {

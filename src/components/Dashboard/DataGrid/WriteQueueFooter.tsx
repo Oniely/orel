@@ -1,6 +1,6 @@
 import { Button, Dropdown, Kbd, Label } from "@heroui/react";
 import { CaretDownIcon } from "@phosphor-icons/react";
-import { usePlatform } from "../../../hooks/dashboard/useDashboardEffects";
+import { usePlatform } from "../../../hooks/dashboard/useDashboardHotkeys";
 
 interface WriteQueueFooterProps {
   changeCount: number;

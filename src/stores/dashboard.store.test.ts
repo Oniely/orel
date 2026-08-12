@@ -130,5 +130,29 @@ describe("dashboard store", () => {
     expect(secondMount.getState().sidebarOpen).toBe(true);
     expect(secondMount.getState().showInspector).toBe(false);
   });
+
+  it("activates a specified tab and clears selected row index", () => {
+    const store = createDashboardStore();
+    const databaseKey = "connection::main";
+    store.getState().openTable(databaseKey, "users");
+    store.getState().openTable(databaseKey, "orders");
+    store.getState().setSelectedRowIndex(5);
+
+    store.getState().activateTab(databaseKey, "t-users");
+
+    expect(store.getState().tabState[databaseKey].activeTabId).toBe("t-users");
+    expect(store.getState().selectedRowIndex).toBeNull();
+  });
+
+  it("toggles the filter bar state for a scope", () => {
+    const store = createDashboardStore();
+    const scope = "connection::main::users";
+
+    store.getState().toggleFilterBar(scope);
+    expect(store.getState().showFilterBar[scope]).toBe(true);
+
+    store.getState().toggleFilterBar(scope);
+    expect(store.getState().showFilterBar[scope]).toBe(false);
+  });
 });
 

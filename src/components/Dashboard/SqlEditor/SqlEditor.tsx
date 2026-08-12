@@ -23,7 +23,7 @@ import {
 } from "../../../hooks/useSqlEditor";
 import type { SqlEditorState } from "../../../types/editor";
 import { EditorResultGrid } from "./EditorResultGrid";
-import { usePlatform } from "../../../hooks/dashboard/useDashboardEffects";
+import { usePlatform } from "../../../hooks/dashboard/useDashboardHotkeys";
 
 export interface SqlEditorCommands {
   closeTab: () => void;

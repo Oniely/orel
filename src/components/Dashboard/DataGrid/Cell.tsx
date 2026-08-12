@@ -33,5 +33,3 @@ export default function Cell({ value, type }: { value: unknown; type: string }) 
     </span>
   );
 }
-
-

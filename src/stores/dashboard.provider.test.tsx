@@ -1,7 +1,7 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it } from "vitest";
-import { DashboardStoreProvider, useDashboardStore } from "../../stores/dashboard.store";
+import { DashboardStoreProvider, useDashboardStore } from "./dashboard.store";
 
 afterEach(cleanup);
 
@@ -52,4 +52,3 @@ describe("DashboardStoreProvider", () => {
     expect(screen.getByTestId("tab-count").textContent).toBe("0");
   });
 });
-
