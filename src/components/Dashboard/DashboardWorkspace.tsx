@@ -1,4 +1,7 @@
 import { useEffect } from "react";
+import type { FilterRow } from "../../types/database";
+
+const DEFAULT_FILTER_ROW: FilterRow[] = [{ col: "", op: "equals", val: "", conjunction: "AND" }];
 import { RowContextMenu } from "./DataGrid/RowContextMenu";
 import { WriteQueueFooter } from "./DataGrid/WriteQueueFooter";
 import { FilterBar } from "./DataGrid/FilterBar";
@@ -11,13 +14,15 @@ import { TabStrip } from "./Tabs/TabStrip";
 import { SqlWorkspace } from "./SqlEditor/SqlWorkspace";
 
 export function DashboardWorkspace() {
-  const { activeTab, activeTableName } = useDashboardContext();
+  const { activeTab, activeTableName, scopeKey } = useDashboardContext();
   const { queryResult, error, writeQueue: wq } = useActiveTable();
   const setSelectedRowIndex = useDashboardStore((state) => state.setSelectedRowIndex);
   const showInspector = useDashboardStore((state) => state.showInspector);
   const setShowInspector = useDashboardStore((state) => state.setShowInspector);
-  const filters = useDashboardStore((state) => state.filters);
+  const filters = useDashboardStore((state) => state.tableFilters[scopeKey ?? ""] ?? DEFAULT_FILTER_ROW);
   const setFilters = useDashboardStore((state) => state.setFilters);
+  const showFilterBar = useDashboardStore((state) => !!state.showFilterBar[scopeKey ?? ""]);
+  const setShowFilterBar = useDashboardStore((state) => state.setShowFilterBar);
   const activeView = useDashboardStore((state) => state.activeView);
   const setActiveView = useDashboardStore((state) => state.setActiveView);
   const contextMenu = useDashboardStore((state) => state.contextMenu);
@@ -42,18 +47,27 @@ export function DashboardWorkspace() {
         <SqlWorkspace />
       ) : activeView === "Data" ? (
         <>
-          <FilterBar
-            filters={filters.map((f) => ({ ...f, col: f.col || firstCol }))}
-            columns={
-              columns.length > 0
-                ? columns
-                : [{ name: "column", dataType: "text", isNullable: true, isPrimary: false, hasDefault: false }]
-            }
-            onFiltersChange={setFilters}
-            onApply={() => {
-              /* TODO: apply filters to query */
-            }}
-          />
+          {showFilterBar && (
+            <FilterBar
+              filters={filters.map((f) => ({ ...f, col: f.col || firstCol }))}
+              columns={
+                columns.length > 0
+                  ? columns
+                  : [{ name: "column", dataType: "text", isNullable: true, isPrimary: false, hasDefault: false }]
+              }
+              onFiltersChange={(newFilters) => {
+                if (newFilters.length === 0) {
+                  setShowFilterBar(scopeKey, false);
+                  setFilters(scopeKey, [{ col: firstCol || "", op: "equals", val: "", conjunction: "AND" }]);
+                } else {
+                  setFilters(scopeKey, newFilters);
+                }
+              }}
+              onApply={() => {
+                /* TODO: apply filters to query */
+              }}
+            />
+          )}
           <DataGrid />
           {contextMenu && (
             <RowContextMenu

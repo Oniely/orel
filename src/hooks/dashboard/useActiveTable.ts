@@ -4,25 +4,10 @@ import { getErrorMessage } from "../../lib/error";
 import { useDashboardContext } from "./useDashboardContext";
 
 export function useActiveTable() {
-  const {
-    connectionId,
-    activeDatabase,
-    databaseKey,
-    activeTableName,
-  } = useDashboardContext();
+  const { connectionId, activeDatabase, activeTableName, scopeKey } = useDashboardContext();
   const rowsQuery = useFetchRows(connectionId, activeDatabase, activeTableName);
   const queryResult = rowsQuery.error ? null : (rowsQuery.data ?? null);
-  const scopeKey =
-    databaseKey !== "__none__" && activeTableName
-      ? `${databaseKey}::${activeTableName}`
-      : null;
-  const writeQueue = useWriteQueueActions(
-    scopeKey,
-    connectionId,
-    activeDatabase,
-    activeTableName,
-    queryResult,
-  );
+  const writeQueue = useWriteQueueActions(scopeKey, connectionId, activeDatabase, activeTableName, queryResult);
 
   return {
     queryResult,
@@ -30,11 +15,7 @@ export function useActiveTable() {
     columns: queryResult?.columns ?? [],
     totalEstimate: queryResult?.totalEstimate ?? null,
     isLoading: rowsQuery.isLoading || rowsQuery.isFetching,
-    error: rowsQuery.error
-      ? getErrorMessage(rowsQuery.error, "Failed to load rows")
-      : null,
+    error: rowsQuery.error ? getErrorMessage(rowsQuery.error, "Failed to load rows") : null,
     writeQueue,
   };
 }
-
-

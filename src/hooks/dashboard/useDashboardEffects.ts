@@ -10,6 +10,7 @@ import { useDashboardContext } from "./useDashboardContext";
 import { platform, type Platform } from "@tauri-apps/plugin-os";
 
 const os: Platform = platform();
+const EMPTY_FILTERS: never[] = [];
 
 export function usePlatform() {
   return os;
@@ -23,13 +24,16 @@ const APP_HOTKEY_OPTIONS: HotkeyOptions = {
 };
 
 export function useDashboardEffects() {
-  const { connectionId, activeDatabase, databaseKey, openTabs, activeTabId, activeTableName } = useDashboardContext();
+  const { connectionId, activeDatabase, openTabs, activeTabId, activeTableName, scopeKey } = useDashboardContext();
   const showInspector = useDashboardStore((state) => state.showInspector);
   const selectedRowIndex = useDashboardStore((state) => state.selectedRowIndex);
   const toggleSidebar = useDashboardStore((state) => state.toggleSidebar);
+  const showFilterBar = useDashboardStore((state) => !!state.showFilterBar[scopeKey ?? ""]);
+  const setShowFilterBar = useDashboardStore((state) => state.setShowFilterBar);
+  const filters = useDashboardStore((state) => state.tableFilters[scopeKey ?? ""] ?? EMPTY_FILTERS);
+  const setFilters = useDashboardStore((state) => state.setFilters);
   const commands = useDashboardCommands();
   const { data: queryResult = null, error } = useFetchRows(connectionId, activeDatabase, activeTableName);
-  const scopeKey = databaseKey !== "__none__" && activeTableName ? `${databaseKey}::${activeTableName}` : null;
   const writeQueue = useWriteQueueActions(
     scopeKey,
     connectionId,
@@ -101,6 +105,23 @@ export function useDashboardEffects() {
     },
     APP_HOTKEY_OPTIONS,
     [writeQueue],
+  );
+
+  useHotkeys(
+    "mod+f",
+    (event) => {
+      event.stopPropagation();
+      if (!showFilterBar) {
+        if (filters.length === 0) {
+          setFilters(scopeKey, [{ col: "", op: "equals", val: "", conjunction: "AND" }]);
+        }
+        setShowFilterBar(scopeKey, true);
+      } else {
+        setShowFilterBar(scopeKey, false);
+      }
+    },
+    APP_HOTKEY_OPTIONS,
+    [scopeKey, showFilterBar, filters, setShowFilterBar, setFilters],
   );
 
   useEffect(() => {
