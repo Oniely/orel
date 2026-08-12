@@ -105,7 +105,6 @@ export function FilterBar({ filters, columns, onFiltersChange, onApply }: Filter
           <Button
             variant="danger-soft"
             onClick={() => removeFilter(i)}
-            isDisabled={filters.length === 1}
             className="size-[30px] grid place-items-center shrink-0"
             isIconOnly
           >
@@ -128,7 +127,3 @@ export function FilterBar({ filters, columns, onFiltersChange, onApply }: Filter
     </div>
   );
 }
-
-
-
-

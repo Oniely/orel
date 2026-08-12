@@ -8,26 +8,22 @@ export function useDashboardContext() {
   );
   const connectionId = connection?.config.id ?? null;
   const activeDatabase =
-    connection?.activeDatabase ??
-    connection?.config.defaultDatabase ??
-    connection?.databases[0] ??
-    null;
-  const databaseKey =
-    connectionId && activeDatabase ? `${connectionId}::${activeDatabase}` : "__none__";
+    connection?.activeDatabase ?? connection?.config.defaultDatabase ?? connection?.databases[0] ?? null;
+  const databaseKey = connectionId && activeDatabase ? `${connectionId}::${activeDatabase}` : "__none__";
   const tabState = useDashboardStore((state) => getDatabaseTabs(state, databaseKey));
   const activeTab = tabState.tabs.find((tab) => tab.id === tabState.activeTabId) ?? null;
   const activeTableName = activeTab?.type === "table" ? activeTab.label : null;
+  const scopeKey = databaseKey !== "__none__" && activeTableName ? `${databaseKey}::${activeTableName}` : null;
 
   return {
     connection,
     connectionId,
     activeDatabase,
     databaseKey,
+    scopeKey,
     openTabs: tabState.tabs,
     activeTabId: tabState.activeTabId,
     activeTab,
     activeTableName,
   };
 }
-
-

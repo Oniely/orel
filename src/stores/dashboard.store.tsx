@@ -7,14 +7,14 @@ import type { SqlEditorState } from "../types/editor";
 import { createSqlEditorState } from "../types/editor";
 
 const EMPTY_TAB_STATE: DashboardTabState = { tabs: [], activeTabId: null };
-const INITIAL_FILTERS: FilterRow[] = [{ col: "", op: "equals", val: "", conjunction: "AND" }];
 
 export interface DashboardState {
   tabState: Record<string, DashboardTabState>;
   selectedRowIndex: number | null;
   showInspector: boolean;
   sidebarOpen: boolean;
-  filters: FilterRow[];
+  tableFilters: Record<string, FilterRow[]>;
+  showFilterBar: Record<string, boolean>;
   activeView: DashboardView;
   contextMenu: RowContextMenuState | null;
   transactionGuard: TransactionGuardState | null;
@@ -31,7 +31,9 @@ export interface DashboardState {
   toggleInspector: () => void;
   setSidebarOpen: (open: boolean) => void;
   toggleSidebar: () => void;
-  setFilters: (filters: FilterRow[]) => void;
+  setFilters: (scopeKey: string | null, filters: FilterRow[]) => void;
+  setShowFilterBar: (scopeKey: string | null, show: boolean) => void;
+  toggleFilterBar: (scopeKey: string | null) => void;
   setActiveView: (view: DashboardView) => void;
   setContextMenu: (menu: RowContextMenuState | null) => void;
   setTransactionGuard: (guard: TransactionGuardState | null) => void;
@@ -62,7 +64,8 @@ export function createDashboardStore(): StoreApi<DashboardState> {
     selectedRowIndex: null,
     showInspector: false,
     sidebarOpen: true,
-    filters: INITIAL_FILTERS,
+    tableFilters: {},
+    showFilterBar: {},
     activeView: "Data",
     contextMenu: null,
     transactionGuard: null,
@@ -156,7 +159,14 @@ export function createDashboardStore(): StoreApi<DashboardState> {
     toggleInspector: () => set((state) => ({ showInspector: !state.showInspector })),
     setSidebarOpen: (sidebarOpen) => set({ sidebarOpen }),
     toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })),
-    setFilters: (filters) => set({ filters }),
+    setFilters: (scopeKey, filters) =>
+      scopeKey ? set((state) => ({ tableFilters: { ...state.tableFilters, [scopeKey]: filters } })) : undefined,
+    setShowFilterBar: (scopeKey, show) =>
+      scopeKey ? set((state) => ({ showFilterBar: { ...state.showFilterBar, [scopeKey]: show } })) : undefined,
+    toggleFilterBar: (scopeKey) =>
+      scopeKey
+        ? set((state) => ({ showFilterBar: { ...state.showFilterBar, [scopeKey]: !state.showFilterBar[scopeKey] } }))
+        : undefined,
     setActiveView: (activeView) => set({ activeView }),
     setContextMenu: (contextMenu) => set({ contextMenu }),
     setTransactionGuard: (transactionGuard) => set({ transactionGuard }),
