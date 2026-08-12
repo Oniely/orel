@@ -1315,3 +1315,15 @@ pub async fn discard_sessions_for_connection(state: &AppState, connection_id: &s
 #[cfg(test)]
 #[path = "test/editor.test.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "test/mysql_integration.test.rs"]
+mod mysql_integration_tests;
+
+#[cfg(test)]
+#[path = "test/postgres_integration.test.rs"]
+mod postgres_integration_tests;
+
+#[cfg(test)]
+#[path = "test/sqlite_integration.test.rs"]
+mod sqlite_integration_tests;
