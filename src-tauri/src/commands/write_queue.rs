@@ -255,7 +255,10 @@ async fn apply_transactional(pool: &DbPool, sqls: &[String]) -> Result<ApplyResu
         ($pool:expr) => {{
             let mut tx = $pool.begin().await.map_err(|e| e.to_string())?;
             for (i, sql) in sqls.iter().enumerate() {
-                if let Err(e) = sqlx::query(sql).execute(&mut *tx).await {
+                if let Err(e) = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
+                    .execute(&mut *tx)
+                    .await
+                {
                     tx.rollback().await.ok();
                     return Ok(ApplyResult {
                         applied: vec![],
@@ -287,9 +290,18 @@ async fn apply_sequential(pool: &DbPool, sqls: &[String]) -> Result<ApplyResult,
 
     for (i, sql) in sqls.iter().enumerate() {
         let err = match pool {
-            DbPool::Postgres(pg) => sqlx::query(sql).execute(pg).await.err(),
-            DbPool::MySql(mysql) => sqlx::query(sql).execute(mysql).await.err(),
-            DbPool::Sqlite(sqlite) => sqlx::query(sql).execute(sqlite).await.err(),
+            DbPool::Postgres(pg) => sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
+                .execute(pg)
+                .await
+                .err(),
+            DbPool::MySql(mysql) => sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
+                .execute(mysql)
+                .await
+                .err(),
+            DbPool::Sqlite(sqlite) => sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
+                .execute(sqlite)
+                .await
+                .err(),
         };
 
         if let Some(e) = err {

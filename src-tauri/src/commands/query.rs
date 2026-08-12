@@ -250,7 +250,7 @@ pub async fn fetch_rows(
                 "SELECT row_to_json(t)::text FROM (SELECT * FROM {}{} LIMIT $1 OFFSET $2) t",
                 quoted, order_clause
             );
-            let raw: Vec<String> = sqlx::query_scalar(&row_query)
+            let raw: Vec<String> = sqlx::query_scalar(sqlx::AssertSqlSafe(row_query.as_str()))
                 .bind(limit)
                 .bind(offset)
                 .fetch_all(&pg)
@@ -331,7 +331,7 @@ pub async fn fetch_rows(
                 "SELECT CAST(JSON_OBJECT({}) AS CHAR) FROM {}{} LIMIT ? OFFSET ?",
                 col_refs, quoted, order_clause
             );
-            let raw: Vec<String> = sqlx::query_scalar(&row_query)
+            let raw: Vec<String> = sqlx::query_scalar(sqlx::AssertSqlSafe(row_query.as_str()))
                 .bind(limit)
                 .bind(offset)
                 .fetch_all(&mysql)
@@ -390,7 +390,7 @@ pub async fn fetch_rows(
                 "SELECT json_object({}) FROM {}{} LIMIT ? OFFSET ?",
                 col_refs, quoted, order_clause
             );
-            let raw: Vec<String> = sqlx::query_scalar(&row_query)
+            let raw: Vec<String> = sqlx::query_scalar(sqlx::AssertSqlSafe(row_query.as_str()))
                 .bind(limit)
                 .bind(offset)
                 .fetch_all(&sqlite)

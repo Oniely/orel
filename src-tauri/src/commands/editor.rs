@@ -10,7 +10,7 @@ use sqlx::{
     pool::PoolConnection,
     postgres::{PgConnection, PgRow},
     sqlite::{SqliteConnection, SqliteRow},
-    Column, Executor, MySql, Postgres, Row, Sqlite, TypeInfo, ValueRef,
+    Column, Executor, MySql, Postgres, Row, SqlSafeStr, Sqlite, TypeInfo, ValueRef,
 };
 use uuid::Uuid;
 
@@ -250,15 +250,17 @@ async fn restore_on_error<T>(
 
 async fn execute_control(connection: &mut EditorConnection, sql: &str) -> Result<u64, sqlx::Error> {
     match connection {
-        EditorConnection::Postgres(connection) => sqlx::query(sql)
+        EditorConnection::Postgres(connection) => sqlx::query(sqlx::AssertSqlSafe(sql))
             .execute(&mut **connection)
             .await
             .map(|r| r.rows_affected()),
-        EditorConnection::MySql(connection) => sqlx::query(sql)
+        // MySQL rejects BEGIN/COMMIT/ROLLBACK through the prepared-statement protocol
+        // (error 1295). raw_sql uses COM_QUERY (text protocol) instead.
+        EditorConnection::MySql(connection) => sqlx::raw_sql(sqlx::AssertSqlSafe(sql))
             .execute(&mut **connection)
             .await
             .map(|r| r.rows_affected()),
-        EditorConnection::Sqlite(connection) => sqlx::query(sql)
+        EditorConnection::Sqlite(connection) => sqlx::query(sqlx::AssertSqlSafe(sql))
             .execute(&mut **connection)
             .await
             .map(|r| r.rows_affected()),
@@ -619,7 +621,9 @@ macro_rules! execute_statement {
             index: usize,
         ) -> StatementResult {
             let started = Instant::now();
-            let described = connection.describe(sql).await;
+            let described = connection
+                .describe(sqlx::AssertSqlSafe(sql).into_sql_str())
+                .await;
             let primary_columns = if described
                 .as_ref()
                 .is_ok_and(|description| !description.columns().is_empty())
@@ -646,7 +650,10 @@ macro_rules! execute_statement {
             let mut row_count = 0_u64;
             let mut rows_affected = 0_u64;
             if columns.is_empty() {
-                match sqlx::query(sql).execute(&mut *connection).await {
+                match sqlx::query(sqlx::AssertSqlSafe(sql))
+                    .execute(&mut *connection)
+                    .await
+                {
                     Ok(result) => rows_affected = result.rows_affected(),
                     Err(error) => {
                         return StatementResult::error(
@@ -657,7 +664,7 @@ macro_rules! execute_statement {
                     }
                 }
             } else {
-                let mut stream = sqlx::query(sql).fetch(&mut *connection);
+                let mut stream = sqlx::query(sqlx::AssertSqlSafe(sql)).fetch(&mut *connection);
                 while let Some(item) = stream.next().await {
                     match item {
                         Ok(row) => {
