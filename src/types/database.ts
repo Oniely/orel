@@ -15,7 +15,8 @@ export interface ColumnInfo {
 export interface QueryResult {
   columns: ColumnInfo[];
   rows: Record<string, unknown>[];
-  totalEstimate: number | null;
+  totalResults: number;
+  totalPages: number;
 }
 
 export type FilterOperator =

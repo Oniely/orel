@@ -4,12 +4,16 @@ import { useShallow } from "zustand/react/shallow";
 import { platform, type Platform } from "@tauri-apps/plugin-os";
 import { useFetchRows } from "../useTables";
 import { useWriteQueueActions } from "../useWriteQueueActions";
-import { useDashboardStore } from "../../stores/dashboard.store";
+import {
+  useDashboardStore,
+  DEFAULT_PAGINATION,
+  EMPTY_FILTER_STATE,
+  DEFAULT_FILTER_ROW,
+} from "../../stores/dashboard.store";
 import { useDashboardCommands } from "./useDashboardCommands";
 import { useDashboardContext } from "./useDashboardContext";
 
 const os: Platform = platform();
-const EMPTY_FILTERS: never[] = [];
 
 export function usePlatform() {
   return os;
@@ -24,20 +28,40 @@ const APP_HOTKEY_OPTIONS: HotkeyOptions = {
 
 export function useDashboardHotkeys() {
   const { connectionId, activeDatabase, openTabs, activeTabId, activeTableName, scopeKey } = useDashboardContext();
-  const { showInspector, selectedRowIndex, toggleSidebar, showFilterBar, setShowFilterBar, filters, setFilters } =
-    useDashboardStore(
-      useShallow((s) => ({
-        showInspector: s.showInspector,
-        selectedRowIndex: s.selectedRowIndex,
-        toggleSidebar: s.toggleSidebar,
-        showFilterBar: !!s.showFilterBar[scopeKey ?? ""],
-        setShowFilterBar: s.setShowFilterBar,
-        filters: s.tableFilters[scopeKey ?? ""] ?? EMPTY_FILTERS,
-        setFilters: s.setFilters,
-      })),
-    );
+  const {
+    showInspector,
+    selectedRowIndex,
+    toggleSidebar,
+    showFilterBar,
+    setShowFilterBar,
+    filters,
+    setFilters,
+    appliedFilters,
+    pagination,
+    setPage,
+  } = useDashboardStore(
+    useShallow((s) => ({
+      showInspector: s.showInspector,
+      selectedRowIndex: s.selectedRowIndex,
+      toggleSidebar: s.toggleSidebar,
+      showFilterBar: !!s.showFilterBar[scopeKey ?? ""],
+      setShowFilterBar: s.setShowFilterBar,
+      filters: (s.tableFilters[scopeKey ?? ""] ?? EMPTY_FILTER_STATE).staged,
+      setFilters: s.setFilters,
+      appliedFilters: (s.tableFilters[scopeKey ?? ""] ?? EMPTY_FILTER_STATE).applied,
+      pagination: s.tablePagination[scopeKey ?? ""] ?? DEFAULT_PAGINATION,
+      setPage: s.setPage,
+    })),
+  );
   const commands = useDashboardCommands();
-  const { data: queryResult = null, error } = useFetchRows(connectionId, activeDatabase, activeTableName);
+  const { data: queryResult = null, error } = useFetchRows(
+    connectionId,
+    activeDatabase,
+    activeTableName,
+    pagination.limit,
+    pagination.page,
+    appliedFilters,
+  );
   const writeQueue = useWriteQueueActions(
     scopeKey,
     connectionId,
@@ -116,7 +140,7 @@ export function useDashboardHotkeys() {
       event.stopPropagation();
       if (!showFilterBar) {
         if (filters.length === 0) {
-          setFilters(scopeKey, [{ col: "", op: "equals", val: "", conjunction: "AND" }]);
+          setFilters(scopeKey, DEFAULT_FILTER_ROW);
         }
         setShowFilterBar(scopeKey, true);
       } else {
@@ -125,5 +149,26 @@ export function useDashboardHotkeys() {
     },
     APP_HOTKEY_OPTIONS,
     [scopeKey, showFilterBar, filters, setShowFilterBar, setFilters],
+  );
+  useHotkeys(
+    "mod+left",
+    (event) => {
+      event.stopPropagation();
+      const { page } = pagination;
+      if (page > 1) setPage(scopeKey, page - 1);
+    },
+    APP_HOTKEY_OPTIONS,
+    [scopeKey, pagination, setPage],
+  );
+  useHotkeys(
+    "mod+right",
+    (event) => {
+      event.stopPropagation();
+      const { page } = pagination;
+      const totalPages = queryResult?.totalPages ?? 1;
+      if (page < totalPages) setPage(scopeKey, page + 1);
+    },
+    APP_HOTKEY_OPTIONS,
+    [scopeKey, pagination, setPage, queryResult],
   );
 }

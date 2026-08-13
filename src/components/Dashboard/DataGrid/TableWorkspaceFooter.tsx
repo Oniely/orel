@@ -66,7 +66,6 @@ export function StructurePanel({ activeTable }: { activeTable: string | null }) 
   );
 }
 
-
 const VIEWS = ["Data", "Structure"] as const;
 
 interface TableStatusFooterProps {
@@ -74,7 +73,11 @@ interface TableStatusFooterProps {
   activeView: DashboardView;
   onViewChange: (view: DashboardView) => void;
   rowCount: number;
-  totalEstimate: number | null;
+  totalResults: number;
+  totalPages: number;
+  page: number;
+  limit: number;
+  onPageChange: (page: number) => void;
 }
 
 export function TableStatusFooter({
@@ -82,31 +85,60 @@ export function TableStatusFooter({
   activeView,
   onViewChange,
   rowCount,
-  totalEstimate,
+  totalResults,
+  totalPages,
+  page,
+  limit,
+  onPageChange,
 }: TableStatusFooterProps) {
   if (!activeTable) return null;
   return (
     <div className="flex items-center justify-between gap-4 px-4.5 border-t border-separator bg-surface shrink-0 font-mono text-muted py-2.5 h-14 text-xs">
       <PillTabBar tabs={VIEWS} active={activeView} onChange={onViewChange} />
       {activeView === "Data" && (
-        <div className="flex items-center gap-1">
-          <Button variant="ghost" className="size-5" isIconOnly>
+        <div className="flex items-center gap-1.5">
+          <Button
+            variant="ghost"
+            className="size-5"
+            isIconOnly
+            isDisabled={page <= 1}
+            onClick={() => onPageChange(page - 1)}
+          >
             <CaretLeftIcon className="size-2.5" />
           </Button>
-          <span>1</span>
-          <Button variant="ghost" className="size-5" isIconOnly>
+          <span className="tabular-nums">
+            <span className="text-foreground">{page}</span>
+            {totalPages > 1 && <span> / {formatNum(totalPages)}</span>}
+          </span>
+          <Button
+            variant="ghost"
+            className="size-5"
+            isIconOnly
+            isDisabled={page >= totalPages}
+            onClick={() => onPageChange(page + 1)}
+          >
             <CaretRightIcon className="size-2.5" />
           </Button>
         </div>
       )}
       {activeView === "Data" && (
-        <span>
-          <span className="text-foreground">{rowCount}</span>
-          {totalEstimate !== null && <span> / {formatNum(totalEstimate)}</span>} rows
+        <span className="tabular-nums">
+          {totalResults > 0 ? (
+            <>
+              <span className="text-foreground">
+                <span className="text-[11px]">{formatNum((page - 1) * limit + 1)}</span>
+                &ndash;
+                {formatNum((page - 1) * limit + rowCount)}
+              </span>
+              {" / "}
+              {formatNum(totalResults)}
+            </>
+          ) : (
+            <span className="text-foreground">{formatNum(rowCount)}</span>
+          )}
+          {" rows"}
         </span>
       )}
     </div>
   );
 }
-
-

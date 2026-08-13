@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { invoke } from "@tauri-apps/api/core";
-import type { TableInfo, QueryResult } from "../types/database";
+import type { FilterRow, TableInfo, QueryResult } from "../types/database";
 
 export const databaseQueryKeys = {
   databases: (connectionId: string | null) => ["databases", connectionId] as const,
@@ -12,8 +12,9 @@ export const databaseQueryKeys = {
     database: string | null,
     table: string | null,
     limit: number,
-    offset: number,
-  ) => ["rows", connectionId, database, table, limit, offset] as const,
+    page: number,
+    filters: FilterRow[],
+  ) => ["rows", connectionId, database, table, limit, page, filters] as const,
   rowsForDatabase: (connectionId: string, database: string) => ["rows", connectionId, database] as const,
 };
 
@@ -31,17 +32,21 @@ export function useFetchRows(
   database: string | null,
   table: string | null,
   limit = 100,
-  offset = 0
+  page = 1,
+  filters: FilterRow[] = [],
 ) {
+  const offset = (page - 1) * limit;
   return useQuery({
-    queryKey: databaseQueryKeys.rows(connectionId, database, table, limit, offset),
+    queryKey: databaseQueryKeys.rows(connectionId, database, table, limit, page, filters),
     queryFn: () =>
       invoke<QueryResult>("fetch_rows", {
         connectionId: connectionId!,
         table: table!,
         limit,
         offset,
+        filters,
       }),
     enabled: !!connectionId && !!database && !!table,
+    staleTime: 30_000,
   });
 }

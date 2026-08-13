@@ -91,6 +91,7 @@ export function FilterBar({ filters, columns, onFiltersChange, onApply }: Filter
             <input
               value={f.val}
               onChange={(e) => updateFilter(i, "val", e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && onApply()}
               placeholder="value"
               className="flex-1 bg-transparent border-none outline-none text-foreground text-xs font-mono min-w-0 placeholder:text-muted"
             />

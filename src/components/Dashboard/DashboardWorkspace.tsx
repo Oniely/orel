@@ -1,14 +1,11 @@
 import { useEffect } from "react";
 import { useShallow } from "zustand/react/shallow";
-import type { FilterRow } from "../../types/database";
-
-const DEFAULT_FILTER_ROW: FilterRow[] = [{ col: "", op: "equals", val: "", conjunction: "AND" }];
 import { RowContextMenu } from "./DataGrid/RowContextMenu";
 import { WriteQueueFooter } from "./DataGrid/WriteQueueFooter";
 import { FilterBar } from "./DataGrid/FilterBar";
 import { DataGrid } from "./DataGrid/DataGrid";
 import { StructurePanel, TableStatusFooter } from "./DataGrid/TableWorkspaceFooter";
-import { useDashboardStore } from "../../stores/dashboard.store";
+import { useDashboardStore, DEFAULT_FILTER_ROW } from "../../stores/dashboard.store";
 import { useDashboardContext } from "../../hooks/dashboard/useDashboardContext";
 import { useActiveTable } from "../../hooks/dashboard/useActiveTable";
 import { TabStrip } from "./Tabs/TabStrip";
@@ -16,13 +13,15 @@ import { SqlWorkspace } from "./SqlEditor/SqlWorkspace";
 
 export function DashboardWorkspace() {
   const { activeTab, activeTableName, scopeKey } = useDashboardContext();
-  const { queryResult, error, writeQueue: wq } = useActiveTable();
+  const { queryResult, error, totalResults, totalPages, page, limit, setPage, writeQueue: wq } = useActiveTable();
   const {
     setSelectedRowIndex,
     showInspector,
     setShowInspector,
     filters,
     setFilters,
+    applyFilters,
+    clearFilters,
     showFilterBar,
     setShowFilterBar,
     activeView,
@@ -34,8 +33,10 @@ export function DashboardWorkspace() {
       setSelectedRowIndex: s.setSelectedRowIndex,
       showInspector: s.showInspector,
       setShowInspector: s.setShowInspector,
-      filters: s.tableFilters[scopeKey ?? ""] ?? DEFAULT_FILTER_ROW,
+      filters: s.tableFilters[scopeKey ?? ""]?.staged ?? DEFAULT_FILTER_ROW,
       setFilters: s.setFilters,
+      applyFilters: s.applyFilters,
+      clearFilters: s.clearFilters,
       showFilterBar: !!s.showFilterBar[scopeKey ?? ""],
       setShowFilterBar: s.setShowFilterBar,
       activeView: s.activeView,
@@ -52,7 +53,6 @@ export function DashboardWorkspace() {
 
   const columns = error ? [] : (queryResult?.columns ?? []);
   const rows = error ? [] : (queryResult?.rows ?? []);
-  const totalEstimate = error ? null : (queryResult?.totalEstimate ?? null);
 
   const firstCol = columns[0]?.name ?? "";
 
@@ -74,15 +74,13 @@ export function DashboardWorkspace() {
               }
               onFiltersChange={(newFilters) => {
                 if (newFilters.length === 0) {
+                  clearFilters(scopeKey);
                   setShowFilterBar(scopeKey, false);
-                  setFilters(scopeKey, [{ col: firstCol || "", op: "equals", val: "", conjunction: "AND" }]);
                 } else {
                   setFilters(scopeKey, newFilters);
                 }
               }}
-              onApply={() => {
-                /* TODO: apply filters to query */
-              }}
+              onApply={() => applyFilters(scopeKey)}
             />
           )}
           <DataGrid />
@@ -136,7 +134,11 @@ export function DashboardWorkspace() {
         activeView={activeView}
         onViewChange={setActiveView}
         rowCount={rows.length}
-        totalEstimate={totalEstimate}
+        totalResults={totalResults}
+        totalPages={totalPages}
+        page={page}
+        limit={limit}
+        onPageChange={setPage}
       />
     </div>
   );

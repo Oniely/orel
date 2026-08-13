@@ -8,12 +8,27 @@ import { createSqlEditorState } from "../types/editor";
 
 const EMPTY_TAB_STATE: DashboardTabState = { tabs: [], activeTabId: null };
 
+export interface TablePagination {
+  page: number;
+  limit: number;
+}
+
+export interface TableFilterState {
+  staged: FilterRow[];
+  applied: FilterRow[];
+}
+
+export const EMPTY_FILTER_STATE: TableFilterState = { staged: [], applied: [] };
+export const DEFAULT_PAGINATION: TablePagination = { page: 1, limit: 100 };
+export const DEFAULT_FILTER_ROW: FilterRow[] = [{ col: "", op: "equals", val: "", conjunction: "AND" }];
+
 export interface DashboardState {
   tabState: Record<string, DashboardTabState>;
   selectedRowIndex: number | null;
   showInspector: boolean;
   sidebarOpen: boolean;
-  tableFilters: Record<string, FilterRow[]>;
+  tableFilters: Record<string, TableFilterState>;
+  tablePagination: Record<string, TablePagination>;
   showFilterBar: Record<string, boolean>;
   activeView: DashboardView;
   contextMenu: RowContextMenuState | null;
@@ -32,8 +47,12 @@ export interface DashboardState {
   setSidebarOpen: (open: boolean) => void;
   toggleSidebar: () => void;
   setFilters: (scopeKey: string | null, filters: FilterRow[]) => void;
+  applyFilters: (scopeKey: string | null) => void;
+  clearFilters: (scopeKey: string | null) => void;
   setShowFilterBar: (scopeKey: string | null, show: boolean) => void;
   toggleFilterBar: (scopeKey: string | null) => void;
+  setPage: (scopeKey: string | null, page: number) => void;
+  setLimit: (scopeKey: string | null, limit: number) => void;
   setActiveView: (view: DashboardView) => void;
   setContextMenu: (menu: RowContextMenuState | null) => void;
   setTransactionGuard: (guard: TransactionGuardState | null) => void;
@@ -65,6 +84,7 @@ export function createDashboardStore(): StoreApi<DashboardState> {
     showInspector: false,
     sidebarOpen: true,
     tableFilters: {},
+    tablePagination: {},
     showFilterBar: {},
     activeView: "Data",
     contextMenu: null,
@@ -160,12 +180,63 @@ export function createDashboardStore(): StoreApi<DashboardState> {
     setSidebarOpen: (sidebarOpen) => set({ sidebarOpen }),
     toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })),
     setFilters: (scopeKey, filters) =>
-      scopeKey ? set((state) => ({ tableFilters: { ...state.tableFilters, [scopeKey]: filters } })) : undefined,
+      scopeKey
+        ? set((state) => ({
+            tableFilters: {
+              ...state.tableFilters,
+              [scopeKey]: { ...(state.tableFilters[scopeKey] ?? { applied: [] }), staged: filters },
+            },
+          }))
+        : undefined,
+    clearFilters: (scopeKey) =>
+      scopeKey
+        ? set((state) => ({
+            tableFilters: { ...state.tableFilters, [scopeKey]: { staged: [], applied: [] } },
+            tablePagination: {
+              ...state.tablePagination,
+              [scopeKey]: { ...(state.tablePagination[scopeKey] ?? { limit: 100 }), page: 1 },
+            },
+          }))
+        : undefined,
+    applyFilters: (scopeKey) =>
+      scopeKey
+        ? set((state) => ({
+            tableFilters: {
+              ...state.tableFilters,
+              [scopeKey]: {
+                staged: state.tableFilters[scopeKey]?.staged ?? [],
+                applied: state.tableFilters[scopeKey]?.staged ?? [],
+              },
+            },
+            tablePagination: {
+              ...state.tablePagination,
+              [scopeKey]: { ...(state.tablePagination[scopeKey] ?? { limit: 100 }), page: 1 },
+            },
+          }))
+        : undefined,
     setShowFilterBar: (scopeKey, show) =>
       scopeKey ? set((state) => ({ showFilterBar: { ...state.showFilterBar, [scopeKey]: show } })) : undefined,
     toggleFilterBar: (scopeKey) =>
       scopeKey
         ? set((state) => ({ showFilterBar: { ...state.showFilterBar, [scopeKey]: !state.showFilterBar[scopeKey] } }))
+        : undefined,
+    setPage: (scopeKey, page) =>
+      scopeKey
+        ? set((state) => ({
+            tablePagination: {
+              ...state.tablePagination,
+              [scopeKey]: { ...(state.tablePagination[scopeKey] ?? { limit: 100 }), page },
+            },
+          }))
+        : undefined,
+    setLimit: (scopeKey, limit) =>
+      scopeKey
+        ? set((state) => ({
+            tablePagination: {
+              ...state.tablePagination,
+              [scopeKey]: { page: 1, limit },
+            },
+          }))
         : undefined,
     setActiveView: (activeView) => set({ activeView }),
     setContextMenu: (contextMenu) => set({ contextMenu }),
