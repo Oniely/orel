@@ -440,7 +440,7 @@ fn columns_from_row<R: Row>(row: &R, primary_columns: &HashSet<String>) -> Vec<S
         .iter()
         .map(|column| SqlResultColumn {
             name: column.name().to_string(),
-            data_type: column.type_info().name().to_string(),
+            data_type: column.type_info().name().to_ascii_lowercase(),
             is_primary: primary_columns.contains(column.name()),
         })
         .collect()
@@ -639,7 +639,7 @@ macro_rules! execute_statement {
                         .iter()
                         .map(|column| SqlResultColumn {
                             name: column.name().to_string(),
-                            data_type: column.type_info().name().to_string(),
+                            data_type: column.type_info().name().to_ascii_lowercase(),
                             is_primary: primary_columns.contains(column.name()),
                         })
                         .collect::<Vec<_>>()

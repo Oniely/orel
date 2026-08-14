@@ -314,23 +314,26 @@ pub async fn fetch_rows(
         DbPool::Postgres(pg) => {
             // Column info
             let col_rows = sqlx::query_as::<_, (String, String, String, bool, bool)>(
-                "SELECT c.column_name, c.data_type, c.is_nullable, \
-                EXISTS( \
-                    SELECT 1 FROM information_schema.table_constraints tc \
-                    JOIN information_schema.key_column_usage kcu \
-                        ON tc.constraint_name = kcu.constraint_name \
-                        AND tc.table_schema = kcu.table_schema \
-                        AND tc.table_name = kcu.table_name \
-                    WHERE tc.constraint_type = 'PRIMARY KEY' \
-                        AND tc.table_name = c.table_name \
-                        AND tc.table_schema = c.table_schema \
-                        AND kcu.column_name = c.column_name \
-                ), \
-                (c.column_default IS NOT NULL) \
-                FROM information_schema.columns c \
-                WHERE c.table_name = $1 \
-                AND c.table_schema = 'public' \
-                ORDER BY c.ordinal_position",
+                "SELECT \
+                    a.attname, \
+                    t.typname, \
+                    CASE WHEN a.attnotnull THEN 'NO' ELSE 'YES' END, \
+                    EXISTS( \
+                        SELECT 1 FROM pg_catalog.pg_constraint con \
+                        WHERE con.conrelid = cl.oid \
+                            AND con.contype = 'p' \
+                            AND a.attnum = ANY(con.conkey) \
+                    ), \
+                    (a.atthasdef OR a.attidentity != '') \
+                FROM pg_catalog.pg_attribute a \
+                JOIN pg_catalog.pg_class cl ON cl.oid = a.attrelid \
+                JOIN pg_catalog.pg_namespace n ON n.oid = cl.relnamespace \
+                JOIN pg_catalog.pg_type t ON t.oid = a.atttypid \
+                WHERE cl.relname = $1 \
+                    AND n.nspname = 'public' \
+                    AND a.attnum > 0 \
+                    AND NOT a.attisdropped \
+                ORDER BY a.attnum",
             )
             .bind(&table)
             .fetch_all(&pg)
