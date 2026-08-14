@@ -571,12 +571,17 @@ pub async fn fetch_rows(
                     .await
                     .map_err(|e| e.to_string())?;
 
-            // Build json_object() query
+            // Build json_object() query; wrap each column with IIF(typeof()='blob',hex(),col)
+            // so BLOB values (including untyped columns storing binary data) are hex-encoded
             let col_refs: String = columns
                 .iter()
                 .map(|c| {
                     let quoted_col = pg_quote(&c.name);
-                    format!("'{}', {}", c.name.replace('\'', "''"), quoted_col)
+                    let key = c.name.replace('\'', "''");
+                    format!(
+                        "'{}', IIF(typeof({}) = 'blob', hex({}), {})",
+                        key, quoted_col, quoted_col, quoted_col
+                    )
                 })
                 .collect::<Vec<_>>()
                 .join(", ");

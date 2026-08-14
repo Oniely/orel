@@ -74,7 +74,7 @@ export function EditorResultGrid({ result }: { result: StatementResult }) {
                       background: `color-mix(in oklch, ${getTypeColor(column.dataType)} 12%, transparent)`,
                     }}
                   >
-                    {column.dataType.toLowerCase()}
+                    {column.dataType.toLowerCase() || "any"}
                   </span>
                 </div>
               </th>

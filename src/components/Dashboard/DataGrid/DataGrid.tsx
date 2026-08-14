@@ -1,11 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import {
-  useReactTable,
-  getCoreRowModel,
-  flexRender,
-  type CellContext,
-  type ColumnDef,
-} from "@tanstack/react-table";
+import { useReactTable, getCoreRowModel, flexRender, type CellContext, type ColumnDef } from "@tanstack/react-table";
 import { KeyIcon } from "../shared/icons";
 import { getTypeColor } from "../../../lib/typeColors";
 import { parseEditValue } from "../../../lib/parseValue";
@@ -33,13 +27,7 @@ const insertRowStyle: React.CSSProperties = { background: "color-mix(in oklch, v
 
 export function DataGrid() {
   const { activeTableName: activeTable } = useDashboardContext();
-  const {
-    columns: colInfos,
-    rows,
-    isLoading,
-    error,
-    writeQueue: wq,
-  } = useActiveTable();
+  const { columns: colInfos, rows, isLoading, error, writeQueue: wq } = useActiveTable();
   const selectedRowIndex = useDashboardStore((state) => state.selectedRowIndex);
   const setSelectedRowIndex = useDashboardStore((state) => state.setSelectedRowIndex);
   const setShowInspector = useDashboardStore((state) => state.setShowInspector);
@@ -249,7 +237,7 @@ export function DataGrid() {
                 background: `color-mix(in oklch, ${getTypeColor(c.dataType)} 12%, transparent)`,
               }}
             >
-              {c.dataType}
+              {c.dataType || "any"}
             </span>
           </div>
         ),
@@ -490,6 +478,3 @@ export function DataGrid() {
     </div>
   );
 }
-
-
-
