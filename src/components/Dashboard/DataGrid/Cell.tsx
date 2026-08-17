@@ -7,7 +7,7 @@ export default function Cell({ value, type }: { value: unknown; type: string }) 
   const color = getTypeColor(type);
   const isBool = type === "boolean" || type === "bool";
   if (isBool || typeof value === "boolean") {
-    const bool = value === true || value === "true" || value === 1;
+    const bool = value === true || value === "true" || value === 1 || value === "1";
     return (
       <span className="inline-flex items-center gap-1.5">
         <span className="w-2 h-2 rounded-[2px]" style={{ background: bool ? "var(--success)" : "var(--muted)" }} />
@@ -27,9 +27,10 @@ export default function Cell({ value, type }: { value: unknown; type: string }) 
       </span>
     );
   }
+  const display = typeof value === "object" ? JSON.stringify(value) : String(value);
   return (
     <span className="font-mono text-xs" style={{ color }}>
-      {String(value)}
+      {display}
     </span>
   );
 }

@@ -360,6 +360,16 @@ fn decode_pg(row: &PgRow, index: usize) -> SqlCell {
         "timestamp" => decoded!(NaiveDateTime, "text"),
         "timestamptz" => decoded!(DateTime<Utc>, "text"),
         "json" | "jsonb" => decoded!(Value, "json"),
+        "jsonb[]" | "json[]" => {
+            if let Ok(values) = row.try_get::<Vec<Value>, _>(index) {
+                return cell("json", serde_json::to_string(&values).unwrap_or_default());
+            }
+        }
+        "text[]" | "varchar[]" | "bpchar[]" | "name[]" => {
+            if let Ok(values) = row.try_get::<Vec<String>, _>(index) {
+                return cell("text", serde_json::to_string(&values).unwrap_or_default());
+            }
+        }
         "bytea" => {
             if let Ok(value) = row.try_get::<Vec<u8>, _>(index) {
                 return cell("binary", hex(&value));
@@ -390,16 +400,42 @@ fn decode_mysql(row: &MySqlRow, index: usize) -> SqlCell {
     }
     match type_name.as_str() {
         "boolean" | "bool" => decoded!(bool, "boolean"),
-        "tinyint" | "smallint" | "mediumint" | "int" | "bigint" => {
+        "tinyint" | "tinyint unsigned" | "smallint" | "smallint unsigned" | "mediumint"
+        | "mediumint unsigned" | "int" | "int unsigned" | "bigint" | "bigint unsigned" => {
             decoded!(i64, "number");
             decoded!(u64, "number");
         }
-        "float" | "double" => decoded!(f64, "number"),
-        "decimal" | "newdecimal" => decoded!(BigDecimal, "number"),
-        "date" => decoded!(NaiveDate, "text"),
-        "time" => decoded!(NaiveTime, "text"),
-        "datetime" | "timestamp" => decoded!(NaiveDateTime, "text"),
-        "json" => decoded!(Value, "json"),
+        "float" | "double" => {
+            decoded!(f64, "number");
+            decoded!(String, "text");
+        }
+        "decimal" | "newdecimal" => {
+            decoded!(BigDecimal, "number");
+            decoded!(String, "text");
+        }
+        "date" => {
+            decoded!(NaiveDate, "text");
+            decoded!(String, "text");
+        }
+        "time" => {
+            decoded!(NaiveTime, "text");
+            decoded!(String, "text");
+        }
+        "datetime" => {
+            decoded!(NaiveDateTime, "text");
+            decoded!(String, "text");
+        }
+        "timestamp" => {
+            if let Ok(value) = row.try_get::<DateTime<Utc>, _>(index) {
+                return cell("text", value.format("%Y-%m-%d %H:%M:%S").to_string());
+            }
+            decoded!(NaiveDateTime, "text");
+            decoded!(String, "text");
+        }
+        "json" => {
+            decoded!(Value, "json");
+            decoded!(String, "text");
+        }
         "tinyblob" | "blob" | "mediumblob" | "longblob" | "binary" | "varbinary" => {
             if let Ok(value) = row.try_get::<Vec<u8>, _>(index) {
                 return cell("binary", hex(&value));
@@ -416,6 +452,14 @@ fn decode_sqlite(row: &SqliteRow, index: usize) -> SqlCell {
     }
     let type_name = row.columns()[index].type_info().name().to_ascii_lowercase();
     match type_name.as_str() {
+        "boolean" | "bool" => row
+            .try_get::<bool, _>(index)
+            .map(|value| cell("boolean", value.to_string()))
+            .unwrap_or_else(|_| {
+                row.try_get::<i64, _>(index)
+                    .map(|value| cell("boolean", if value != 0 { "true" } else { "false" }.to_string()))
+                    .unwrap_or_else(|error| cell("text", format!("<decode error: {error}>")))
+            }),
         "integer" | "int" => row
             .try_get::<i64, _>(index)
             .map(|value| cell("number", value.to_string()))

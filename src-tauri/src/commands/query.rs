@@ -4,6 +4,23 @@ use sqlx::Arguments as _;
 
 use crate::commands::connection::{AppState, DbPool};
 
+/// Normalizes a SQLite declared column type to the canonical name sqlx uses,
+/// mirroring sqlx-sqlite's DataType::from_str affinity rules.
+fn normalize_sqlite_type(declared: &str) -> String {
+    let s = declared.to_ascii_lowercase();
+    match s.as_str() {
+        "boolean" | "bool" => "boolean".to_string(),
+        "date" => "date".to_string(),
+        "time" => "time".to_string(),
+        "datetime" | "timestamp" => "datetime".to_string(),
+        _ if s.contains("int") => "integer".to_string(),
+        _ if s.contains("char") || s.contains("clob") || s.contains("text") => "text".to_string(),
+        _ if s.contains("blob") => "blob".to_string(),
+        _ if s.contains("real") || s.contains("floa") || s.contains("doub") => "real".to_string(),
+        _ => s,
+    }
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TableInfo {
@@ -345,7 +362,13 @@ pub async fn fetch_rows(
                 .map(
                     |(name, data_type, is_nullable, is_primary, has_default)| ColumnInfo {
                         name,
-                        data_type,
+                        // pg_type.typname prefixes array types with '_' (e.g. _text, _jsonb).
+                        // Normalize to bracket notation (text[], jsonb[]) to match sqlx's display name.
+                        data_type: if data_type.starts_with('_') {
+                            format!("{}[]", &data_type[1..])
+                        } else {
+                            data_type
+                        },
                         is_nullable: is_nullable == "YES",
                         is_primary,
                         has_default,
@@ -422,7 +445,12 @@ pub async fn fetch_rows(
         DbPool::MySql(mysql) => {
             // Column info
             let col_rows = sqlx::query_as::<_, (String, String, String, i8, i8)>(
-                "SELECT CAST(COLUMN_NAME AS CHAR), CAST(DATA_TYPE AS CHAR), \
+                "SELECT CAST(COLUMN_NAME AS CHAR), \
+                CAST(CASE \
+                  WHEN COLUMN_TYPE = 'tinyint(1)' THEN 'boolean' \
+                  WHEN COLUMN_TYPE LIKE '% unsigned' THEN CONCAT(DATA_TYPE, ' unsigned') \
+                  ELSE DATA_TYPE \
+                END AS CHAR), \
                 CAST(IS_NULLABLE AS CHAR), IF(COLUMN_KEY = 'PRI', 1, 0), \
                 IF(COLUMN_DEFAULT IS NOT NULL OR EXTRA LIKE '%auto_increment%', 1, 0) \
                 FROM information_schema.COLUMNS \
@@ -542,7 +570,7 @@ pub async fn fetch_rows(
                 .into_iter()
                 .map(|(_, name, data_type, notnull, dflt_value, pk)| ColumnInfo {
                     name,
-                    data_type: data_type.to_lowercase(),
+                    data_type: normalize_sqlite_type(&data_type),
                     is_nullable: notnull == 0,
                     is_primary: pk > 0,
                     has_default: dflt_value.is_some(),
@@ -582,7 +610,7 @@ pub async fn fetch_rows(
                     let quoted_col = pg_quote(&c.name);
                     let key = c.name.replace('\'', "''");
                     format!(
-                        "'{}', IIF(typeof({}) = 'blob', hex({}), {})",
+                        "'{}', IIF(typeof({}) = 'blob', '0x' || hex({}), {})",
                         key, quoted_col, quoted_col, quoted_col
                     )
                 })

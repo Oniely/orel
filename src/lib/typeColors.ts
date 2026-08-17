@@ -4,7 +4,12 @@ const TYPE_CATEGORY: Record<string, string> = {
   varchar: "string",
   "character varying": "string",
   text: "string",
+  tinytext: "string",
+  mediumtext: "string",
+  longtext: "string",
   char: "string",
+  enum: "string",
+  set: "string",
   boolean: "bool",
   bool: "bool",
   timestamp: "time",
@@ -13,24 +18,47 @@ const TYPE_CATEGORY: Record<string, string> = {
   timestamptz: "time",
   date: "time",
   time: "time",
+  datetime: "time",
+  year: "time",
   interval: "time",
   integer: "number",
   int: "number",
   int2: "number",
   int4: "number",
   int8: "number",
+  tinyint: "number",
   smallint: "number",
+  mediumint: "number",
   bigint: "number",
+  "tinyint unsigned": "number",
+  "smallint unsigned": "number",
+  "mediumint unsigned": "number",
+  "int unsigned": "number",
+  "bigint unsigned": "number",
   numeric: "number",
   decimal: "number",
+  float: "number",
   float4: "number",
   float8: "number",
+  double: "number",
   real: "number",
   "double precision": "number",
   serial: "number",
   bigserial: "number",
   jsonb: "json",
   json: "json",
+  "jsonb[]": "json",
+  "json[]": "json",
+  "text[]": "string",
+  "varchar[]": "string",
+  "bpchar[]": "string",
+  "int2[]": "number",
+  "int4[]": "number",
+  "int8[]": "number",
+  "float4[]": "number",
+  "float8[]": "number",
+  "bool[]": "bool",
+  "uuid[]": "uuid",
 };
 
 // Hue offsets from the theme accent for each category
@@ -66,7 +94,10 @@ export function applyTypeColors(accentOklch: string, isDark: boolean): void {
 
 function parseOklchHue(oklch: string): number {
   // Extract hue from "oklch(L% C H)" format
-  const parts = oklch.replace(/oklch\(|\)/g, "").trim().split(/\s+/);
+  const parts = oklch
+    .replace(/oklch\(|\)/g, "")
+    .trim()
+    .split(/\s+/);
   return parseFloat(parts[2]) || 0;
 }
 
