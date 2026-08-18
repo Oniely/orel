@@ -12,9 +12,11 @@ export interface ColumnInfo {
   hasDefault: boolean;
 }
 
+import type { SqlCell } from "./editor";
+
 export interface QueryResult {
   columns: ColumnInfo[];
-  rows: Record<string, unknown>[];
+  rows: Record<string, SqlCell>[];
   totalResults: number;
   totalPages: number;
 }

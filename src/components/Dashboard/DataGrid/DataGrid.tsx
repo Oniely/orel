@@ -8,6 +8,16 @@ import { useDashboardStore } from "../../../stores/dashboard.store";
 import { useDashboardContext } from "../../../hooks/dashboard/useDashboardContext";
 import { useActiveTable } from "../../../hooks/dashboard/useActiveTable";
 import { CellEditorOverlay } from "./CellEditorOverlay";
+import type { SqlCell } from "../../../types/editor";
+import { sqlCellToValue } from "../../../types/write-queue";
+
+// Converts a pending-edit unknown value to a SqlCell for display purposes
+function valueToSqlCell(value: unknown): SqlCell {
+  if (value === null || value === undefined) return { kind: "null", display: null };
+  if (typeof value === "boolean") return { kind: "boolean", display: String(value) };
+  if (typeof value === "number") return { kind: "number", display: String(value) };
+  return { kind: "text", display: String(value) };
+}
 
 const ROW_NUMBER_COL = "__row_number";
 
@@ -62,7 +72,7 @@ export function DataGrid() {
 
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
-      const key = pkCols.map((c) => JSON.stringify(row[c.name] ?? null)).join("::");
+      const key = pkCols.map((c) => JSON.stringify(sqlCellToValue(row[c.name]))).join("::");
 
       if (changesMap) {
         const change = changesMap.get(key);
@@ -102,7 +112,7 @@ export function DataGrid() {
         wq.handleInsertCellEdit(rowIndex, column, parsed);
       }
     } else {
-      const originalValue = rows[rowIndex]?.[column];
+      const originalValue = sqlCellToValue(rows[rowIndex]?.[column]);
       if (JSON.stringify(parsed) !== JSON.stringify(originalValue)) {
         wq.handleCellEdit(rowIndex, column, originalValue, parsed);
       }
@@ -117,14 +127,14 @@ export function DataGrid() {
     const col = colInfos.find((c) => c.name === column);
     if (isInsert && col?.hasDefault && col.isPrimary) return;
 
-    const currentValue = isInsert
-      ? wq.insertedRows[rowIndex]?.kind === "Insert"
-        ? wq.insertedRows[rowIndex].values[column]
-        : undefined
-      : rows[rowIndex]?.[column];
-
     const dirty = !isInsert ? cellDirtyMap.get(`${rowIndex}::${column}`) : undefined;
-    const displayVal = dirty ? dirty.newValue : currentValue;
+    const displayVal = dirty
+      ? dirty.newValue
+      : isInsert
+        ? wq.insertedRows[rowIndex]?.kind === "Insert"
+          ? wq.insertedRows[rowIndex].values[column]
+          : undefined
+        : rows[rowIndex]?.[column]?.display;
     const initialValue = displayVal === null || displayVal === undefined ? "" : String(displayVal);
 
     setEditingCell({ rowIndex, column, isInsert, initialValue });
@@ -211,7 +221,7 @@ export function DataGrid() {
   }, []);
 
   // Column defs — only depends on schema, never on editing/dirty state
-  const columns = useMemo<ColumnDef<Record<string, unknown>>[]>(
+  const columns = useMemo<ColumnDef<Record<string, SqlCell>>[]>(
     () => [
       {
         id: ROW_NUMBER_COL,
@@ -241,8 +251,8 @@ export function DataGrid() {
             </span>
           </div>
         ),
-        cell: ({ getValue }: CellContext<Record<string, unknown>, unknown>) => (
-          <Cell value={getValue()} type={c.dataType} />
+        cell: ({ getValue }: CellContext<Record<string, SqlCell>, unknown>) => (
+          <Cell cell={getValue() as SqlCell} type={c.dataType} />
         ),
       })),
     ],
@@ -374,7 +384,7 @@ export function DataGrid() {
                       <div className="overflow-hidden text-ellipsis whitespace-nowrap">
                         {dirty ? (
                           <Cell
-                            value={dirty.newValue}
+                            cell={valueToSqlCell(dirty.newValue)}
                             type={colInfos.find((c) => c.name === colId)?.dataType ?? "text"}
                           />
                         ) : (
@@ -427,7 +437,7 @@ export function DataGrid() {
                             DEFAULT
                           </span>
                         ) : (
-                          <Cell value={insert.values[c.name]} type={c.dataType} />
+                          <Cell cell={valueToSqlCell(insert.values[c.name])} type={c.dataType} />
                         )}
                       </div>
                     </td>

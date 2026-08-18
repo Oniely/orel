@@ -1,25 +1,15 @@
 use serde::Serialize;
-use serde_json::Value;
 use sqlx::Arguments as _;
 
 use crate::commands::connection::{AppState, DbPool};
+use crate::commands::decode::SqlCell;
+use crate::commands::executor::{
+    mysql_describe_types, mysql_fetch, pg_describe_types, pg_fetch_with, sqlite_describe_types,
+    sqlite_fetch,
+};
+use crate::commands::sql;
 
-/// Normalizes a SQLite declared column type to the canonical name sqlx uses,
-/// mirroring sqlx-sqlite's DataType::from_str affinity rules.
-fn normalize_sqlite_type(declared: &str) -> String {
-    let s = declared.to_ascii_lowercase();
-    match s.as_str() {
-        "boolean" | "bool" => "boolean".to_string(),
-        "date" => "date".to_string(),
-        "time" => "time".to_string(),
-        "datetime" | "timestamp" => "datetime".to_string(),
-        _ if s.contains("int") => "integer".to_string(),
-        _ if s.contains("char") || s.contains("clob") || s.contains("text") => "text".to_string(),
-        _ if s.contains("blob") => "blob".to_string(),
-        _ if s.contains("real") || s.contains("floa") || s.contains("doub") => "real".to_string(),
-        _ => s,
-    }
-}
+// ── Query types ───────────────────────────────────────────────────────────────
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -43,7 +33,7 @@ pub struct ColumnInfo {
 #[serde(rename_all = "camelCase")]
 pub struct QueryResult {
     pub columns: Vec<ColumnInfo>,
-    pub rows: Vec<Value>,
+    pub rows: Vec<Vec<SqlCell>>,
     pub total_results: i64,
     pub total_pages: i64,
 }
@@ -56,6 +46,8 @@ pub struct FilterRow {
     pub val: String,
     pub conjunction: String,
 }
+
+// ── Filter helpers ────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Copy)]
 enum ParamStyle {
@@ -91,10 +83,7 @@ fn build_filter_clause(
     style: ParamStyle,
 ) -> FilterClause {
     if filters.is_empty() {
-        return FilterClause {
-            sql: String::new(),
-            values: vec![],
-        };
+        return FilterClause { sql: String::new(), values: vec![] };
     }
 
     let mut parts: Vec<String> = Vec::new();
@@ -107,22 +96,14 @@ fn build_filter_clause(
         }
 
         let col = quote_fn(&f.col);
-        let prefix = if parts.is_empty() {
-            "WHERE"
-        } else {
-            f.conjunction.as_str()
-        };
+        let prefix = if parts.is_empty() { "WHERE" } else { f.conjunction.as_str() };
 
         let condition: String = match f.op.as_str() {
             "is null" => format!("{col} IS NULL"),
             "is not null" => format!("{col} IS NOT NULL"),
             "in" | "not in" => {
-                let items: Vec<&str> = f
-                    .val
-                    .split(',')
-                    .map(str::trim)
-                    .filter(|s| !s.is_empty())
-                    .collect();
+                let items: Vec<&str> =
+                    f.val.split(',').map(str::trim).filter(|s| !s.is_empty()).collect();
                 if items.is_empty() {
                     continue;
                 }
@@ -157,10 +138,7 @@ fn build_filter_clause(
         parts.push(format!("{prefix} {condition}"));
     }
 
-    FilterClause {
-        sql: parts.join(" "),
-        values,
-    }
+    FilterClause { sql: parts.join(" "), values }
 }
 
 pub(crate) fn pg_quote(name: &str) -> String {
@@ -171,49 +149,20 @@ pub(crate) fn mysql_quote(name: &str) -> String {
     format!("`{}`", name.replace('`', "``"))
 }
 
-fn mysql_utf8_literal(value: &str) -> String {
-    const HEX: &[u8; 16] = b"0123456789ABCDEF";
-    let bytes = value.as_bytes();
-    let mut encoded = String::with_capacity(bytes.len() * 2);
-
-    for byte in bytes {
-        encoded.push(HEX[(byte >> 4) as usize] as char);
-        encoded.push(HEX[(byte & 0x0f) as usize] as char);
-    }
-
-    format!("CONVERT(X'{encoded}' USING utf8mb4)")
-}
-
-fn parse_json_rows(raw: Vec<String>) -> Result<Vec<Value>, String> {
-    raw.into_iter()
-        .enumerate()
-        .map(|(index, row)| {
-            serde_json::from_str(&row).map_err(|error| {
-                format!("Failed to decode result row {} as JSON: {error}", index + 1)
-            })
-        })
-        .collect()
-}
-
 fn build_pk_order_clause(columns: &[ColumnInfo], quote_fn: fn(&str) -> String) -> String {
-    let pk_cols: Vec<&str> = columns
-        .iter()
-        .filter(|c| c.is_primary)
-        .map(|c| c.name.as_str())
-        .collect();
+    let pk_cols: Vec<&str> =
+        columns.iter().filter(|c| c.is_primary).map(|c| c.name.as_str()).collect();
     if pk_cols.is_empty() {
         String::new()
     } else {
         format!(
             " ORDER BY {}",
-            pk_cols
-                .iter()
-                .map(|c| quote_fn(c))
-                .collect::<Vec<_>>()
-                .join(", ")
+            pk_cols.iter().map(|c| quote_fn(c)).collect::<Vec<_>>().join(", ")
         )
     }
 }
+
+// ── Commands ──────────────────────────────────────────────────────────────────
 
 #[tauri::command]
 pub async fn list_tables(
@@ -230,24 +179,10 @@ pub async fn list_tables(
 
     match pool {
         DbPool::Postgres(pg) => {
-            let rows = sqlx::query_as::<_, (String, String, Option<i64>)>(
-                "SELECT t.table_name, \
-                CASE t.table_type \
-                    WHEN 'BASE TABLE' THEN 'table' \
-                    WHEN 'VIEW' THEN 'view' \
-                    ELSE 'table' \
-                END, \
-                (SELECT reltuples::bigint FROM pg_class c \
-                    JOIN pg_namespace n ON n.oid = c.relnamespace \
-                    WHERE c.relname = t.table_name AND n.nspname = t.table_schema \
-                    LIMIT 1) \
-                FROM information_schema.tables t \
-                WHERE t.table_schema = 'public' \
-                ORDER BY t.table_type DESC, t.table_name",
-            )
-            .fetch_all(&pg)
-            .await
-            .map_err(|e| e.to_string())?;
+            let rows = sqlx::query_as::<_, (String, String, Option<i64>)>(sql::PG_LIST_TABLES)
+                .fetch_all(&pg)
+                .await
+                .map_err(|e| e.to_string())?;
 
             Ok(rows
                 .into_iter()
@@ -259,21 +194,10 @@ pub async fn list_tables(
                 .collect())
         }
         DbPool::MySql(mysql) => {
-            let rows = sqlx::query_as::<_, (String, String, Option<i64>)>(
-                "SELECT CAST(TABLE_NAME AS CHAR), \
-                CAST(CASE TABLE_TYPE \
-                    WHEN 'BASE TABLE' THEN 'table' \
-                    WHEN 'VIEW' THEN 'view' \
-                    ELSE 'table' \
-                END AS CHAR), \
-                CAST(TABLE_ROWS AS SIGNED) \
-                FROM information_schema.TABLES \
-                WHERE TABLE_SCHEMA = DATABASE() \
-                ORDER BY TABLE_TYPE DESC, TABLE_NAME",
-            )
-            .fetch_all(&mysql)
-            .await
-            .map_err(|e| e.to_string())?;
+            let rows = sqlx::query_as::<_, (String, String, Option<i64>)>(sql::MYSQL_LIST_TABLES)
+                .fetch_all(&mysql)
+                .await
+                .map_err(|e| e.to_string())?;
 
             Ok(rows
                 .into_iter()
@@ -285,14 +209,10 @@ pub async fn list_tables(
                 .collect())
         }
         DbPool::Sqlite(sqlite) => {
-            let rows = sqlx::query_as::<_, (String, String)>(
-                "SELECT name, type FROM sqlite_master \
-                WHERE type IN ('table', 'view') AND name NOT LIKE 'sqlite_%' \
-                ORDER BY type DESC, name",
-            )
-            .fetch_all(&sqlite)
-            .await
-            .map_err(|e| e.to_string())?;
+            let rows = sqlx::query_as::<_, (String, String)>(sql::SQLITE_LIST_TABLES)
+                .fetch_all(&sqlite)
+                .await
+                .map_err(|e| e.to_string())?;
 
             Ok(rows
                 .into_iter()
@@ -329,69 +249,46 @@ pub async fn fetch_rows(
 
     match pool {
         DbPool::Postgres(pg) => {
-            // Column info
-            let col_rows = sqlx::query_as::<_, (String, String, String, bool, bool)>(
-                "SELECT \
-                    a.attname, \
-                    t.typname, \
-                    CASE WHEN a.attnotnull THEN 'NO' ELSE 'YES' END, \
-                    EXISTS( \
-                        SELECT 1 FROM pg_catalog.pg_constraint con \
-                        WHERE con.conrelid = cl.oid \
-                            AND con.contype = 'p' \
-                            AND a.attnum = ANY(con.conkey) \
-                    ), \
-                    (a.atthasdef OR a.attidentity != '') \
-                FROM pg_catalog.pg_attribute a \
-                JOIN pg_catalog.pg_class cl ON cl.oid = a.attrelid \
-                JOIN pg_catalog.pg_namespace n ON n.oid = cl.relnamespace \
-                JOIN pg_catalog.pg_type t ON t.oid = a.atttypid \
-                WHERE cl.relname = $1 \
-                    AND n.nspname = 'public' \
-                    AND a.attnum > 0 \
-                    AND NOT a.attisdropped \
-                ORDER BY a.attnum",
-            )
-            .bind(&table)
-            .fetch_all(&pg)
-            .await
-            .map_err(|e| e.to_string())?;
+            // Acquire one connection for all steps so describe() is available.
+            let mut conn = pg.acquire().await.map_err(|e| e.to_string())?;
+
+            // Schema: name, nullable, primary, has_default (no data_type — comes from describe).
+            let col_rows = sqlx::query_as::<_, (String, String, bool, bool)>(sql::PG_COLUMN_INFO)
+                .bind(&table)
+                .fetch_all(&mut *conn)
+                .await
+                .map_err(|e| e.to_string())?;
+
+            // describe() yields type names via type_info() — identical to EditorResultGrid.
+            let desc_sql = format!("SELECT * FROM {}", pg_quote(&table));
+            let type_names = pg_describe_types(&mut *conn, &desc_sql).await;
 
             let columns: Vec<ColumnInfo> = col_rows
                 .into_iter()
-                .map(
-                    |(name, data_type, is_nullable, is_primary, has_default)| ColumnInfo {
-                        name,
-                        // pg_type.typname prefixes array types with '_' (e.g. _text, _jsonb).
-                        // Normalize to bracket notation (text[], jsonb[]) to match sqlx's display name.
-                        data_type: if data_type.starts_with('_') {
-                            format!("{}[]", &data_type[1..])
-                        } else {
-                            data_type
-                        },
-                        is_nullable: is_nullable == "YES",
-                        is_primary,
-                        has_default,
-                    },
-                )
+                .enumerate()
+                .map(|(i, (name, is_nullable, is_primary, has_default))| ColumnInfo {
+                    data_type: type_names.get(i).cloned().unwrap_or_default(),
+                    name,
+                    is_nullable: is_nullable == "YES",
+                    is_primary,
+                    has_default,
+                })
                 .collect();
 
             let quoted = pg_quote(&table);
             let order_clause = build_pk_order_clause(&columns, pg_quote);
             let filter_clause = build_filter_clause(&filters, pg_quote, ParamStyle::Numbered);
 
-            // COUNT: use fast stats estimate when unfiltered, exact COUNT(*) when filtered
+            // COUNT: fast estimate when unfiltered, exact COUNT(*) when filtered.
             let total_results: i64 = if filter_clause.sql.is_empty() {
-                sqlx::query_scalar::<_, i64>(
-                    "SELECT reltuples::bigint FROM pg_class WHERE relname = $1",
-                )
-                .bind(&table)
-                .fetch_optional(&pg)
-                .await
-                .ok()
-                .flatten()
-                .filter(|&n| n >= 0)
-                .unwrap_or(0)
+                sqlx::query_scalar::<_, i64>(sql::PG_ROW_ESTIMATE)
+                    .bind(&table)
+                    .fetch_optional(&mut *conn)
+                    .await
+                    .ok()
+                    .flatten()
+                    .filter(|&n| n >= 0)
+                    .unwrap_or(0)
             } else {
                 let count_sql = format!("SELECT COUNT(*) FROM {} {}", quoted, filter_clause.sql);
                 let mut count_args = sqlx::postgres::PgArguments::default();
@@ -399,21 +296,16 @@ pub async fn fetch_rows(
                     count_args.add(v.as_str()).map_err(|e| e.to_string())?;
                 }
                 sqlx::query_scalar_with::<_, i64, _>(sqlx::AssertSqlSafe(count_sql), count_args)
-                    .fetch_one(&pg)
+                    .fetch_one(&mut *conn)
                     .await
                     .map_err(|e| e.to_string())?
             };
 
-            // Row query — filter params are $1..$n, limit is $(n+1), offset is $(n+2)
+            // Row query — Postgres requires typed i64 for LIMIT/OFFSET.
             let n = filter_clause.values.len();
             let row_sql = format!(
-                "SELECT row_to_json(t)::text FROM \
-                (SELECT * FROM {} {} {} LIMIT ${} OFFSET ${}) t",
-                quoted,
-                filter_clause.sql,
-                order_clause,
-                n + 1,
-                n + 2,
+                "SELECT * FROM {} {} {} LIMIT ${} OFFSET ${}",
+                quoted, filter_clause.sql, order_clause, n + 1, n + 2,
             );
             let mut row_args = sqlx::postgres::PgArguments::default();
             for v in filter_clause.values.into_iter() {
@@ -421,86 +313,62 @@ pub async fn fetch_rows(
             }
             row_args.add(limit).map_err(|e| e.to_string())?;
             row_args.add(offset).map_err(|e| e.to_string())?;
+            let rows = pg_fetch_with(&mut *conn, &row_sql, row_args).await?;
 
-            let raw: Vec<String> =
-                sqlx::query_scalar_with::<_, String, _>(sqlx::AssertSqlSafe(row_sql), row_args)
-                    .fetch_all(&pg)
+            let total_pages = if limit > 0 { (total_results + limit - 1) / limit } else { 1 };
+            Ok(QueryResult { columns, rows, total_results, total_pages })
+        }
+        DbPool::MySql(mysql) => {
+            let mut conn = mysql.acquire().await.map_err(|e| e.to_string())?;
+
+            // Schema: name, nullable, primary, has_default (no data_type — comes from describe).
+            let col_rows =
+                sqlx::query_as::<_, (String, String, i8, i8)>(sql::MYSQL_COLUMN_INFO)
+                    .bind(&table)
+                    .fetch_all(&mut *conn)
                     .await
                     .map_err(|e| e.to_string())?;
 
-            let rows = parse_json_rows(raw)?;
-            let total_pages = if limit > 0 {
-                (total_results + limit - 1) / limit
-            } else {
-                1
-            };
-
-            Ok(QueryResult {
-                columns,
-                rows,
-                total_results,
-                total_pages,
-            })
-        }
-        DbPool::MySql(mysql) => {
-            // Column info
-            let col_rows = sqlx::query_as::<_, (String, String, String, i8, i8)>(
-                "SELECT CAST(COLUMN_NAME AS CHAR), \
-                CAST(CASE \
-                  WHEN COLUMN_TYPE = 'tinyint(1)' THEN 'boolean' \
-                  WHEN COLUMN_TYPE LIKE '% unsigned' THEN CONCAT(DATA_TYPE, ' unsigned') \
-                  ELSE DATA_TYPE \
-                END AS CHAR), \
-                CAST(IS_NULLABLE AS CHAR), IF(COLUMN_KEY = 'PRI', 1, 0), \
-                IF(COLUMN_DEFAULT IS NOT NULL OR EXTRA LIKE '%auto_increment%', 1, 0) \
-                FROM information_schema.COLUMNS \
-                WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? \
-                ORDER BY ORDINAL_POSITION",
-            )
-            .bind(&table)
-            .fetch_all(&mysql)
-            .await
-            .map_err(|e| e.to_string())?;
-
-            let columns: Vec<ColumnInfo> = col_rows
-                .into_iter()
-                .map(
-                    |(name, data_type, is_nullable, is_primary, has_default)| ColumnInfo {
-                        name,
-                        data_type,
-                        is_nullable: is_nullable == "YES",
-                        is_primary: is_primary != 0,
-                        has_default: has_default != 0,
-                    },
-                )
-                .collect();
-
-            if columns.is_empty() {
+            if col_rows.is_empty() {
                 return Ok(QueryResult {
-                    columns,
+                    columns: vec![],
                     rows: vec![],
                     total_results: 0,
                     total_pages: 1,
                 });
             }
 
+            // describe() yields type names via type_info() — identical to EditorResultGrid.
+            let desc_sql = format!("SELECT * FROM {}", mysql_quote(&table));
+            let type_names = mysql_describe_types(&mut *conn, &desc_sql).await;
+
+            let columns: Vec<ColumnInfo> = col_rows
+                .into_iter()
+                .enumerate()
+                .map(|(i, (name, is_nullable, is_primary, has_default))| ColumnInfo {
+                    data_type: type_names.get(i).cloned().unwrap_or_default(),
+                    name,
+                    is_nullable: is_nullable == "YES",
+                    is_primary: is_primary != 0,
+                    has_default: has_default != 0,
+                })
+                .collect();
+
             let quoted = mysql_quote(&table);
             let order_clause = build_pk_order_clause(&columns, mysql_quote);
-            let filter_clause = build_filter_clause(&filters, mysql_quote, ParamStyle::Positional);
+            let filter_clause =
+                build_filter_clause(&filters, mysql_quote, ParamStyle::Positional);
 
-            // COUNT: use fast stats estimate when unfiltered, exact COUNT(*) when filtered
+            // COUNT: fast estimate when unfiltered, exact COUNT(*) when filtered.
             let total_results: i64 = if filter_clause.sql.is_empty() {
-                sqlx::query_scalar::<_, Option<i64>>(
-                    "SELECT CAST(TABLE_ROWS AS SIGNED) FROM information_schema.TABLES \
-                    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?",
-                )
-                .bind(&table)
-                .fetch_optional(&mysql)
-                .await
-                .ok()
-                .flatten()
-                .flatten()
-                .unwrap_or(0)
+                sqlx::query_scalar::<_, Option<i64>>(sql::MYSQL_ROW_ESTIMATE)
+                    .bind(&table)
+                    .fetch_optional(&mut *conn)
+                    .await
+                    .ok()
+                    .flatten()
+                    .flatten()
+                    .unwrap_or(0)
             } else {
                 let count_sql = format!("SELECT COUNT(*) FROM {} {}", quoted, filter_clause.sql);
                 let mut count_args = sqlx::mysql::MySqlArguments::default();
@@ -508,89 +376,66 @@ pub async fn fetch_rows(
                     count_args.add(v.as_str()).map_err(|e| e.to_string())?;
                 }
                 sqlx::query_scalar_with::<_, i64, _>(sqlx::AssertSqlSafe(count_sql), count_args)
-                    .fetch_one(&mysql)
+                    .fetch_one(&mut *conn)
                     .await
                     .map_err(|e| e.to_string())?
             };
 
-            // Build JSON_OBJECT query for MySQL
-            let col_refs: String = columns
-                .iter()
-                .map(|c| {
-                    format!(
-                        "{}, CAST({} AS CHAR)",
-                        mysql_utf8_literal(&c.name),
-                        mysql_quote(&c.name)
-                    )
-                })
-                .collect::<Vec<_>>()
-                .join(", ");
+            // Row query — executor decodes all cells via decode_mysql.
             let row_sql = format!(
-                "SELECT CAST(JSON_OBJECT({}) AS CHAR) FROM {} {} {} LIMIT ? OFFSET ?",
-                col_refs, quoted, filter_clause.sql, order_clause,
+                "SELECT * FROM {} {} {} LIMIT ? OFFSET ?",
+                quoted, filter_clause.sql, order_clause,
             );
-            let mut row_args = sqlx::mysql::MySqlArguments::default();
-            for v in filter_clause.values.into_iter() {
-                row_args.add(v).map_err(|e| e.to_string())?;
-            }
-            row_args.add(limit).map_err(|e| e.to_string())?;
-            row_args.add(offset).map_err(|e| e.to_string())?;
+            let mut params = filter_clause.values;
+            params.push(limit.to_string());
+            params.push(offset.to_string());
+            let rows = mysql_fetch(&mut *conn, &row_sql, &params).await?;
 
-            let raw: Vec<String> =
-                sqlx::query_scalar_with::<_, String, _>(sqlx::AssertSqlSafe(row_sql), row_args)
-                    .fetch_all(&mysql)
-                    .await
-                    .map_err(|e| e.to_string())?;
-
-            let rows = parse_json_rows(raw)?;
-            let total_pages = if limit > 0 {
-                (total_results + limit - 1) / limit
-            } else {
-                1
-            };
-
-            Ok(QueryResult {
-                columns,
-                rows,
-                total_results,
-                total_pages,
-            })
+            let total_pages = if limit > 0 { (total_results + limit - 1) / limit } else { 1 };
+            Ok(QueryResult { columns, rows, total_results, total_pages })
         }
         DbPool::Sqlite(sqlite) => {
-            // Column info via pragma_table_info (table-valued function, supports bound params)
+            let mut conn = sqlite.acquire().await.map_err(|e| e.to_string())?;
+
+            // Schema: cid, name, type (ignored), notnull, dflt_value, pk.
             let col_rows = sqlx::query_as::<_, (i32, String, String, i32, Option<String>, i32)>(
-                "SELECT * FROM pragma_table_info(?)",
+                sql::SQLITE_COLUMN_INFO,
             )
             .bind(&table)
-            .fetch_all(&sqlite)
+            .fetch_all(&mut *conn)
             .await
             .map_err(|e| e.to_string())?;
 
-            let columns: Vec<ColumnInfo> = col_rows
-                .into_iter()
-                .map(|(_, name, data_type, notnull, dflt_value, pk)| ColumnInfo {
-                    name,
-                    data_type: normalize_sqlite_type(&data_type),
-                    is_nullable: notnull == 0,
-                    is_primary: pk > 0,
-                    has_default: dflt_value.is_some(),
-                })
-                .collect();
-
-            if columns.is_empty() {
+            if col_rows.is_empty() {
                 return Ok(QueryResult {
-                    columns,
+                    columns: vec![],
                     rows: vec![],
                     total_results: 0,
                     total_pages: 1,
                 });
             }
 
+            // describe() yields type names via type_info() — identical to EditorResultGrid.
+            let desc_sql = format!("SELECT * FROM {}", pg_quote(&table));
+            let type_names = sqlite_describe_types(&mut *conn, &desc_sql).await;
+
+            let columns: Vec<ColumnInfo> = col_rows
+                .into_iter()
+                .enumerate()
+                .map(|(i, (_, name, _, notnull, dflt_value, pk))| ColumnInfo {
+                    data_type: type_names.get(i).cloned().unwrap_or_default(),
+                    name,
+                    is_nullable: notnull == 0,
+                    is_primary: pk > 0,
+                    has_default: dflt_value.is_some(),
+                })
+                .collect();
+
             let quoted = pg_quote(&table);
             let order_clause = build_pk_order_clause(&columns, pg_quote);
             let filter_clause = build_filter_clause(&filters, pg_quote, ParamStyle::Positional);
 
-            // COUNT: SQLite has no catalog stats, always run COUNT(*)
+            // COUNT: SQLite has no catalog stats, always exact.
             let count_sql = format!("SELECT COUNT(*) FROM {} {}", quoted, filter_clause.sql);
             let mut count_args = sqlx::sqlite::SqliteArguments::default();
             for v in filter_clause.values.iter() {
@@ -598,83 +443,22 @@ pub async fn fetch_rows(
             }
             let total_results: i64 =
                 sqlx::query_scalar_with::<_, i64, _>(sqlx::AssertSqlSafe(count_sql), count_args)
-                    .fetch_one(&sqlite)
+                    .fetch_one(&mut *conn)
                     .await
                     .map_err(|e| e.to_string())?;
 
-            // Build json_object() query; wrap each column with IIF(typeof()='blob',hex(),col)
-            // so BLOB values (including untyped columns storing binary data) are hex-encoded
-            let col_refs: String = columns
-                .iter()
-                .map(|c| {
-                    let quoted_col = pg_quote(&c.name);
-                    let key = c.name.replace('\'', "''");
-                    format!(
-                        "'{}', IIF(typeof({}) = 'blob', '0x' || hex({}), {})",
-                        key, quoted_col, quoted_col, quoted_col
-                    )
-                })
-                .collect::<Vec<_>>()
-                .join(", ");
+            // Row query — executor decodes all cells via decode_sqlite.
             let row_sql = format!(
-                "SELECT json_object({}) FROM {} {} {} LIMIT ? OFFSET ?",
-                col_refs, quoted, filter_clause.sql, order_clause,
+                "SELECT * FROM {} {} {} LIMIT ? OFFSET ?",
+                quoted, filter_clause.sql, order_clause,
             );
-            let mut row_args = sqlx::sqlite::SqliteArguments::default();
-            for v in filter_clause.values.into_iter() {
-                row_args.add(v).map_err(|e| e.to_string())?;
-            }
-            row_args.add(limit).map_err(|e| e.to_string())?;
-            row_args.add(offset).map_err(|e| e.to_string())?;
+            let mut params = filter_clause.values;
+            params.push(limit.to_string());
+            params.push(offset.to_string());
+            let rows = sqlite_fetch(&mut *conn, &row_sql, &params).await?;
 
-            let raw: Vec<String> =
-                sqlx::query_scalar_with::<_, String, _>(sqlx::AssertSqlSafe(row_sql), row_args)
-                    .fetch_all(&sqlite)
-                    .await
-                    .map_err(|e| e.to_string())?;
-
-            let rows = parse_json_rows(raw)?;
-            let total_pages = if limit > 0 {
-                (total_results + limit - 1) / limit
-            } else {
-                1
-            };
-
-            Ok(QueryResult {
-                columns,
-                rows,
-                total_results,
-                total_pages,
-            })
+            let total_pages = if limit > 0 { (total_results + limit - 1) / limit } else { 1 };
+            Ok(QueryResult { columns, rows, total_results, total_pages })
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{mysql_utf8_literal, parse_json_rows};
-    use serde_json::json;
-
-    #[test]
-    fn mysql_utf8_literal_handles_quotes_backslashes_and_unicode() {
-        assert_eq!(
-            mysql_utf8_literal("owner's\\猫"),
-            "CONVERT(X'6F776E657227735CE78CAB' USING utf8mb4)"
-        );
-    }
-
-    #[test]
-    fn json_rows_preserve_every_valid_row() {
-        let rows = parse_json_rows(vec!["{\"id\":1}".to_string(), "{\"id\":2}".to_string()]);
-
-        assert_eq!(rows.unwrap(), vec![json!({ "id": 1 }), json!({ "id": 2 })]);
-    }
-
-    #[test]
-    fn invalid_json_row_returns_its_position() {
-        let error =
-            parse_json_rows(vec!["{\"id\":1}".to_string(), "invalid".to_string()]).unwrap_err();
-
-        assert!(error.contains("row 2"));
     }
 }

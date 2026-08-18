@@ -86,14 +86,11 @@ export function EditorResultGrid({ result }: { result: StatementResult }) {
             <tr key={rowIndex} className="h-10">
               <td className="border-b-hairline px-3.5 font-mono text-xs text-muted select-none">{rowIndex + 1}</td>
               {result.columns.map((column, columnIndex) => {
-                const value = row[columnIndex];
+                const value = row[columnIndex] ?? { kind: "null" as const, display: null };
                 return (
                   <td key={columnIndex} className="border-b-hairline overflow-hidden whitespace-nowrap px-3.5">
                     <div className="truncate">
-                      <Cell
-                        value={value?.display ?? null}
-                        type={value?.kind === "boolean" ? "boolean" : column.dataType}
-                      />
+                      <Cell cell={value} type={column.dataType} />
                     </div>
                   </td>
                 );

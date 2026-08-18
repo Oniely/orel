@@ -1,6 +1,15 @@
 import { useQuery } from "@tanstack/react-query";
 import { invoke } from "@tauri-apps/api/core";
-import type { FilterRow, TableInfo, QueryResult } from "../types/database";
+import type { FilterRow, TableInfo, QueryResult, ColumnInfo } from "../types/database";
+import type { SqlCell } from "../types/editor";
+
+// Raw shape returned by the Rust `fetch_rows` command — rows are index-ordered arrays
+interface RawQueryResult {
+  columns: ColumnInfo[];
+  rows: SqlCell[][];
+  totalResults: number;
+  totalPages: number;
+}
 
 export const databaseQueryKeys = {
   databases: (connectionId: string | null) => ["databases", connectionId] as const,
@@ -39,13 +48,24 @@ export function useFetchRows(
   return useQuery({
     queryKey: databaseQueryKeys.rows(connectionId, database, table, limit, page, filters),
     queryFn: () =>
-      invoke<QueryResult>("fetch_rows", {
+      invoke<RawQueryResult>("fetch_rows", {
         connectionId: connectionId!,
         table: table!,
         limit,
         offset,
         filters,
       }),
+    select: (raw): QueryResult => ({
+      columns: raw.columns,
+      rows: raw.rows.map((row) =>
+        raw.columns.reduce<Record<string, SqlCell>>((acc, col, i) => {
+          acc[col.name] = row[i];
+          return acc;
+        }, {}),
+      ),
+      totalResults: raw.totalResults,
+      totalPages: raw.totalPages,
+    }),
     enabled: !!connectionId && !!database && !!table,
     staleTime: 30_000,
   });

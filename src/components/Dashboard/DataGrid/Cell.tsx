@@ -1,13 +1,13 @@
+import type { SqlCell } from "../../../types/editor";
 import { getTypeColor } from "../../../lib/typeColors";
 
-export default function Cell({ value, type }: { value: unknown; type: string }) {
-  if (value === null || value === undefined) {
+export default function Cell({ cell, type }: { cell: SqlCell; type: string }) {
+  if (cell.kind === "null" || cell.display === null) {
     return <span className="text-muted italic text-xs">NULL</span>;
   }
   const color = getTypeColor(type);
-  const isBool = type === "boolean" || type === "bool";
-  if (isBool || typeof value === "boolean") {
-    const bool = value === true || value === "true" || value === 1 || value === "1";
+  if (cell.kind === "boolean") {
+    const bool = cell.display === "true";
     return (
       <span className="inline-flex items-center gap-1.5">
         <span className="w-2 h-2 rounded-[2px]" style={{ background: bool ? "var(--success)" : "var(--muted)" }} />
@@ -17,20 +17,19 @@ export default function Cell({ value, type }: { value: unknown; type: string }) 
       </span>
     );
   }
-  if (typeof value === "string" && value.startsWith("http")) {
+  if (cell.kind === "text" && cell.display.startsWith("http")) {
     return (
       <span className="inline-flex items-center gap-1.5">
-        <img src={value} className="w-4 h-4 rounded-full object-cover" alt="" />
+        <img src={cell.display} className="w-4 h-4 rounded-full object-cover" alt="" />
         <span className="font-mono text-xs truncate" style={{ color }}>
-          {value.slice(0, 32)}…
+          {cell.display.slice(0, 32)}…
         </span>
       </span>
     );
   }
-  const display = typeof value === "object" ? JSON.stringify(value) : String(value);
   return (
     <span className="font-mono text-xs" style={{ color }}>
-      {display}
+      {cell.display}
     </span>
   );
 }
