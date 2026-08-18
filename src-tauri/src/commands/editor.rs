@@ -15,6 +15,9 @@ use sqlx::{
 use uuid::Uuid;
 
 use super::connection::{AppState, DbPool};
+use super::sql_util::{
+    mysql_primary_columns, normalize_type, pg_primary_columns, sqlite_primary_columns, Dialect,
+};
 
 /// The editor intentionally retains a small, bounded preview. Change this one
 /// constant when a configurable result-size preference is introduced.
@@ -129,12 +132,7 @@ enum ControlStatement {
     Other,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum SqlDialect {
-    Postgres,
-    MySql,
-    Sqlite,
-}
+type SqlDialect = Dialect;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum MySqlAutocommitChange {
@@ -175,12 +173,10 @@ async fn acquire_connection(pool: &DbPool) -> Result<EditorConnection, String> {
 
 fn connection_dialect(state: &AppState, connection_id: &str) -> Result<SqlDialect, String> {
     let pools = state.pools.lock().unwrap();
-    match pools.get(connection_id) {
-        Some(DbPool::Postgres(_)) => Ok(SqlDialect::Postgres),
-        Some(DbPool::MySql(_)) => Ok(SqlDialect::MySql),
-        Some(DbPool::Sqlite(_)) => Ok(SqlDialect::Sqlite),
-        None => Err("Connection not found".to_string()),
-    }
+    pools
+        .get(connection_id)
+        .map(|pool| pool.dialect())
+        .ok_or_else(|| "Connection not found".to_string())
 }
 
 async fn take_or_create_session(
@@ -457,7 +453,12 @@ fn decode_sqlite(row: &SqliteRow, index: usize) -> SqlCell {
             .map(|value| cell("boolean", value.to_string()))
             .unwrap_or_else(|_| {
                 row.try_get::<i64, _>(index)
-                    .map(|value| cell("boolean", if value != 0 { "true" } else { "false" }.to_string()))
+                    .map(|value| {
+                        cell(
+                            "boolean",
+                            if value != 0 { "true" } else { "false" }.to_string(),
+                        )
+                    })
                     .unwrap_or_else(|error| cell("text", format!("<decode error: {error}>")))
             }),
         "integer" | "int" => row
@@ -479,12 +480,16 @@ fn decode_sqlite(row: &SqliteRow, index: usize) -> SqlCell {
     }
 }
 
-fn columns_from_row<R: Row>(row: &R, primary_columns: &HashSet<String>) -> Vec<SqlResultColumn> {
+fn columns_from_row<R: Row>(
+    row: &R,
+    primary_columns: &HashSet<String>,
+    dialect: Dialect,
+) -> Vec<SqlResultColumn> {
     row.columns()
         .iter()
         .map(|column| SqlResultColumn {
             name: column.name().to_string(),
-            data_type: column.type_info().name().to_ascii_lowercase(),
+            data_type: normalize_type(dialect, column.type_info().name()),
             is_primary: primary_columns.contains(column.name()),
         })
         .collect()
@@ -609,56 +614,8 @@ fn source_tables(sql: &str) -> Vec<String> {
     tables
 }
 
-async fn pg_primary_columns(connection: &mut PgConnection, sql: &str) -> HashSet<String> {
-    let mut primary_columns = HashSet::new();
-    for table in source_tables(sql) {
-        let names = sqlx::query_scalar::<_, String>(
-            "SELECT kcu.column_name FROM information_schema.table_constraints tc \
-             JOIN information_schema.key_column_usage kcu ON tc.constraint_name = kcu.constraint_name \
-             AND tc.table_schema = kcu.table_schema AND tc.table_name = kcu.table_name \
-             WHERE tc.constraint_type = 'PRIMARY KEY' AND tc.table_name = $1",
-        )
-        .bind(table)
-        .fetch_all(&mut *connection)
-        .await
-        .unwrap_or_default();
-        primary_columns.extend(names);
-    }
-    primary_columns
-}
-
-async fn mysql_primary_columns(connection: &mut MySqlConnection, sql: &str) -> HashSet<String> {
-    let mut primary_columns = HashSet::new();
-    for table in source_tables(sql) {
-        let names = sqlx::query_scalar::<_, String>(
-            "SELECT CAST(COLUMN_NAME AS CHAR) FROM information_schema.COLUMNS \
-             WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_KEY = 'PRI'",
-        )
-        .bind(table)
-        .fetch_all(&mut *connection)
-        .await
-        .unwrap_or_default();
-        primary_columns.extend(names);
-    }
-    primary_columns
-}
-
-async fn sqlite_primary_columns(connection: &mut SqliteConnection, sql: &str) -> HashSet<String> {
-    let mut primary_columns = HashSet::new();
-    for table in source_tables(sql) {
-        let names =
-            sqlx::query_scalar::<_, String>("SELECT name FROM pragma_table_info(?) WHERE pk > 0")
-                .bind(table)
-                .fetch_all(&mut *connection)
-                .await
-                .unwrap_or_default();
-        primary_columns.extend(names);
-    }
-    primary_columns
-}
-
 macro_rules! execute_statement {
-    ($fn_name:ident, $connection:ty, $row:ty, $decoder:ident, $primary_columns:ident) => {
+    ($fn_name:ident, $connection:ty, $row:ty, $decoder:ident, $primary_columns:ident, $dialect:expr) => {
         async fn $fn_name(
             connection: &mut $connection,
             sql: &str,
@@ -672,7 +629,7 @@ macro_rules! execute_statement {
                 .as_ref()
                 .is_ok_and(|description| !description.columns().is_empty())
             {
-                $primary_columns(connection, sql).await
+                $primary_columns(connection, &source_tables(sql)).await
             } else {
                 HashSet::new()
             };
@@ -683,7 +640,7 @@ macro_rules! execute_statement {
                         .iter()
                         .map(|column| SqlResultColumn {
                             name: column.name().to_string(),
-                            data_type: column.type_info().name().to_ascii_lowercase(),
+                            data_type: normalize_type($dialect, column.type_info().name()),
                             is_primary: primary_columns.contains(column.name()),
                         })
                         .collect::<Vec<_>>()
@@ -713,7 +670,7 @@ macro_rules! execute_statement {
                     match item {
                         Ok(row) => {
                             if columns.is_empty() {
-                                columns = columns_from_row(&row, &primary_columns);
+                                columns = columns_from_row(&row, &primary_columns, $dialect);
                             }
                             row_count += 1;
                             if rows.len() < MAX_QUERY_RESULT_ROWS {
@@ -760,21 +717,24 @@ execute_statement!(
     PgConnection,
     PgRow,
     decode_pg,
-    pg_primary_columns
+    pg_primary_columns,
+    Dialect::Postgres
 );
 execute_statement!(
     execute_mysql,
     MySqlConnection,
     MySqlRow,
     decode_mysql,
-    mysql_primary_columns
+    mysql_primary_columns,
+    Dialect::MySql
 );
 execute_statement!(
     execute_sqlite,
     SqliteConnection,
     SqliteRow,
     decode_sqlite,
-    sqlite_primary_columns
+    sqlite_primary_columns,
+    Dialect::Sqlite
 );
 
 async fn run_statement(

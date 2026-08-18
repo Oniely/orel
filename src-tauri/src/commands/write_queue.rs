@@ -1,5 +1,5 @@
 use crate::commands::connection::{AppState, DbPool};
-use crate::commands::query::{mysql_quote, pg_quote};
+use super::sql_util::Dialect;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -45,31 +45,18 @@ pub struct ApplyResult {
 
 // ── SQL helpers ──────────────────────────────────────────────────────────────
 
-enum Driver {
-    Postgres,
-    MySql,
-    Sqlite,
-}
-
-fn quote_ident(name: &str, driver: &Driver) -> String {
-    match driver {
-        Driver::Postgres | Driver::Sqlite => pg_quote(name),
-        Driver::MySql => mysql_quote(name),
-    }
-}
-
-fn format_sql_value(val: &Value, driver: &Driver) -> String {
+fn format_sql_value(val: &Value, dialect: &Dialect) -> String {
     match val {
         Value::Null => "NULL".to_string(),
-        Value::Bool(b) => match driver {
-            Driver::Postgres => {
+        Value::Bool(b) => match dialect {
+            Dialect::Postgres => {
                 if *b {
                     "TRUE".to_string()
                 } else {
                     "FALSE".to_string()
                 }
             }
-            Driver::MySql | Driver::Sqlite => {
+            Dialect::MySql | Dialect::Sqlite => {
                 if *b {
                     "1".to_string()
                 } else {
@@ -87,7 +74,7 @@ fn format_sql_value(val: &Value, driver: &Driver) -> String {
     }
 }
 
-fn build_where_clause(identity: &RowIdentity, driver: &Driver) -> String {
+fn build_where_clause(identity: &RowIdentity, dialect: &Dialect) -> String {
     identity
         .pk_columns
         .iter()
@@ -95,16 +82,16 @@ fn build_where_clause(identity: &RowIdentity, driver: &Driver) -> String {
         .map(|(col, val)| {
             format!(
                 "{} = {}",
-                quote_ident(col, driver),
-                format_sql_value(val, driver)
+                dialect.quote(col),
+                format_sql_value(val, dialect)
             )
         })
         .collect::<Vec<_>>()
         .join(" AND ")
 }
 
-fn change_to_sql(table: &str, change: &PendingChange, driver: &Driver) -> String {
-    let qt = quote_ident(table, driver);
+fn change_to_sql(table: &str, change: &PendingChange, dialect: &Dialect) -> String {
+    let qt = dialect.quote(table);
     match change {
         PendingChange::Update { identity, changes } => {
             let set_clause = changes
@@ -112,49 +99,41 @@ fn change_to_sql(table: &str, change: &PendingChange, driver: &Driver) -> String
                 .map(|c| {
                     format!(
                         "{} = {}",
-                        quote_ident(&c.column, driver),
-                        format_sql_value(&c.new_value, driver)
+                        dialect.quote(&c.column),
+                        format_sql_value(&c.new_value, dialect)
                     )
                 })
                 .collect::<Vec<_>>()
                 .join(", ");
-            let where_clause = build_where_clause(identity, driver);
+            let where_clause = build_where_clause(identity, dialect);
             format!("UPDATE {} SET {} WHERE {}", qt, set_clause, where_clause)
         }
         PendingChange::Delete { identity } => {
-            let where_clause = build_where_clause(identity, driver);
+            let where_clause = build_where_clause(identity, dialect);
             format!("DELETE FROM {} WHERE {}", qt, where_clause)
         }
         PendingChange::Insert { values } => {
             if values.is_empty() {
                 // Empty insert — use DEFAULT VALUES for Postgres/SQLite, () VALUES () for MySQL
-                return match driver {
-                    Driver::Postgres | Driver::Sqlite => {
+                return match dialect {
+                    Dialect::Postgres | Dialect::Sqlite => {
                         format!("INSERT INTO {} DEFAULT VALUES", qt)
                     }
-                    Driver::MySql => format!("INSERT INTO {} () VALUES ()", qt),
+                    Dialect::MySql => format!("INSERT INTO {} () VALUES ()", qt),
                 };
             }
             let cols = values
                 .keys()
-                .map(|k| quote_ident(k, driver))
+                .map(|k| dialect.quote(k))
                 .collect::<Vec<_>>()
                 .join(", ");
             let vals = values
                 .values()
-                .map(|v| format_sql_value(v, driver))
+                .map(|v| format_sql_value(v, dialect))
                 .collect::<Vec<_>>()
                 .join(", ");
             format!("INSERT INTO {} ({}) VALUES ({})", qt, cols, vals)
         }
-    }
-}
-
-fn driver_from_pool(pool: &DbPool) -> Driver {
-    match pool {
-        DbPool::Postgres(_) => Driver::Postgres,
-        DbPool::MySql(_) => Driver::MySql,
-        DbPool::Sqlite(_) => Driver::Sqlite,
     }
 }
 
@@ -200,10 +179,10 @@ pub async fn generate_sql(
             .clone()
     };
 
-    let driver = driver_from_pool(&pool);
+    let dialect = pool.dialect();
     let sqls = changes
         .iter()
-        .map(|c| change_to_sql(&table, c, &driver))
+        .map(|c| change_to_sql(&table, c, &dialect))
         .collect();
 
     Ok(sqls)
@@ -224,10 +203,10 @@ pub async fn apply_write_queue(
             .clone()
     };
 
-    let driver = driver_from_pool(&pool);
+    let dialect = pool.dialect();
     let sqls: Vec<String> = changes
         .iter()
-        .map(|c| change_to_sql(&table, c, &driver))
+        .map(|c| change_to_sql(&table, c, &dialect))
         .collect();
 
     let total = sqls.len();
@@ -289,22 +268,7 @@ async fn apply_sequential(pool: &DbPool, sqls: &[String]) -> Result<ApplyResult,
     let mut applied = Vec::new();
 
     for (i, sql) in sqls.iter().enumerate() {
-        let err = match pool {
-            DbPool::Postgres(pg) => sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
-                .execute(pg)
-                .await
-                .err(),
-            DbPool::MySql(mysql) => sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
-                .execute(mysql)
-                .await
-                .err(),
-            DbPool::Sqlite(sqlite) => sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
-                .execute(sqlite)
-                .await
-                .err(),
-        };
-
-        if let Some(e) = err {
+        if let Err(e) = pool.execute(sql).await {
             return Ok(ApplyResult {
                 applied,
                 failed: Some((i, e.to_string())),

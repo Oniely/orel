@@ -59,6 +59,14 @@ const TYPE_CATEGORY: Record<string, string> = {
   "float8[]": "number",
   "bool[]": "bool",
   "uuid[]": "uuid",
+  // Normalized array types (from normalize_pg_type)
+  "integer[]": "number",
+  "smallint[]": "number",
+  "bigint[]": "number",
+  "real[]": "number",
+  "double precision[]": "number",
+  "boolean[]": "bool",
+  "char[]": "string",
 };
 
 // Hue offsets from the theme accent for each category
