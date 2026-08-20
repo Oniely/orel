@@ -1,9 +1,9 @@
 import { useNavigate, useRouter } from "@tanstack/react-router";
-import { useDeleteConnection, useConnect } from "../../hooks/useConnections";
+import { useConnect } from "../../hooks/useConnections";
 import { useConnectionStore } from "../../stores/connection.store";
 import { SavedConnection } from "../../types/connection";
 import { DB_LABELS } from "../../routes";
-import { Button, Spinner, toast } from "@heroui/react";
+import { Button, toast } from "@heroui/react";
 
 import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
 import { PencilLineIcon, TrashIcon } from "@phosphor-icons/react";
@@ -13,13 +13,14 @@ const appWindow = getCurrentWindow();
 export default function ConnectionRow({
   connection,
   onEdit,
+  onDelete,
 }: {
   connection: SavedConnection;
   onEdit: (connection: SavedConnection) => void;
+  onDelete: (connection: SavedConnection) => void;
 }) {
   const navigate = useNavigate();
   const router = useRouter();
-  const deleteConnection = useDeleteConnection();
   const connect = useConnect();
   const isConnecting = connect.isPending;
   // check for any connection that are connecting (global check)
@@ -91,11 +92,11 @@ export default function ConnectionRow({
                   size="sm"
                   variant="ghost"
                   className="min-w-0 px-2 h-7 text-danger hover:bg-danger-soft-hover"
-                  onPress={() => deleteConnection.mutate(connection.id)}
-                  isDisabled={deleteConnection.isPending || isAnyConnecting}
+                  onPress={() => onDelete(connection)}
+                  isDisabled={isAnyConnecting}
                   aria-label="Remove connection"
                 >
-                  {deleteConnection.isPending ? <Spinner size="sm" /> : <TrashIcon />}
+                  <TrashIcon />
                 </Button>
               </div>
             </div>

@@ -1,8 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { Button, Spinner } from "@heroui/react";
+import { AlertDialog, Button, Spinner } from "@heroui/react";
 import { ConnectionModal } from "../components/ConnectionModal";
-import { useLoadConnections } from "../hooks/useConnections";
+import { useDeleteConnection, useLoadConnections } from "../hooks/useConnections";
 import { useConnectionStore } from "../stores/connection.store";
 import type { SavedConnection } from "../types/connection";
 import ConnectionRow from "../components/ConnectionManager/ConnectionRow";
@@ -29,8 +29,10 @@ const appWindow = getCurrentWindow();
 function ConnectionManager() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editingConnection, setEditingConnection] = useState<SavedConnection | null>(null);
+  const [deletingConnection, setDeletingConnection] = useState<SavedConnection | null>(null);
   const { savedConnections } = useConnectionStore();
   const { isLoading, error } = useLoadConnections();
+  const deleteConnection = useDeleteConnection();
 
   const handleEdit = (connection: SavedConnection) => {
     setEditingConnection(connection);
@@ -70,16 +72,16 @@ function ConnectionManager() {
                 setModalOpen(true);
               }}
             >
-            <svg
-              className="w-3.5 h-3.5 mr-1"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={2}
-              strokeLinecap="round"
-            >
-              <path d="M12 5v14M5 12h14" />
-            </svg>
+              <svg
+                className="w-3.5 h-3.5 mr-1"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2}
+                strokeLinecap="round"
+              >
+                <path d="M12 5v14M5 12h14" />
+              </svg>
               New connection
             </Button>
           </div>
@@ -128,7 +130,7 @@ function ConnectionManager() {
           <div className="flex flex-col gap-2">
             <p className="text-xs font-medium text-muted uppercase tracking-wide mb-2">Saved connections</p>
             {savedConnections.map((conn) => (
-              <ConnectionRow key={conn.id} connection={conn} onEdit={handleEdit} />
+              <ConnectionRow key={conn.id} connection={conn} onEdit={handleEdit} onDelete={setDeletingConnection} />
             ))}
           </div>
         )}
@@ -142,6 +144,55 @@ function ConnectionManager() {
           connection={editingConnection ?? undefined}
         />
       )}
+
+      <AlertDialog>
+        <AlertDialog.Backdrop
+          isOpen={!!deletingConnection}
+          isDismissable={!deleteConnection.isPending}
+          isKeyboardDismissDisabled={deleteConnection.isPending}
+          onOpenChange={(open) => {
+            if (!open && !deleteConnection.isPending) setDeletingConnection(null);
+          }}
+        >
+          <AlertDialog.Container size="sm">
+            <AlertDialog.Dialog>
+              <AlertDialog.Header>
+                <AlertDialog.Heading>Delete connection?</AlertDialog.Heading>
+              </AlertDialog.Header>
+              <AlertDialog.Body>
+                <p>
+                  Are you sure you want to <span className="text-danger">delete</span>{" "}
+                  <strong className="text-accent">
+                    <u>{deletingConnection?.name}</u>
+                  </strong>
+                  ? This cannot be undone.
+                </p>
+              </AlertDialog.Body>
+              <AlertDialog.Footer>
+                <Button
+                  variant="outline"
+                  isDisabled={deleteConnection.isPending}
+                  onPress={() => setDeletingConnection(null)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  className="bg-danger text-white"
+                  isDisabled={deleteConnection.isPending}
+                  onPress={() => {
+                    if (!deletingConnection) return;
+                    deleteConnection.mutate(deletingConnection.id, {
+                      onSuccess: () => setDeletingConnection(null),
+                    });
+                  }}
+                >
+                  {deleteConnection.isPending ? <Spinner size="sm" /> : "Delete"}
+                </Button>
+              </AlertDialog.Footer>
+            </AlertDialog.Dialog>
+          </AlertDialog.Container>
+        </AlertDialog.Backdrop>
+      </AlertDialog>
     </div>
   );
 }
