@@ -8,6 +8,9 @@ import type { SavedConnection } from "../types/connection";
 import ConnectionRow from "../components/ConnectionManager/ConnectionRow";
 import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
 import { SettingsButton } from "../components/SettingsButton";
+import { GrMysql } from "react-icons/gr";
+import { SiPostgresql } from "react-icons/si";
+import { SqliteIcon } from "../components/icons/SqliteIcon";
 
 export const Route = createFileRoute("/")({
   component: ConnectionManager,
@@ -24,6 +27,13 @@ export const DB_LABELS: Record<string, string> = {
   mysql: "MySQL",
   sqlite: "SQLite",
 };
+
+export const DB_ICONS: Record<string, React.ReactElement> = {
+  postgres: <SiPostgresql strokeWidth={2} />,
+  mysql: <GrMysql strokeWidth={2} />,
+  sqlite: <SqliteIcon />,
+};
+
 const appWindow = getCurrentWindow();
 
 function ConnectionManager() {
