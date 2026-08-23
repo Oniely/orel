@@ -2,7 +2,7 @@ import { useNavigate, useRouter } from "@tanstack/react-router";
 import { useConnect } from "../../hooks/useConnections";
 import { useConnectionStore } from "../../stores/connection.store";
 import { SavedConnection } from "../../types/connection";
-import { DB_LABELS } from "../../routes";
+import { DB_ICONS, DB_LABELS } from "../../routes";
 import { Button, toast } from "@heroui/react";
 
 import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
@@ -120,16 +120,21 @@ export default function ConnectionRow({
   );
 }
 
-function ConnectionAvatar({ name }: { name: string; type: string }) {
+function ConnectionAvatar({ name, type }: { name: string; type: string }) {
   const initials = name
     .split(/\s+/)
     .slice(0, 2)
     .map((w) => w[0]?.toUpperCase() ?? "")
     .join("");
 
+  // adjust size for sqlite icon
+  const iconSize = type === "sqlite" ? "text-base" : "text-xs";
+
   return (
-    <div className="w-8 h-8 rounded-lg flex items-center justify-center text-xs font-semibold shrink-0 bg-surface-secondary text-accent">
-      {initials || "DB"}
+    <div
+      className={`w-8 h-8 rounded-lg flex items-center justify-center font-semibold shrink-0 bg-surface-secondary text-accent ${iconSize}`}
+    >
+      {DB_ICONS[type] || initials}
     </div>
   );
 }
