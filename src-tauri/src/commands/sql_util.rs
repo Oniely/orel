@@ -1,11 +1,7 @@
 use std::collections::HashSet;
 
 use serde::Serialize;
-use sqlx::{
-    mysql::MySqlConnection,
-    postgres::PgConnection,
-    sqlite::SqliteConnection,
-};
+use sqlx::{mysql::MySqlConnection, postgres::PgConnection, sqlite::SqliteConnection};
 
 use super::connection::DbPool;
 
@@ -38,15 +34,18 @@ impl DbPool {
 
     pub async fn execute(&self, sql: &str) -> Result<u64, sqlx::Error> {
         let rows = match self {
-            Self::Postgres(pg) => {
-                sqlx::query(sqlx::AssertSqlSafe(sql)).execute(pg).await?.rows_affected()
-            }
-            Self::MySql(mysql) => {
-                sqlx::query(sqlx::AssertSqlSafe(sql)).execute(mysql).await?.rows_affected()
-            }
-            Self::Sqlite(sqlite) => {
-                sqlx::query(sqlx::AssertSqlSafe(sql)).execute(sqlite).await?.rows_affected()
-            }
+            Self::Postgres(pg) => sqlx::query(sqlx::AssertSqlSafe(sql))
+                .execute(pg)
+                .await?
+                .rows_affected(),
+            Self::MySql(mysql) => sqlx::query(sqlx::AssertSqlSafe(sql))
+                .execute(mysql)
+                .await?
+                .rows_affected(),
+            Self::Sqlite(sqlite) => sqlx::query(sqlx::AssertSqlSafe(sql))
+                .execute(sqlite)
+                .await?
+                .rows_affected(),
         };
         Ok(rows)
     }
