@@ -4,7 +4,8 @@ import { RowContextMenu } from "./DataGrid/RowContextMenu";
 import { WriteQueueFooter } from "./DataGrid/WriteQueueFooter";
 import { FilterBar } from "./DataGrid/FilterBar";
 import { DataGrid } from "./DataGrid/DataGrid";
-import { StructurePanel, TableStatusFooter } from "./DataGrid/TableWorkspaceFooter";
+import { TableStatusFooter } from "./DataGrid/TableWorkspaceFooter";
+import { StructurePanel } from "./TableStructure/StructurePanel";
 import { useDashboardStore, DEFAULT_FILTER_ROW } from "../../stores/dashboard.store";
 import { useDashboardContext } from "../../hooks/dashboard/useDashboardContext";
 import { useActiveTable } from "../../hooks/dashboard/useActiveTable";
@@ -12,7 +13,7 @@ import { TabStrip } from "./Tabs/TabStrip";
 import { SqlWorkspace } from "./SqlEditor/SqlWorkspace";
 
 export function DashboardWorkspace() {
-  const { activeTab, activeTableName, scopeKey } = useDashboardContext();
+  const { activeTab, activeTableName, connectionId, activeDatabase, scopeKey } = useDashboardContext();
   const { queryResult, error, totalResults, totalPages, page, limit, setPage, writeQueue: wq } = useActiveTable();
   const {
     setSelectedRowIndex,
@@ -115,7 +116,7 @@ export function DashboardWorkspace() {
           )}
         </>
       ) : (
-        <StructurePanel activeTable={activeTableName} />
+        <StructurePanel connectionId={connectionId} database={activeDatabase} activeTable={activeTableName} />
       )}
 
       {/* Write queue footer — only when there are pending changes */}

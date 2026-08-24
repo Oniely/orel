@@ -19,6 +19,12 @@ export interface QueryResult {
   totalPages: number;
 }
 
+export interface TableDdl {
+  ddl: string;
+  dialect: "postgres" | "mysql" | "sqlite";
+  source: "native" | "generated";
+}
+
 export type FilterOperator =
   | "equals"
   | "not equals"

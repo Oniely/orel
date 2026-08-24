@@ -2,11 +2,11 @@ use serde::Serialize;
 use serde_json::Value;
 use sqlx::Arguments as _;
 
-use crate::commands::connection::{AppState, DbPool};
 use super::sql_util::{
-    pg_quote, mysql_quote, fetch_column_info,
-    pg_json_row_sql, mysql_json_row_sql, sqlite_json_row_sql,
+    fetch_column_info, mysql_json_row_sql, mysql_quote, pg_json_row_sql, pg_quote,
+    sqlite_json_row_sql,
 };
+use crate::commands::connection::{AppState, DbPool};
 
 pub use super::sql_util::ColumnInfo;
 
@@ -387,12 +387,7 @@ pub async fn fetch_rows(
                     .map_err(|e| e.to_string())?
             };
 
-            let row_sql = mysql_json_row_sql(
-                &table,
-                &columns,
-                &filter_clause.sql,
-                &order_clause,
-            );
+            let row_sql = mysql_json_row_sql(&table, &columns, &filter_clause.sql, &order_clause);
             let mut row_args = sqlx::mysql::MySqlArguments::default();
             for v in filter_clause.values.into_iter() {
                 row_args.add(v).map_err(|e| e.to_string())?;
@@ -445,12 +440,7 @@ pub async fn fetch_rows(
                     .await
                     .map_err(|e| e.to_string())?;
 
-            let row_sql = sqlite_json_row_sql(
-                &table,
-                &columns,
-                &filter_clause.sql,
-                &order_clause,
-            );
+            let row_sql = sqlite_json_row_sql(&table, &columns, &filter_clause.sql, &order_clause);
             let mut row_args = sqlx::sqlite::SqliteArguments::default();
             for v in filter_clause.values.into_iter() {
                 row_args.add(v).map_err(|e| e.to_string())?;
