@@ -99,6 +99,8 @@ pub(crate) fn normalize_mysql_type(raw: &str) -> String {
     let s = raw.to_ascii_lowercase();
     match s.as_str() {
         "newdecimal" => "decimal".to_string(),
+        // MySQL BOOLEAN/BOOL is an alias for TINYINT(1), not a real boolean type
+        "boolean" | "bool" => "tinyint".to_string(),
         _ => s,
     }
 }
@@ -184,7 +186,6 @@ pub(crate) async fn fetch_column_info(
             let col_rows = sqlx::query_as::<_, (String, String, String, i8, i8)>(
                 "SELECT CAST(COLUMN_NAME AS CHAR), \
                 CAST(CASE \
-                  WHEN COLUMN_TYPE = 'tinyint(1)' THEN 'boolean' \
                   WHEN COLUMN_TYPE LIKE '% unsigned' THEN CONCAT(DATA_TYPE, ' unsigned') \
                   ELSE DATA_TYPE \
                 END AS CHAR), \
@@ -272,7 +273,9 @@ pub(crate) fn pg_json_row_sql(
 }
 
 /// Build a SELECT that returns one JSON-string per row for MySQL.
-/// Uses JSON_OBJECT with CAST(col AS CHAR) and hex-encoded column name keys.
+/// Uses JSON_OBJECT with native types preserved (like PG's row_to_json).
+/// Binary columns are hex-encoded; everything else is passed raw so
+/// JSON_OBJECT retains integers, floats, and nulls.
 pub(crate) fn mysql_json_row_sql(
     table: &str,
     columns: &[ColumnInfo],
@@ -283,17 +286,26 @@ pub(crate) fn mysql_json_row_sql(
     let col_refs: String = columns
         .iter()
         .map(|c| {
-            format!(
-                "{}, CAST({} AS CHAR)",
-                mysql_utf8_literal(&c.name),
-                mysql_quote(&c.name)
-            )
+            let key = mysql_utf8_literal(&c.name);
+            let col = mysql_quote(&c.name);
+            if is_mysql_binary_type(&c.data_type) {
+                format!("{key}, CONCAT('0x', HEX({col}))")
+            } else {
+                format!("{key}, {col}")
+            }
         })
         .collect::<Vec<_>>()
         .join(", ");
     format!(
         "SELECT CAST(JSON_OBJECT({}) AS CHAR) FROM {} {} {} LIMIT ? OFFSET ?",
         col_refs, quoted, filter_sql, order_clause,
+    )
+}
+
+pub(crate) fn is_mysql_binary_type(data_type: &str) -> bool {
+    matches!(
+        data_type,
+        "tinyblob" | "blob" | "mediumblob" | "longblob" | "binary" | "varbinary"
     )
 }
 
@@ -415,6 +427,9 @@ mod tests {
         assert_eq!(normalize_mysql_type("NEWDECIMAL"), "decimal");
         assert_eq!(normalize_mysql_type("INT"), "int");
         assert_eq!(normalize_mysql_type("VARCHAR"), "varchar");
+        // MySQL BOOLEAN/BOOL is just TINYINT(1), not a real boolean
+        assert_eq!(normalize_mysql_type("BOOLEAN"), "tinyint");
+        assert_eq!(normalize_mysql_type("BOOL"), "tinyint");
     }
 
     #[test]
@@ -424,6 +439,16 @@ mod tests {
         assert_eq!(normalize_sqlite_type("BOOLEAN"), "boolean");
         assert_eq!(normalize_sqlite_type("BLOB"), "blob");
         assert_eq!(normalize_sqlite_type("REAL"), "real");
+    }
+
+    #[test]
+    fn mysql_unsigned_passthrough() {
+        assert_eq!(normalize_mysql_type("BIGINT UNSIGNED"), "bigint unsigned");
+        assert_eq!(normalize_mysql_type("INT UNSIGNED"), "int unsigned");
+        assert_eq!(
+            normalize_mysql_type("TINYINT UNSIGNED"),
+            "tinyint unsigned"
+        );
     }
 
     #[test]
