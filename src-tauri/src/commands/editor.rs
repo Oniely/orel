@@ -16,7 +16,8 @@ use uuid::Uuid;
 
 use super::connection::{AppState, DbPool};
 use super::sql_util::{
-    mysql_primary_columns, normalize_type, pg_primary_columns, sqlite_primary_columns, Dialect,
+    is_mysql_binary_type, mysql_primary_columns, normalize_type, pg_primary_columns,
+    sqlite_primary_columns, Dialect,
 };
 
 /// The editor intentionally retains a small, bounded preview. Change this one
@@ -395,8 +396,8 @@ fn decode_mysql(row: &MySqlRow, index: usize) -> SqlCell {
         };
     }
     match type_name.as_str() {
-        "boolean" | "bool" => decoded!(bool, "boolean"),
-        "tinyint" | "tinyint unsigned" | "smallint" | "smallint unsigned" | "mediumint"
+        "boolean" | "bool" | "tinyint" | "tinyint unsigned" | "smallint"
+        | "smallint unsigned" | "mediumint"
         | "mediumint unsigned" | "int" | "int unsigned" | "bigint" | "bigint unsigned" => {
             decoded!(i64, "number");
             decoded!(u64, "number");
@@ -432,7 +433,7 @@ fn decode_mysql(row: &MySqlRow, index: usize) -> SqlCell {
             decoded!(Value, "json");
             decoded!(String, "text");
         }
-        "tinyblob" | "blob" | "mediumblob" | "longblob" | "binary" | "varbinary" => {
+        t if is_mysql_binary_type(t) => {
             if let Ok(value) = row.try_get::<Vec<u8>, _>(index) {
                 return cell("binary", hex(&value));
             }

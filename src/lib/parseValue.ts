@@ -1,6 +1,6 @@
-const INT_TYPES = /^(integer|int|int2|int4|int8|bigint|smallint|serial|bigserial|smallserial|tinyint|mediumint)$/i;
-const FLOAT_TYPES = /^(numeric|decimal|float|float4|float8|real|double precision|double)$/i;
-const BOOL_TYPES = /^(boolean|bool|tinyint\(1\))$/i;
+const INT_TYPES = /^(integer|int|bigint|smallint|tinyint|mediumint)( unsigned)?$/i;
+const FLOAT_TYPES = /^(numeric|decimal|float|real|double precision|double)( unsigned)?$/i;
+const BOOL_TYPES = /^boolean$/i;
 
 /**
  * Parse a string value from an inline edit input into a typed JS value

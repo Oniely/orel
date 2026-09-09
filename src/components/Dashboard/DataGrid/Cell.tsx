@@ -5,9 +5,9 @@ export default function Cell({ value, type }: { value: unknown; type: string }) 
     return <span className="text-muted italic text-xs">NULL</span>;
   }
   const color = getTypeColor(type);
-  const isBool = type === "boolean" || type === "bool";
-  if (isBool || typeof value === "boolean") {
-    const bool = value === true || value === "true" || value === 1 || value === "1";
+  const isBool = type === "boolean";
+  if (typeof value === "boolean" || (isBool && (value === "true" || value === "false"))) {
+    const bool = value === true || value === "true";
     return (
       <span className="inline-flex items-center gap-1.5">
         <span className="w-2 h-2 rounded-[2px]" style={{ background: bool ? "var(--success)" : "var(--muted)" }} />
