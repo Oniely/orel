@@ -17,7 +17,7 @@ use commands::editor::{
     execute_editor_sql, rollback_editor_transaction,
 };
 use commands::query::{fetch_rows, list_tables};
-use commands::structure::fetch_table_ddl;
+use commands::structure::{apply_structure_changes, fetch_table_ddl, fetch_table_structure};
 use commands::write_queue::{apply_write_queue, generate_sql};
 use sqlx::{
     sqlite::{SqliteConnectOptions, SqlitePoolOptions},
@@ -162,6 +162,8 @@ pub fn run() {
             list_tables,
             fetch_rows,
             fetch_table_ddl,
+            fetch_table_structure,
+            apply_structure_changes,
             apply_write_queue,
             generate_sql,
             execute_editor_sql,

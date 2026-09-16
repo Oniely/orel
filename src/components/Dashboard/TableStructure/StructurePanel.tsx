@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { DDL } from "./DDL";
+import { ColumnsTable } from "./ColumnsTable";
 
 const STRUCTURE_TABS = ["Columns", "Indexes", "Foreign Keys", "DDL"] as const;
 type StructureTabType = (typeof STRUCTURE_TABS)[number];
@@ -55,7 +56,9 @@ export function StructurePanel({ connectionId, database, activeTable }: Structur
       </div>
 
       <div className="flex-1 overflow-auto bg-background">
-        {activeTab === "DDL" ? (
+        {activeTab === "Columns" ? (
+          <ColumnsTable connectionId={connectionId} database={database} table={activeTable} />
+        ) : activeTab === "DDL" ? (
           <DDL connectionId={connectionId} database={database} table={activeTable} />
         ) : (
           <div className="flex items-center justify-center h-full">
