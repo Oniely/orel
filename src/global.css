@@ -148,6 +148,7 @@ body {
   border-bottom: 1px solid color-mix(in oklch, var(--separator) 60%, transparent);
 }
 
+
 .cell-hoverable:hover {
   background: color-mix(in oklch, var(--foreground) 4%, transparent);
 }

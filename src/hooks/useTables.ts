@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { invoke } from "@tauri-apps/api/core";
-import type { FilterRow, TableInfo, QueryResult, TableDdl } from "../types/database";
+import type { FilterRow, TableInfo, QueryResult, TableDdl, TableStructure } from "../types/database";
 
 export const databaseQueryKeys = {
   databases: (connectionId: string | null) => ["databases", connectionId] as const,
@@ -20,6 +20,8 @@ export const databaseQueryKeys = {
     filters: FilterRow[],
   ) => ["rows", connectionId, database, table, limit, page, filters] as const,
   rowsForDatabase: (connectionId: string, database: string) => ["rows", connectionId, database] as const,
+  tableStructure: (connectionId: string | null, database: string | null, table: string | null) =>
+    ["table-structure", connectionId, database, table] as const,
 };
 
 export function useListTables(connectionId: string | null, database: string | null) {
@@ -36,6 +38,23 @@ export function useFetchTableDdl(connectionId: string | null, database: string |
     queryKey: databaseQueryKeys.tableDdl(connectionId, database, table),
     queryFn: () =>
       invoke<TableDdl>("fetch_table_ddl", {
+        connectionId: connectionId!,
+        table: table!,
+      }),
+    enabled: !!connectionId && !!database && !!table,
+    staleTime: 30_000,
+  });
+}
+
+export function useFetchTableStructure(
+  connectionId: string | null,
+  database: string | null,
+  table: string | null,
+) {
+  return useQuery({
+    queryKey: databaseQueryKeys.tableStructure(connectionId, database, table),
+    queryFn: () =>
+      invoke<TableStructure>("fetch_table_structure", {
         connectionId: connectionId!,
         table: table!,
       }),

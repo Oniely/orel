@@ -25,6 +25,22 @@ export interface TableDdl {
   source: "native" | "generated";
 }
 
+export interface StructureColumn {
+  name: string;
+  dataType: string;
+  typeParams: string | null;
+  isNullable: boolean;
+  isPrimary: boolean;
+  isForeignKey: boolean;
+  isIndexed: boolean;
+  defaultValue: string | null;
+}
+
+export interface TableStructure {
+  columns: StructureColumn[];
+  dialect: "postgres" | "mysql" | "sqlite";
+}
+
 export type FilterOperator =
   | "equals"
   | "not equals"
