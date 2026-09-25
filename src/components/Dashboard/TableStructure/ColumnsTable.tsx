@@ -1,11 +1,10 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import { useQueryClient } from "@tanstack/react-query";
 import { LuGripVertical, LuPlus, LuTrash2, LuX, LuUndo2, LuLink } from "react-icons/lu";
 import { KeyIcon } from "../shared/icons";
 import { getTypeColor } from "../../../lib/typeColors";
 import { DIALECT_TYPES, TYPE_PARAMS_META } from "../../../lib/dialectTypes";
-import { useFetchTableStructure, databaseQueryKeys } from "../../../hooks/useTables";
+import { useFetchTableStructure, useApplyStructureChanges } from "../../../hooks/useTables";
+import { getErrorMessage } from "../../../lib/error";
 import type { StructureColumn } from "../../../types/database";
 
 // Pre-encoded SVG chevron for native select styling (avoids encodeURIComponent on every render)
@@ -291,7 +290,7 @@ export function ColumnsTable({
   database,
   table,
 }: ColumnsTableProps) {
-  const queryClient = useQueryClient();
+  const applyChanges = useApplyStructureChanges();
   const { data, isLoading, error } = useFetchTableStructure(
     connectionId,
     database,
@@ -306,8 +305,6 @@ export function ColumnsTable({
   const [pendingDeletes, setPendingDeletes] = useState<string[]>([]);
   const [pendingAdds, setPendingAdds] = useState<PendingAdd[]>([]);
   const [pendingReorder, setPendingReorder] = useState<string[] | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
 
   // ── Edit helpers ─────────────────────────────────────────────────────────
 
@@ -316,14 +313,22 @@ export function ColumnsTable({
       const original = cols.find((c) => c.name === name);
       if (!original) return;
 
+      // Params belong to the type: a new type starts without them (the input is
+      // hidden for types that take none), and going back restores the original.
+      const fields: Record<string, unknown> = { [field]: value };
+      if (field === "dataType") {
+        fields.typeParams = value === original.dataType ? original.typeParams : null;
+      }
+
       setPendingEdits((prev) => {
         const existing = { ...(prev[name] ?? {}) };
-        const origVal = (original as unknown as Record<string, unknown>)[field];
-
-        if (value === origVal) {
-          delete existing[field as keyof typeof existing];
-        } else {
-          (existing as Record<string, unknown>)[field] = value;
+        for (const [key, fieldValue] of Object.entries(fields)) {
+          const origVal = (original as unknown as Record<string, unknown>)[key];
+          if (fieldValue === origVal) {
+            delete existing[key as keyof typeof existing];
+          } else {
+            (existing as Record<string, unknown>)[key] = fieldValue;
+          }
         }
 
         const next = { ...prev };
@@ -369,7 +374,7 @@ export function ColumnsTable({
       setPendingAdds((prev) =>
         prev.map((a) =>
           a.tempId === tempId
-            ? { ...a, [field]: value }
+            ? { ...a, [field]: value, ...(field === "dataType" ? { typeParams: null } : {}) }
             : a,
         ),
       );
@@ -481,22 +486,23 @@ export function ColumnsTable({
 
   // ── Save / Cancel ────────────────────────────────────────────────────────
 
+  const { reset: resetApply } = applyChanges;
   const cancelAll = useCallback(() => {
     setPendingEdits({});
     setPendingDeletes([]);
     setPendingAdds([]);
     setPendingReorder(null);
-    setSaveError(null);
-  }, []);
+    resetApply();
+  }, [resetApply]);
 
-  const saveAll = useCallback(async () => {
+  const saveAll = useCallback(() => {
     if (!connectionId || !table || pendingCount === 0) return;
-    setSaving(true);
-    setSaveError(null);
 
-    const edits = Object.entries(pendingEdits).map(([originalName, diff]) => {
-      const orig = cols.find((c) => c.name === originalName)!;
-      return {
+    const edits = Object.entries(pendingEdits).flatMap(([originalName, diff]) => {
+      const orig = cols.find((c) => c.name === originalName);
+      // Edits to a column that is also being dropped don't matter
+      if (!orig || pendingDeletes.includes(originalName)) return [];
+      return [{
         originalName,
         name: (diff.name as string | undefined) ?? orig.name,
         dataType: (diff.dataType as string | undefined) ?? orig.dataType,
@@ -510,7 +516,7 @@ export function ColumnsTable({
           diff.defaultValue !== undefined
             ? diff.defaultValue
             : orig.defaultValue,
-      };
+      }];
     });
 
     const adds = pendingAdds.map(
@@ -523,25 +529,15 @@ export function ColumnsTable({
       }),
     );
 
-    try {
-      await invoke("apply_structure_changes", {
+    applyChanges.mutate(
+      {
         connectionId,
+        database,
         table,
         changes: { edits, drops: pendingDeletes, adds, reorder: pendingReorder },
-      });
-      cancelAll();
-      // Invalidate structure + rows queries so they refetch
-      queryClient.invalidateQueries({
-        queryKey: databaseQueryKeys.tableStructure(connectionId, database, table),
-      });
-      queryClient.invalidateQueries({
-        queryKey: databaseQueryKeys.tableDdl(connectionId, database, table),
-      });
-    } catch (e) {
-      setSaveError(String(e));
-    } finally {
-      setSaving(false);
-    }
+      },
+      { onSuccess: cancelAll },
+    );
   }, [
     connectionId,
     database,
@@ -553,8 +549,11 @@ export function ColumnsTable({
     pendingReorder,
     cols,
     cancelAll,
-    queryClient,
+    applyChanges,
   ]);
+
+  const saving = applyChanges.isPending;
+  const saveError = applyChanges.error ? getErrorMessage(applyChanges.error, "Failed to apply changes") : null;
 
   // ── Effective column values (original + pending edits) ───────────────────
 

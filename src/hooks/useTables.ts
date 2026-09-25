@@ -1,6 +1,13 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { invoke } from "@tauri-apps/api/core";
-import type { FilterRow, TableInfo, QueryResult, TableDdl, TableStructure } from "../types/database";
+import type {
+  FilterRow,
+  TableInfo,
+  QueryResult,
+  TableDdl,
+  TableStructure,
+  StructureChanges,
+} from "../types/database";
 
 export const databaseQueryKeys = {
   databases: (connectionId: string | null) => ["databases", connectionId] as const,
@@ -20,6 +27,11 @@ export const databaseQueryKeys = {
     filters: FilterRow[],
   ) => ["rows", connectionId, database, table, limit, page, filters] as const,
   rowsForDatabase: (connectionId: string, database: string) => ["rows", connectionId, database] as const,
+  rowsForTable: (connectionId: string, database: string | null, table: string) =>
+    ["rows", connectionId, database, table] as const,
+  tableStructureForConnection: (connectionId: string) => ["table-structure", connectionId] as const,
+  tableStructureForDatabase: (connectionId: string, database: string) =>
+    ["table-structure", connectionId, database] as const,
   tableStructure: (connectionId: string | null, database: string | null, table: string | null) =>
     ["table-structure", connectionId, database, table] as const,
 };
@@ -60,6 +72,34 @@ export function useFetchTableStructure(
       }),
     enabled: !!connectionId && !!database && !!table,
     staleTime: 30_000,
+  });
+}
+
+interface ApplyStructureInput {
+  connectionId: string;
+  database: string | null;
+  table: string;
+  changes: StructureChanges;
+}
+
+export function useApplyStructureChanges() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ connectionId, table, changes }: ApplyStructureInput) =>
+      invoke<string[]>("apply_structure_changes", { connectionId, table, changes }),
+    onSuccess: (_stmts, { connectionId, database, table }) => {
+      void queryClient.invalidateQueries({
+        queryKey: databaseQueryKeys.tableStructure(connectionId, database, table),
+      });
+      void queryClient.invalidateQueries({
+        queryKey: databaseQueryKeys.tableDdl(connectionId, database, table),
+      });
+      // Cached rows carry the old column list
+      void queryClient.invalidateQueries({
+        queryKey: databaseQueryKeys.rowsForTable(connectionId, database, table),
+      });
+    },
   });
 }
 
