@@ -1,10 +1,13 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 
 use crate::commands::connection::{AppState, DbPool};
 
-use super::sql_util::{mysql_quote, normalize_mysql_type, normalize_pg_type, normalize_sqlite_type, pg_quote};
+use super::sql_util::{
+    mysql_quote, mysql_string_literal, normalize_mysql_type, normalize_pg_type, normalize_sqlite_type,
+    pg_quote,
+};
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -283,6 +286,21 @@ pub struct StructureColumn {
     pub is_foreign_key: bool,
     pub is_indexed: bool,
     pub default_value: Option<String>,
+    /// Backend-only: attributes MySQL's MODIFY/CHANGE must restate.
+    #[serde(skip)]
+    pub mysql: Option<MySqlColumnMeta>,
+}
+
+/// Column attributes that MySQL's MODIFY/CHANGE COLUMN reset unless restated.
+#[derive(Debug, Clone, Default)]
+pub struct MySqlColumnMeta {
+    /// Full COLUMN_TYPE, e.g. `int(10) unsigned zerofill` or `enum('a','b')`.
+    pub column_type: String,
+    pub extra: String,
+    pub comment: String,
+    pub charset: Option<String>,
+    pub collation: Option<String>,
+    pub generation_expr: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -369,6 +387,7 @@ async fn fetch_pg_structure(
                     is_foreign_key: is_fk,
                     is_indexed,
                     default_value: default_expr,
+                    mysql: None,
                 }
             },
         )
@@ -380,29 +399,53 @@ async fn fetch_pg_structure(
     })
 }
 
+#[derive(sqlx::FromRow)]
+struct MySqlColumnRow {
+    name: String,
+    data_type: String,
+    column_type: String,
+    is_nullable: String,
+    is_primary: i8,
+    is_fk: i8,
+    is_indexed: i8,
+    default_value: Option<String>,
+    extra: Option<String>,
+    comment: Option<String>,
+    charset: Option<String>,
+    collation: Option<String>,
+    generation_expr: Option<String>,
+    is_mariadb: i8,
+}
+
 async fn fetch_mysql_structure(
     pool: &sqlx::MySqlPool,
     table: &str,
 ) -> Result<TableStructure, String> {
-    let rows = sqlx::query_as::<_, (String, String, String, String, i8, i8, i8, Option<String>)>(
+    let rows = sqlx::query_as::<_, MySqlColumnRow>(
         "SELECT \
-            CAST(c.COLUMN_NAME AS CHAR), \
+            CAST(c.COLUMN_NAME AS CHAR) AS name, \
             CAST(CASE \
-                WHEN c.COLUMN_TYPE LIKE '% unsigned' THEN CONCAT(c.DATA_TYPE, ' unsigned') \
+                WHEN c.COLUMN_TYPE LIKE '% unsigned%' THEN CONCAT(c.DATA_TYPE, ' unsigned') \
                 ELSE c.DATA_TYPE \
-            END AS CHAR), \
-            CAST(c.COLUMN_TYPE AS CHAR), \
-            CAST(c.IS_NULLABLE AS CHAR), \
-            IF(c.COLUMN_KEY = 'PRI', 1, 0), \
+            END AS CHAR) AS data_type, \
+            CAST(c.COLUMN_TYPE AS CHAR) AS column_type, \
+            CAST(c.IS_NULLABLE AS CHAR) AS is_nullable, \
+            IF(c.COLUMN_KEY = 'PRI', 1, 0) AS is_primary, \
             IF(EXISTS( \
                 SELECT 1 FROM information_schema.KEY_COLUMN_USAGE k \
                 WHERE k.TABLE_SCHEMA = c.TABLE_SCHEMA \
                     AND k.TABLE_NAME = c.TABLE_NAME \
                     AND k.COLUMN_NAME = c.COLUMN_NAME \
                     AND k.REFERENCED_TABLE_NAME IS NOT NULL \
-            ), 1, 0), \
-            IF(c.COLUMN_KEY IN ('MUL', 'UNI'), 1, 0), \
-            CAST(c.COLUMN_DEFAULT AS CHAR) \
+            ), 1, 0) AS is_fk, \
+            IF(c.COLUMN_KEY IN ('MUL', 'UNI'), 1, 0) AS is_indexed, \
+            CAST(c.COLUMN_DEFAULT AS CHAR) AS default_value, \
+            CAST(c.EXTRA AS CHAR) AS extra, \
+            CAST(c.COLUMN_COMMENT AS CHAR) AS comment, \
+            CAST(c.CHARACTER_SET_NAME AS CHAR) AS charset, \
+            CAST(c.COLLATION_NAME AS CHAR) AS collation, \
+            CAST(c.GENERATION_EXPRESSION AS CHAR) AS generation_expr, \
+            IF(VERSION() LIKE '%MariaDB%', 1, 0) AS is_mariadb \
         FROM information_schema.COLUMNS c \
         WHERE c.TABLE_SCHEMA = DATABASE() AND c.TABLE_NAME = ? \
         ORDER BY c.ORDINAL_POSITION",
@@ -414,26 +457,89 @@ async fn fetch_mysql_structure(
 
     let columns = rows
         .into_iter()
-        .map(
-            |(name, data_type, column_type, is_nullable, is_primary, is_fk, is_indexed, default_value)| {
-                StructureColumn {
-                    name,
-                    data_type: normalize_mysql_type(&data_type),
-                    type_params: extract_type_params(&column_type),
-                    is_nullable: is_nullable == "YES",
-                    is_primary: is_primary != 0,
-                    is_foreign_key: is_fk != 0,
-                    is_indexed: is_indexed != 0,
-                    default_value,
-                }
-            },
-        )
+        .map(|row| {
+            let data_type = normalize_mysql_type(&row.data_type);
+            let extra = row.extra.unwrap_or_default();
+            let default_value =
+                mysql_default_sql(row.default_value, &extra, &data_type, row.is_mariadb != 0);
+            StructureColumn {
+                name: row.name,
+                type_params: extract_type_params(&row.column_type),
+                data_type,
+                is_nullable: row.is_nullable == "YES",
+                is_primary: row.is_primary != 0,
+                is_foreign_key: row.is_fk != 0,
+                is_indexed: row.is_indexed != 0,
+                default_value,
+                mysql: Some(MySqlColumnMeta {
+                    column_type: row.column_type,
+                    extra,
+                    comment: row.comment.unwrap_or_default(),
+                    charset: row.charset,
+                    collation: row.collation,
+                    generation_expr: row.generation_expr.filter(|e| !e.is_empty()),
+                }),
+            }
+        })
         .collect();
 
     Ok(TableStructure {
         columns,
         dialect: "mysql".to_string(),
     })
+}
+
+/// MySQL's information_schema escapes quotes inside expressions
+/// (`concat(_utf8mb4\'a\')`), which isn't valid SQL when pasted back.
+fn unescape_mysql_expr(expr: &str) -> String {
+    expr.replace("\\'", "'")
+}
+
+fn mysql_base_type(data_type: &str) -> &str {
+    data_type.split(' ').next().unwrap_or(data_type)
+}
+
+fn is_mysql_string_type(data_type: &str) -> bool {
+    matches!(
+        mysql_base_type(data_type),
+        "char" | "varchar" | "tinytext" | "text" | "mediumtext" | "longtext" | "enum" | "set"
+    )
+}
+
+fn is_mysql_numeric_type(data_type: &str) -> bool {
+    matches!(
+        mysql_base_type(data_type),
+        "tinyint" | "smallint" | "mediumint" | "int" | "integer" | "bigint" | "decimal"
+            | "numeric" | "float" | "double" | "real" | "year" | "bit"
+    )
+}
+
+/// Turns COLUMN_DEFAULT into SQL that can follow `DEFAULT`, matching what
+/// Postgres' pg_get_expr returns. MySQL reports string literals unquoted and
+/// expression defaults without their required parentheses; MariaDB already
+/// returns SQL but reports "no default" as the string `NULL`.
+fn mysql_default_sql(
+    raw: Option<String>,
+    extra: &str,
+    data_type: &str,
+    is_mariadb: bool,
+) -> Option<String> {
+    let raw = raw?;
+    if is_mariadb {
+        return (raw != "NULL").then_some(raw);
+    }
+    let lower = raw.to_ascii_lowercase();
+    if lower.starts_with("current_timestamp") || lower.starts_with("now(") || lower.starts_with("localtime") {
+        return Some(raw);
+    }
+    if extra.to_ascii_lowercase().contains("default_generated") {
+        return Some(format!("({})", unescape_mysql_expr(&raw)));
+    }
+    if is_mysql_numeric_type(data_type) {
+        Some(raw)
+    } else {
+        Some(mysql_string_literal(&raw))
+    }
 }
 
 async fn fetch_sqlite_structure(
@@ -484,6 +590,7 @@ async fn fetch_sqlite_structure(
                 is_foreign_key: is_fk,
                 is_indexed: is_idx,
                 default_value: dflt_value,
+                mysql: None,
             }
         })
         .collect();
@@ -547,10 +654,46 @@ pub struct StructureChanges {
     pub reorder: Option<Vec<String>>,
 }
 
-fn col_map(current: &[StructureColumn]) -> std::collections::HashMap<&str, &StructureColumn> {
+fn col_map(current: &[StructureColumn]) -> HashMap<&str, &StructureColumn> {
     current.iter().map(|c| (c.name.as_str(), c)).collect()
 }
 
+/// Pairs each edit with its current column, skipping columns that are also
+/// being dropped. An edit for a column that no longer exists means the UI is
+/// out of date, so it's an error rather than a silent no-op.
+fn resolve_edits<'a>(
+    cols: &HashMap<&str, &'a StructureColumn>,
+    changes: &'a StructureChanges,
+) -> Result<Vec<(&'a StructureColumn, &'a ColumnEditPayload)>, String> {
+    changes
+        .edits
+        .iter()
+        .filter(|edit| !changes.drops.contains(&edit.original_name))
+        .map(|edit| {
+            cols.get(edit.original_name.as_str())
+                .map(|&col| (col, edit))
+                .ok_or_else(|| stale_column_error(&edit.original_name))
+        })
+        .collect()
+}
+
+fn stale_column_error(name: &str) -> String {
+    format!("Column \"{name}\" no longer exists. Refresh the structure and try again.")
+}
+
+fn add_column_def(quoted_name: String, full_type: String, add: &ColumnAddPayload) -> String {
+    let mut def = format!("{quoted_name} {full_type}");
+    if !add.nullable {
+        def.push_str(" NOT NULL");
+    }
+    if let Some(d) = add.default_value.as_deref().filter(|d| !d.is_empty()) {
+        def.push_str(" DEFAULT ");
+        def.push_str(d);
+    }
+    def
+}
+
+/// Drops run first so a rename can reuse a dropped column's name.
 fn generate_pg_alter(
     table: &str,
     current: &[StructureColumn],
@@ -565,12 +708,17 @@ fn generate_pg_alter(
     let mut stmts = Vec::new();
     let qt = pg_quote(table);
     let cols = col_map(current);
+    let edits = resolve_edits(&cols, changes)?;
 
-    for edit in &changes.edits {
-        let Some(orig) = cols.get(edit.original_name.as_str()) else {
-            continue;
-        };
+    for col_name in &changes.drops {
+        stmts.push(format!(
+            "ALTER TABLE {} DROP COLUMN {};",
+            qt,
+            pg_quote(col_name)
+        ));
+    }
 
+    for (orig, edit) in edits {
         if edit.name != edit.original_name {
             stmts.push(format!(
                 "ALTER TABLE {} RENAME COLUMN {} TO {};",
@@ -614,176 +762,186 @@ fn generate_pg_alter(
         }
     }
 
-    for col_name in &changes.drops {
-        stmts.push(format!(
-            "ALTER TABLE {} DROP COLUMN {};",
-            qt,
-            pg_quote(col_name)
-        ));
-    }
-
     for add in &changes.adds {
         let full_type = type_with_params(&add.data_type, add.type_params.as_deref());
-        let mut stmt = format!(
-            "ALTER TABLE {} ADD COLUMN {} {}",
+        stmts.push(format!(
+            "ALTER TABLE {} ADD COLUMN {};",
             qt,
-            pg_quote(&add.name),
-            full_type
-        );
-        if !add.nullable {
-            stmt.push_str(" NOT NULL");
-        }
-        if let Some(d) = &add.default_value {
-            if !d.is_empty() {
-                stmt.push_str(" DEFAULT ");
-                stmt.push_str(d);
-            }
-        }
-        stmt.push(';');
-        stmts.push(stmt);
+            add_column_def(pg_quote(&add.name), full_type, add)
+        ));
     }
 
     Ok(stmts)
 }
 
-fn mysql_column_def(col: &StructureColumn) -> String {
-    let full_type = type_with_params(&col.data_type, col.type_params.as_deref());
-    let mut def = format!("{} {}", mysql_quote(&col.name), full_type);
-    if !col.is_nullable {
-        def.push_str(" NOT NULL");
+/// Renders a MySQL type with params, keeping modifiers after the params
+/// (`int(10) unsigned`, not `int unsigned(10)`).
+fn mysql_type_sql(data_type: &str, params: Option<&str>) -> String {
+    match data_type.split_once(' ') {
+        Some((base, modifiers)) => format!("{} {}", type_with_params(base, params), modifiers),
+        None => type_with_params(data_type, params),
     }
-    if let Some(d) = &col.default_value {
-        if !d.is_empty() {
+}
+
+fn mysql_definition_changed(orig: &StructureColumn, edit: &ColumnEditPayload) -> bool {
+    edit.data_type != orig.data_type
+        || edit.type_params != orig.type_params
+        || edit.nullable != orig.is_nullable
+        || edit.default_value != orig.default_value
+}
+
+/// Full column definition for MODIFY/CHANGE COLUMN. MySQL replaces the whole
+/// definition, so anything not restated here — AUTO_INCREMENT, COMMENT,
+/// charset, ON UPDATE, generated expressions — would be silently dropped.
+fn mysql_column_def(orig: &StructureColumn, edit: Option<&ColumnEditPayload>) -> String {
+    let (name, data_type, type_params, nullable, default_value) = match edit {
+        Some(e) => (&e.name, &e.data_type, &e.type_params, e.nullable, &e.default_value),
+        None => (&orig.name, &orig.data_type, &orig.type_params, orig.is_nullable, &orig.default_value),
+    };
+    let meta = orig.mysql.as_ref();
+    let type_unchanged = *data_type == orig.data_type && *type_params == orig.type_params;
+    let full_type = match meta {
+        Some(m) if type_unchanged && !m.column_type.is_empty() => m.column_type.clone(),
+        _ => mysql_type_sql(data_type, type_params.as_deref()),
+    };
+    let mut def = format!("{} {}", mysql_quote(name), full_type);
+
+    let extra = meta.map(|m| m.extra.to_ascii_lowercase()).unwrap_or_default();
+    let generated = meta.and_then(|m| m.generation_expr.as_deref());
+
+    if let Some(m) = meta {
+        if let (true, Some(cs), Some(coll)) = (is_mysql_string_type(data_type), &m.charset, &m.collation) {
+            def.push_str(&format!(" CHARACTER SET {cs} COLLATE {coll}"));
+        }
+    }
+    if let Some(expr) = generated {
+        let kind = if extra.contains("stored") { "STORED" } else { "VIRTUAL" };
+        def.push_str(&format!(" GENERATED ALWAYS AS ({}) {kind}", unescape_mysql_expr(expr)));
+    }
+    def.push_str(if nullable { " NULL" } else { " NOT NULL" });
+    if generated.is_none() {
+        if let Some(d) = default_value.as_deref().filter(|d| !d.is_empty()) {
             def.push_str(" DEFAULT ");
             def.push_str(d);
+        }
+    }
+    if let Some(m) = meta {
+        if extra.contains("auto_increment") {
+            def.push_str(" AUTO_INCREMENT");
+        }
+        if let Some(idx) = extra.find("on update ") {
+            def.push_str(" ON UPDATE ");
+            def.push_str(m.extra[idx + "on update ".len()..].trim());
+        }
+        if extra.contains("invisible") {
+            def.push_str(" INVISIBLE");
+        }
+        if !m.comment.is_empty() {
+            def.push_str(" COMMENT ");
+            def.push_str(&mysql_string_literal(&m.comment));
         }
     }
     def
 }
 
+/// Emits one ALTER TABLE: MySQL auto-commits every DDL statement, so a single
+/// statement is the only way to make a save all-or-nothing. Clauses apply in
+/// order and later clauses see earlier renames, so drops go first and column
+/// moves are emitted in the target order with AFTER using the new names.
 fn generate_mysql_alter(
     table: &str,
     current: &[StructureColumn],
     changes: &StructureChanges,
-) -> Vec<String> {
-    let mut stmts = Vec::new();
-    let qt = mysql_quote(table);
+) -> Result<Vec<String>, String> {
     let cols = col_map(current);
+    let edits: HashMap<&str, &ColumnEditPayload> = resolve_edits(&cols, changes)?
+        .into_iter()
+        .map(|(col, edit)| (col.name.as_str(), edit))
+        .collect();
+    let new_name = |orig: &str| edits.get(orig).map_or(orig.to_string(), |e| e.name.clone());
 
-    for edit in &changes.edits {
-        let Some(orig) = cols.get(edit.original_name.as_str()) else {
-            continue;
+    let mut clauses: Vec<String> = changes
+        .drops
+        .iter()
+        .map(|name| format!("DROP COLUMN {}", mysql_quote(name)))
+        .collect();
+
+    let surviving: Vec<&str> = current
+        .iter()
+        .map(|c| c.name.as_str())
+        .filter(|name| !changes.drops.iter().any(|d| d == name))
+        .collect();
+    let target: Vec<&str> = match &changes.reorder {
+        Some(order) => {
+            let order: Vec<&str> = order
+                .iter()
+                .map(String::as_str)
+                .filter(|name| !changes.drops.iter().any(|d| d == name))
+                .collect();
+            let mut sorted_order = order.clone();
+            let mut sorted_surviving = surviving.clone();
+            sorted_order.sort_unstable();
+            sorted_surviving.sort_unstable();
+            if sorted_order != sorted_surviving {
+                return Err("The column order is out of date. Refresh the structure and try again.".to_string());
+            }
+            order
+        }
+        None => surviving.clone(),
+    };
+
+    // Replay moves on a simulated column list so only columns that actually
+    // move get a FIRST/AFTER clause.
+    let mut simulated = surviving;
+    for (i, &orig_name) in target.iter().enumerate() {
+        let col = cols[orig_name];
+        let edit = edits.get(orig_name).copied();
+
+        let position = if simulated[i] != orig_name {
+            let from = simulated.iter().position(|n| *n == orig_name).unwrap_or(i);
+            let moved = simulated.remove(from);
+            simulated.insert(i, moved);
+            if i == 0 {
+                " FIRST".to_string()
+            } else {
+                format!(" AFTER {}", mysql_quote(&new_name(target[i - 1])))
+            }
+        } else {
+            String::new()
         };
 
-        if edit.name != edit.original_name {
-            stmts.push(format!(
-                "ALTER TABLE {} RENAME COLUMN {} TO {};",
-                qt,
-                mysql_quote(&edit.original_name),
-                mysql_quote(&edit.name)
+        let renamed = edit.is_some_and(|e| e.name != e.original_name);
+        let definition_changed = edit.is_some_and(|e| mysql_definition_changed(col, e));
+
+        if definition_changed || !position.is_empty() {
+            let def = mysql_column_def(col, edit);
+            if renamed {
+                clauses.push(format!("CHANGE COLUMN {} {def}{position}", mysql_quote(orig_name)));
+            } else {
+                clauses.push(format!("MODIFY COLUMN {def}{position}"));
+            }
+        } else if renamed {
+            // Rename only: leave the definition untouched.
+            clauses.push(format!(
+                "RENAME COLUMN {} TO {}",
+                mysql_quote(orig_name),
+                mysql_quote(&new_name(orig_name))
             ));
         }
-
-        let col = mysql_quote(&edit.name);
-        let new_type = type_with_params(&edit.data_type, edit.type_params.as_deref());
-        let orig_type = type_with_params(&orig.data_type, orig.type_params.as_deref());
-        let type_changed = new_type != orig_type;
-        let nullable_changed = edit.nullable != orig.is_nullable;
-        let default_changed = edit.default_value != orig.default_value;
-
-        // MySQL MODIFY requires full column definition when changing type/nullable/default
-        if type_changed || nullable_changed || default_changed {
-            let mut stmt = format!("ALTER TABLE {} MODIFY COLUMN {} {}", qt, col, new_type);
-            if !edit.nullable {
-                stmt.push_str(" NOT NULL");
-            }
-            if let Some(d) = &edit.default_value {
-                if !d.is_empty() {
-                    stmt.push_str(" DEFAULT ");
-                    stmt.push_str(d);
-                }
-            }
-            stmt.push(';');
-            stmts.push(stmt);
-        }
-    }
-
-    for col_name in &changes.drops {
-        stmts.push(format!(
-            "ALTER TABLE {} DROP COLUMN {};",
-            qt,
-            mysql_quote(col_name)
-        ));
     }
 
     for add in &changes.adds {
-        let full_type = type_with_params(&add.data_type, add.type_params.as_deref());
-        let mut stmt = format!(
-            "ALTER TABLE {} ADD COLUMN {} {}",
-            qt,
-            mysql_quote(&add.name),
-            full_type
-        );
-        if !add.nullable {
-            stmt.push_str(" NOT NULL");
-        }
-        if let Some(d) = &add.default_value {
-            if !d.is_empty() {
-                stmt.push_str(" DEFAULT ");
-                stmt.push_str(d);
-            }
-        }
-        stmt.push(';');
-        stmts.push(stmt);
+        let full_type = mysql_type_sql(&add.data_type, add.type_params.as_deref());
+        clauses.push(format!("ADD COLUMN {}", add_column_def(mysql_quote(&add.name), full_type, add)));
     }
 
-    if let Some(order) = &changes.reorder {
-        let edits_map: std::collections::HashMap<&str, &ColumnEditPayload> = changes
-            .edits
-            .iter()
-            .map(|e| (e.original_name.as_str(), e))
-            .collect();
-        let reorder_cols: std::collections::HashMap<&str, StructureColumn> = current
-            .iter()
-            .map(|c| {
-                let edited = edits_map.get(c.name.as_str());
-                let col = match edited {
-                    Some(&e) => StructureColumn {
-                        name: e.name.clone(),
-                        data_type: e.data_type.clone(),
-                        type_params: e.type_params.clone(),
-                        is_nullable: e.nullable,
-                        is_primary: c.is_primary,
-                        is_foreign_key: c.is_foreign_key,
-                        is_indexed: c.is_indexed,
-                        default_value: e.default_value.clone(),
-                    },
-                    None => c.clone(),
-                };
-                (c.name.as_str(), col)
-            })
-            .collect();
-
-        for (i, name) in order.iter().enumerate() {
-            if let Some(col) = reorder_cols.get(name.as_str()) {
-                let position = if i == 0 {
-                    " FIRST".to_string()
-                } else {
-                    format!(" AFTER {}", mysql_quote(&order[i - 1]))
-                };
-                stmts.push(format!(
-                    "ALTER TABLE {} MODIFY COLUMN {}{};",
-                    qt,
-                    mysql_column_def(col),
-                    position
-                ));
-            }
-        }
+    if clauses.is_empty() {
+        return Ok(vec![]);
     }
-
-    stmts
+    Ok(vec![format!("ALTER TABLE {} {};", mysql_quote(table), clauses.join(", "))])
 }
 
+/// Drops run first so a rename can reuse a dropped column's name.
 fn generate_sqlite_alter(
     table: &str,
     current: &[StructureColumn],
@@ -798,21 +956,9 @@ fn generate_sqlite_alter(
     let mut stmts = Vec::new();
     let qt = pg_quote(table);
     let cols = col_map(current);
+    let edits = resolve_edits(&cols, changes)?;
 
-    for edit in &changes.edits {
-        let Some(orig) = cols.get(edit.original_name.as_str()) else {
-            continue;
-        };
-
-        if edit.name != edit.original_name {
-            stmts.push(format!(
-                "ALTER TABLE {} RENAME COLUMN {} TO {};",
-                qt,
-                pg_quote(&edit.original_name),
-                pg_quote(&edit.name)
-            ));
-        }
-
+    for (orig, edit) in &edits {
         let new_type = type_with_params(&edit.data_type, edit.type_params.as_deref());
         let orig_type = type_with_params(&orig.data_type, orig.type_params.as_deref());
 
@@ -844,25 +990,24 @@ fn generate_sqlite_alter(
         ));
     }
 
+    for (_, edit) in &edits {
+        if edit.name != edit.original_name {
+            stmts.push(format!(
+                "ALTER TABLE {} RENAME COLUMN {} TO {};",
+                qt,
+                pg_quote(&edit.original_name),
+                pg_quote(&edit.name)
+            ));
+        }
+    }
+
     for add in &changes.adds {
         let full_type = type_with_params(&add.data_type, add.type_params.as_deref());
-        let mut stmt = format!(
-            "ALTER TABLE {} ADD COLUMN {} {}",
+        stmts.push(format!(
+            "ALTER TABLE {} ADD COLUMN {};",
             qt,
-            pg_quote(&add.name),
-            full_type
-        );
-        if !add.nullable {
-            stmt.push_str(" NOT NULL");
-        }
-        if let Some(d) = &add.default_value {
-            if !d.is_empty() {
-                stmt.push_str(" DEFAULT ");
-                stmt.push_str(d);
-            }
-        }
-        stmt.push(';');
-        stmts.push(stmt);
+            add_column_def(pg_quote(&add.name), full_type, add)
+        ));
     }
 
     Ok(stmts)
@@ -892,7 +1037,7 @@ pub async fn apply_structure_changes(
 
     let stmts = match &pool {
         DbPool::Postgres(_) => generate_pg_alter(&table, &current.columns, &changes),
-        DbPool::MySql(_) => Ok(generate_mysql_alter(&table, &current.columns, &changes)),
+        DbPool::MySql(_) => generate_mysql_alter(&table, &current.columns, &changes),
         DbPool::Sqlite(_) => generate_sqlite_alter(&table, &current.columns, &changes),
     }?;
 
@@ -900,9 +1045,9 @@ pub async fn apply_structure_changes(
         return Ok(stmts);
     }
 
-    for stmt in &stmts {
-        pool.execute(stmt).await.map_err(|e| e.to_string())?;
-    }
+    pool.execute_in_transaction(&stmts)
+        .await
+        .map_err(|e| e.to_string())?;
 
     Ok(stmts)
 }
@@ -910,8 +1055,9 @@ pub async fn apply_structure_changes(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sqlx::mysql::{MySqlConnectOptions, MySqlPoolOptions};
     use sqlx::postgres::PgPoolOptions;
-    use testcontainers_modules::{postgres::Postgres, testcontainers::runners::AsyncRunner};
+    use testcontainers_modules::{mysql::Mysql, postgres::Postgres, testcontainers::runners::AsyncRunner};
 
     #[test]
     fn ensure_semicolon_appends_only_when_missing() {
@@ -1066,6 +1212,7 @@ mod tests {
             is_foreign_key: false,
             is_indexed: false,
             default_value: default.map(|s| s.to_string()),
+            mysql: None,
         }
     }
 
@@ -1151,13 +1298,44 @@ mod tests {
     }
 
     #[test]
-    fn pg_edit_nonexistent_column_is_skipped() {
+    fn pg_edit_nonexistent_column_errors() {
         let current = vec![test_col("a", "text", true, None)];
         let changes = StructureChanges {
             edits: vec![edit("does_not_exist", "b", "text", None, true, None)],
             ..empty_changes()
         };
-        assert!(generate_pg_alter("t", &current, &changes).unwrap().is_empty());
+        let err = generate_pg_alter("t", &current, &changes).unwrap_err();
+        assert!(err.contains("no longer exists"));
+    }
+
+    #[test]
+    fn pg_drops_run_before_renames_so_names_can_be_reused() {
+        let current = vec![test_col("name", "text", true, None), test_col("full_name", "text", true, None)];
+        let changes = StructureChanges {
+            edits: vec![edit("full_name", "name", "text", None, true, None)],
+            drops: vec!["name".into()],
+            ..empty_changes()
+        };
+        let stmts = generate_pg_alter("t", &current, &changes).unwrap();
+        assert_eq!(
+            stmts,
+            vec![
+                "ALTER TABLE \"t\" DROP COLUMN \"name\";",
+                "ALTER TABLE \"t\" RENAME COLUMN \"full_name\" TO \"name\";",
+            ]
+        );
+    }
+
+    #[test]
+    fn pg_edits_on_dropped_columns_are_ignored() {
+        let current = vec![test_col("a", "text", true, None)];
+        let changes = StructureChanges {
+            edits: vec![edit("a", "b", "integer", None, false, None)],
+            drops: vec!["a".into()],
+            ..empty_changes()
+        };
+        let stmts = generate_pg_alter("t", &current, &changes).unwrap();
+        assert_eq!(stmts, vec!["ALTER TABLE \"t\" DROP COLUMN \"a\";"]);
     }
 
     #[test]
@@ -1342,17 +1520,24 @@ mod tests {
         };
         let stmts = generate_pg_alter("t", &current, &changes).unwrap();
         assert_eq!(stmts.len(), 3);
-        assert!(stmts[0].contains("TYPE varchar(255)"));
-        assert!(stmts[1].contains("DROP COLUMN \"drop_me\""));
+        assert!(stmts[0].contains("DROP COLUMN \"drop_me\""));
+        assert!(stmts[1].contains("TYPE varchar(255)"));
         assert!(stmts[2].contains("ADD COLUMN \"new\" boolean NOT NULL DEFAULT false"));
     }
 
     // ── MySQL ALTER ──────────────────────────────────────────────────────
 
+    fn mysql_alter(current: &[StructureColumn], changes: &StructureChanges) -> Vec<String> {
+        generate_mysql_alter("t", current, changes).unwrap()
+    }
+
+    fn mysql_col(name: &str, data_type: &str, nullable: bool, default: Option<&str>, meta: MySqlColumnMeta) -> StructureColumn {
+        StructureColumn { mysql: Some(meta), ..test_col(name, data_type, nullable, default) }
+    }
+
     #[test]
     fn mysql_empty_changes_produces_nothing() {
-        let stmts = generate_mysql_alter("t", &[test_col("a", "text", true, None)], &empty_changes());
-        assert!(stmts.is_empty());
+        assert!(mysql_alter(&[test_col("a", "text", true, None)], &empty_changes()).is_empty());
     }
 
     #[test]
@@ -1362,7 +1547,17 @@ mod tests {
             edits: vec![edit("name", "name", "varchar", None, true, None)],
             ..empty_changes()
         };
-        assert!(generate_mysql_alter("t", &current, &changes).is_empty());
+        assert!(mysql_alter(&current, &changes).is_empty());
+    }
+
+    #[test]
+    fn mysql_edit_nonexistent_column_errors() {
+        let changes = StructureChanges {
+            edits: vec![edit("ghost", "ghost", "int", None, true, None)],
+            ..empty_changes()
+        };
+        let err = generate_mysql_alter("t", &[test_col("a", "int", true, None)], &changes).unwrap_err();
+        assert!(err.contains("no longer exists"));
     }
 
     #[test]
@@ -1372,9 +1567,7 @@ mod tests {
             edits: vec![edit("old", "new", "text", None, true, None)],
             ..empty_changes()
         };
-        let stmts = generate_mysql_alter("t", &current, &changes);
-        assert_eq!(stmts.len(), 1);
-        assert_eq!(stmts[0], "ALTER TABLE `t` RENAME COLUMN `old` TO `new`;");
+        assert_eq!(mysql_alter(&current, &changes), vec!["ALTER TABLE `t` RENAME COLUMN `old` TO `new`;"]);
     }
 
     #[test]
@@ -1384,9 +1577,7 @@ mod tests {
             edits: vec![edit("age", "age", "bigint", None, true, None)],
             ..empty_changes()
         };
-        let stmts = generate_mysql_alter("t", &current, &changes);
-        assert_eq!(stmts.len(), 1);
-        assert!(stmts[0].starts_with("ALTER TABLE `t` MODIFY COLUMN `age` bigint;"));
+        assert_eq!(mysql_alter(&current, &changes), vec!["ALTER TABLE `t` MODIFY COLUMN `age` bigint NULL;"]);
     }
 
     #[test]
@@ -1396,21 +1587,23 @@ mod tests {
             edits: vec![edit("name", "name", "varchar", Some("100"), false, Some("'test'"))],
             ..empty_changes()
         };
-        let stmts = generate_mysql_alter("t", &current, &changes);
-        assert_eq!(stmts, vec!["ALTER TABLE `t` MODIFY COLUMN `name` varchar(100) NOT NULL DEFAULT 'test';"]);
+        assert_eq!(
+            mysql_alter(&current, &changes),
+            vec!["ALTER TABLE `t` MODIFY COLUMN `name` varchar(100) NOT NULL DEFAULT 'test';"]
+        );
     }
 
     #[test]
-    fn mysql_rename_and_modify_generates_two_statements() {
+    fn mysql_rename_and_modify_uses_one_change_clause() {
         let current = vec![test_col("old", "int", true, None)];
         let changes = StructureChanges {
             edits: vec![edit("old", "new", "bigint", None, false, Some("0"))],
             ..empty_changes()
         };
-        let stmts = generate_mysql_alter("t", &current, &changes);
-        assert_eq!(stmts.len(), 2);
-        assert_eq!(stmts[0], "ALTER TABLE `t` RENAME COLUMN `old` TO `new`;");
-        assert!(stmts[1].contains("MODIFY COLUMN `new` bigint NOT NULL DEFAULT 0"));
+        assert_eq!(
+            mysql_alter(&current, &changes),
+            vec!["ALTER TABLE `t` CHANGE COLUMN `old` `new` bigint NOT NULL DEFAULT 0;"]
+        );
     }
 
     #[test]
@@ -1420,22 +1613,20 @@ mod tests {
             edits: vec![edit("col", "col", "text", None, false, None)],
             ..empty_changes()
         };
-        let stmts = generate_mysql_alter("t", &current, &changes);
-        assert_eq!(stmts.len(), 1);
-        assert!(stmts[0].contains("MODIFY COLUMN `col` text NOT NULL"));
+        assert_eq!(mysql_alter(&current, &changes), vec!["ALTER TABLE `t` MODIFY COLUMN `col` text NOT NULL;"]);
     }
 
     #[test]
-    fn mysql_drop_and_add() {
+    fn mysql_everything_is_one_statement() {
         let changes = StructureChanges {
             drops: vec!["old".into()],
             adds: vec![add("new", "varchar", Some("255"), true, None)],
             ..empty_changes()
         };
-        let stmts = generate_mysql_alter("t", &[], &changes);
-        assert_eq!(stmts.len(), 2);
-        assert_eq!(stmts[0], "ALTER TABLE `t` DROP COLUMN `old`;");
-        assert_eq!(stmts[1], "ALTER TABLE `t` ADD COLUMN `new` varchar(255);");
+        assert_eq!(
+            mysql_alter(&[test_col("old", "int", true, None)], &changes),
+            vec!["ALTER TABLE `t` DROP COLUMN `old`, ADD COLUMN `new` varchar(255);"]
+        );
     }
 
     #[test]
@@ -1444,19 +1635,34 @@ mod tests {
             adds: vec![add("active", "boolean", None, false, Some("true"))],
             ..empty_changes()
         };
-        let stmts = generate_mysql_alter("t", &[], &changes);
-        assert_eq!(stmts, vec!["ALTER TABLE `t` ADD COLUMN `active` boolean NOT NULL DEFAULT true;"]);
+        assert_eq!(
+            mysql_alter(&[], &changes),
+            vec!["ALTER TABLE `t` ADD COLUMN `active` boolean NOT NULL DEFAULT true;"]
+        );
     }
 
     #[test]
     fn mysql_backtick_in_name_is_escaped() {
         let changes = StructureChanges { drops: vec!["col`name".into()], ..empty_changes() };
-        let stmts = generate_mysql_alter("t", &[], &changes);
-        assert_eq!(stmts[0], "ALTER TABLE `t` DROP COLUMN `col``name`;");
+        assert_eq!(mysql_alter(&[], &changes), vec!["ALTER TABLE `t` DROP COLUMN `col``name`;"]);
     }
 
     #[test]
-    fn mysql_reorder_basic() {
+    fn mysql_drop_runs_before_rename_to_the_dropped_name() {
+        let current = vec![test_col("name", "text", true, None), test_col("full_name", "text", true, None)];
+        let changes = StructureChanges {
+            edits: vec![edit("full_name", "name", "text", None, true, None)],
+            drops: vec!["name".into()],
+            ..empty_changes()
+        };
+        assert_eq!(
+            mysql_alter(&current, &changes),
+            vec!["ALTER TABLE `t` DROP COLUMN `name`, RENAME COLUMN `full_name` TO `name`;"]
+        );
+    }
+
+    #[test]
+    fn mysql_reorder_only_moves_columns_that_change_position() {
         let current = vec![
             test_col("a", "text", true, None),
             test_col("b", "int", true, None),
@@ -1466,43 +1672,225 @@ mod tests {
             reorder: Some(vec!["c".into(), "a".into(), "b".into()]),
             ..empty_changes()
         };
-        let stmts = generate_mysql_alter("t", &current, &changes);
-        assert_eq!(stmts.len(), 3);
-        assert!(stmts[0].contains("`c` text") && stmts[0].contains("FIRST"));
-        assert!(stmts[1].contains("`a` text") && stmts[1].contains("AFTER `c`"));
-        assert!(stmts[2].contains("`b` int") && stmts[2].contains("AFTER `a`"));
+        assert_eq!(mysql_alter(&current, &changes), vec!["ALTER TABLE `t` MODIFY COLUMN `c` text NULL FIRST;"]);
     }
 
     #[test]
     fn mysql_reorder_uses_edited_column_definition() {
-        let current = vec![
-            test_col("a", "text", true, None),
-            test_col("b", "int", true, None),
-        ];
+        let current = vec![test_col("a", "text", true, None), test_col("b", "int", true, None)];
         let changes = StructureChanges {
             edits: vec![edit("a", "a", "varchar", Some("100"), false, Some("'x'"))],
             reorder: Some(vec!["b".into(), "a".into()]),
             ..empty_changes()
         };
-        let stmts = generate_mysql_alter("t", &current, &changes);
-        // First: the MODIFY from the edit
-        assert!(stmts.iter().any(|s| s.contains("MODIFY COLUMN `a` varchar(100) NOT NULL DEFAULT 'x';")));
-        // Reorder should use the edited definition for 'a'
-        let reorder_a = stmts.iter().find(|s| s.contains("AFTER `b`")).unwrap();
-        assert!(reorder_a.contains("varchar(100) NOT NULL DEFAULT 'x'"));
+        assert_eq!(
+            mysql_alter(&current, &changes),
+            vec!["ALTER TABLE `t` MODIFY COLUMN `b` int NULL FIRST, MODIFY COLUMN `a` varchar(100) NOT NULL DEFAULT 'x';"]
+        );
     }
 
     #[test]
-    fn mysql_reorder_skips_unknown_column_names() {
+    fn mysql_reorder_after_renamed_column_uses_new_name() {
+        let current = vec![
+            test_col("a", "int", true, None),
+            test_col("b", "int", true, None),
+            test_col("c", "int", true, None),
+        ];
+        let changes = StructureChanges {
+            edits: vec![edit("a", "a2", "int", None, true, None)],
+            reorder: Some(vec!["a".into(), "c".into(), "b".into()]),
+            ..empty_changes()
+        };
+        assert_eq!(
+            mysql_alter(&current, &changes),
+            vec!["ALTER TABLE `t` RENAME COLUMN `a` TO `a2`, MODIFY COLUMN `c` int NULL AFTER `a2`;"]
+        );
+    }
+
+    #[test]
+    fn mysql_reorder_ignores_dropped_columns() {
+        let current = vec![
+            test_col("a", "int", true, None),
+            test_col("b", "int", true, None),
+            test_col("c", "int", true, None),
+        ];
+        let changes = StructureChanges {
+            drops: vec!["b".into()],
+            reorder: Some(vec!["c".into(), "b".into(), "a".into()]),
+            ..empty_changes()
+        };
+        assert_eq!(
+            mysql_alter(&current, &changes),
+            vec!["ALTER TABLE `t` DROP COLUMN `b`, MODIFY COLUMN `c` int NULL FIRST;"]
+        );
+    }
+
+    #[test]
+    fn mysql_reorder_with_unknown_columns_errors() {
         let current = vec![test_col("a", "text", true, None)];
         let changes = StructureChanges {
             reorder: Some(vec!["nonexistent".into(), "a".into()]),
             ..empty_changes()
         };
-        let stmts = generate_mysql_alter("t", &current, &changes);
-        // Only 'a' should generate a MODIFY, 'nonexistent' is silently skipped
-        assert_eq!(stmts.len(), 1);
-        assert!(stmts[0].contains("`a`"));
+        assert!(generate_mysql_alter("t", &current, &changes).unwrap_err().contains("out of date"));
+    }
+
+    #[test]
+    fn mysql_modify_preserves_auto_increment() {
+        let meta = MySqlColumnMeta {
+            column_type: "int unsigned".into(),
+            extra: "auto_increment".into(),
+            ..Default::default()
+        };
+        let current = vec![
+            mysql_col("id", "int unsigned", false, None, meta),
+            test_col("b", "int", true, None),
+        ];
+        let changes = StructureChanges {
+            reorder: Some(vec!["b".into(), "id".into()]),
+            ..empty_changes()
+        };
+        assert_eq!(
+            mysql_alter(&current, &changes),
+            vec!["ALTER TABLE `t` MODIFY COLUMN `b` int NULL FIRST;"]
+        );
+        let changes = StructureChanges {
+            reorder: Some(vec!["id".into(), "b".into()]),
+            edits: vec![edit("id", "id", "bigint unsigned", None, false, None)],
+            ..empty_changes()
+        };
+        assert_eq!(
+            mysql_alter(&current, &changes),
+            vec!["ALTER TABLE `t` MODIFY COLUMN `id` bigint unsigned NOT NULL AUTO_INCREMENT;"]
+        );
+    }
+
+    // -- mysql_column_def --
+
+    #[test]
+    fn mysql_column_def_full() {
+        let col = StructureColumn {
+            type_params: Some("10,2".into()),
+            ..test_col("price", "decimal", false, Some("0.00"))
+        };
+        assert_eq!(mysql_column_def(&col, None), "`price` decimal(10,2) NOT NULL DEFAULT 0.00");
+    }
+
+    #[test]
+    fn mysql_column_def_nullable_no_default() {
+        let col = test_col("notes", "text", true, None);
+        assert_eq!(mysql_column_def(&col, None), "`notes` text NULL");
+    }
+
+    #[test]
+    fn mysql_column_def_empty_default_is_omitted() {
+        let col = test_col("col", "int", true, Some(""));
+        assert_eq!(mysql_column_def(&col, None), "`col` int NULL");
+    }
+
+    #[test]
+    fn mysql_column_def_restates_attributes_modify_would_drop() {
+        let col = mysql_col(
+            "status",
+            "varchar",
+            false,
+            Some("'active'"),
+            MySqlColumnMeta {
+                column_type: "varchar(20)".into(),
+                comment: "it's \\ here".into(),
+                charset: Some("latin1".into()),
+                collation: Some("latin1_swedish_ci".into()),
+                ..Default::default()
+            },
+        );
+        assert_eq!(
+            mysql_column_def(&col, None),
+            "`status` varchar(20) CHARACTER SET latin1 COLLATE latin1_swedish_ci NOT NULL DEFAULT 'active' COMMENT 'it''s \\\\ here'"
+        );
+
+        let updated = mysql_col(
+            "updated",
+            "timestamp",
+            false,
+            Some("CURRENT_TIMESTAMP(3)"),
+            MySqlColumnMeta {
+                column_type: "timestamp(3)".into(),
+                extra: "DEFAULT_GENERATED on update CURRENT_TIMESTAMP(3)".into(),
+                ..Default::default()
+            },
+        );
+        assert_eq!(
+            mysql_column_def(&updated, None),
+            "`updated` timestamp(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)"
+        );
+    }
+
+    #[test]
+    fn mysql_column_def_keeps_full_column_type_when_type_is_unchanged() {
+        let col = StructureColumn {
+            type_params: Some("10".into()),
+            ..mysql_col(
+                "n",
+                "int unsigned",
+                true,
+                None,
+                MySqlColumnMeta { column_type: "int(10) unsigned zerofill".into(), ..Default::default() },
+            )
+        };
+        assert_eq!(mysql_column_def(&col, None), "`n` int(10) unsigned zerofill NULL");
+        // A changed type is rendered with params before the modifier
+        let e = edit("n", "n", "bigint unsigned", Some("20"), true, None);
+        assert_eq!(mysql_column_def(&col, Some(&e)), "`n` bigint(20) unsigned NULL");
+    }
+
+    #[test]
+    fn mysql_column_def_generated_column_has_no_default() {
+        let col = mysql_col(
+            "g",
+            "varchar",
+            true,
+            None,
+            MySqlColumnMeta {
+                column_type: "varchar(40)".into(),
+                extra: "STORED GENERATED".into(),
+                generation_expr: Some("concat(`a`,_utf8mb4\\' x\\')".into()),
+                ..Default::default()
+            },
+        );
+        assert_eq!(
+            mysql_column_def(&col, None),
+            "`g` varchar(40) GENERATED ALWAYS AS (concat(`a`,_utf8mb4' x')) STORED NULL"
+        );
+    }
+
+    // -- mysql_default_sql --
+
+    #[test]
+    fn mysql_default_sql_quotes_literals_and_wraps_expressions() {
+        let d = |raw: Option<&str>, extra: &str, dt: &str| mysql_default_sql(raw.map(Into::into), extra, dt, false);
+        assert_eq!(d(None, "", "varchar"), None);
+        assert_eq!(d(Some("active"), "", "varchar"), Some("'active'".into()));
+        assert_eq!(d(Some("it's"), "", "varchar"), Some("'it''s'".into()));
+        assert_eq!(d(Some(""), "", "varchar"), Some("''".into()));
+        assert_eq!(d(Some("0"), "", "int unsigned"), Some("0".into()));
+        assert_eq!(d(Some("b'1'"), "", "bit"), Some("b'1'".into()));
+        assert_eq!(d(Some("uuid()"), "DEFAULT_GENERATED", "varchar"), Some("(uuid())".into()));
+        assert_eq!(
+            d(Some("concat(_latin1\\'a\\')"), "DEFAULT_GENERATED", "varchar"),
+            Some("(concat(_latin1'a'))".into())
+        );
+        assert_eq!(
+            d(Some("CURRENT_TIMESTAMP"), "DEFAULT_GENERATED on update CURRENT_TIMESTAMP", "timestamp"),
+            Some("CURRENT_TIMESTAMP".into())
+        );
+        // MySQL 5.7 reports CURRENT_TIMESTAMP without DEFAULT_GENERATED
+        assert_eq!(d(Some("CURRENT_TIMESTAMP"), "", "datetime"), Some("CURRENT_TIMESTAMP".into()));
+    }
+
+    #[test]
+    fn mysql_default_sql_passes_mariadb_defaults_through() {
+        assert_eq!(mysql_default_sql(Some("'active'".into()), "", "varchar", true), Some("'active'".into()));
+        assert_eq!(mysql_default_sql(Some("NULL".into()), "", "varchar", true), None);
     }
 
     // ── SQLite ALTER ─────────────────────────────────────────────────────
@@ -1572,8 +1960,8 @@ mod tests {
         };
         let stmts = generate_sqlite_alter("t", &current, &changes).unwrap();
         assert_eq!(stmts.len(), 3);
-        assert!(stmts[0].contains("RENAME"));
-        assert!(stmts[1].contains("DROP"));
+        assert!(stmts[0].contains("DROP"));
+        assert!(stmts[1].contains("RENAME"));
         assert!(stmts[2].contains("ADD") && stmts[2].contains("DEFAULT 42"));
     }
 
@@ -1630,44 +2018,157 @@ mod tests {
     }
 
     #[test]
-    fn sqlite_nonexistent_edit_is_skipped() {
+    fn sqlite_nonexistent_edit_errors() {
         let current = vec![test_col("a", "text", true, None)];
         let changes = StructureChanges {
             edits: vec![edit("ghost", "ghost", "text", None, true, None)],
             ..empty_changes()
         };
-        assert!(generate_sqlite_alter("t", &current, &changes).unwrap().is_empty());
+        assert!(generate_sqlite_alter("t", &current, &changes).unwrap_err().contains("no longer exists"));
     }
 
-    // ── mysql_column_def ─────────────────────────────────────────────────
+    // -- Docker-backed integration tests --
 
-    #[test]
-    fn mysql_column_def_full() {
-        let col = StructureColumn {
-            name: "price".into(),
-            data_type: "decimal".into(),
-            type_params: Some("10,2".into()),
-            is_nullable: false,
-            is_primary: false,
-            is_foreign_key: false,
-            is_indexed: false,
-            default_value: Some("0.00".into()),
+    async fn start_mysql() -> (
+        testcontainers_modules::testcontainers::ContainerAsync<Mysql>,
+        sqlx::MySqlPool,
+    ) {
+        let container = Mysql::default().start().await.unwrap();
+        let port = container.get_host_port_ipv4(3306).await.unwrap();
+        let host = container.get_host().await.unwrap().to_string();
+        let opts = MySqlConnectOptions::new().host(&host).port(port).username("root").database("test");
+        let pool = MySqlPoolOptions::new().max_connections(1).connect_with(opts).await.unwrap();
+        (container, pool)
+    }
+
+    async fn apply_mysql(pool: &sqlx::MySqlPool, table: &str, changes: &StructureChanges) -> Result<(), String> {
+        let current = fetch_mysql_structure(pool, table).await?;
+        let stmts = generate_mysql_alter(table, &current.columns, changes)?;
+        DbPool::MySql(pool.clone())
+            .execute_in_transaction(&stmts)
+            .await
+            .map_err(|e| e.to_string())
+    }
+
+    async fn mysql_extra(pool: &sqlx::MySqlPool, table: &str, column: &str) -> (String, String) {
+        sqlx::query_as::<_, (String, String)>(
+            "SELECT CAST(EXTRA AS CHAR), CAST(COLUMN_COMMENT AS CHAR) FROM information_schema.COLUMNS \
+             WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?",
+        )
+        .bind(table)
+        .bind(column)
+        .fetch_one(pool)
+        .await
+        .unwrap()
+    }
+
+    async fn mysql_column_order(pool: &sqlx::MySqlPool, table: &str) -> Vec<String> {
+        sqlx::query_scalar::<_, String>(
+            "SELECT CAST(COLUMN_NAME AS CHAR) FROM information_schema.COLUMNS \
+             WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? ORDER BY ORDINAL_POSITION",
+        )
+        .bind(table)
+        .fetch_all(pool)
+        .await
+        .unwrap()
+    }
+
+    #[tokio::test]
+    #[ignore = "requires Docker"]
+    async fn mysql_structure_edits_preserve_column_attributes() {
+        let (_container, pool) = start_mysql().await;
+        sqlx::query(
+            "CREATE TABLE items ( \
+                id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, \
+                status VARCHAR(20) NOT NULL DEFAULT 'active' COMMENT 'lifecycle', \
+                uid VARCHAR(36) DEFAULT (uuid()), \
+                updated TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, \
+                label VARCHAR(20) DEFAULT (concat('a', 'b')), \
+                g VARCHAR(40) AS (concat(status, ' x')) VIRTUAL \
+             )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let structure = fetch_mysql_structure(&pool, "items").await.unwrap();
+        let status = structure.columns.iter().find(|c| c.name == "status").unwrap();
+        assert_eq!(status.default_value.as_deref(), Some("'active'"));
+
+        // Moving every column and toggling nullability rewrites each definition.
+        let changes = StructureChanges {
+            edits: vec![edit("status", "status", "varchar", Some("20"), true, Some("'active'"))],
+            reorder: Some(vec![
+                "g".into(), "label".into(), "updated".into(), "uid".into(), "status".into(), "id".into(),
+            ]),
+            ..empty_changes()
         };
-        assert_eq!(mysql_column_def(&col), "`price` decimal(10,2) NOT NULL DEFAULT 0.00");
+        apply_mysql(&pool, "items", &changes).await.unwrap();
+
+        assert_eq!(mysql_column_order(&pool, "items").await, ["g", "label", "updated", "uid", "status", "id"]);
+        assert_eq!(mysql_extra(&pool, "items", "id").await.0, "auto_increment");
+        assert_eq!(mysql_extra(&pool, "items", "status").await.1, "lifecycle");
+        assert!(mysql_extra(&pool, "items", "updated").await.0.contains("on update CURRENT_TIMESTAMP"));
+        assert!(mysql_extra(&pool, "items", "g").await.0.contains("VIRTUAL GENERATED"));
+
+        let after = fetch_mysql_structure(&pool, "items").await.unwrap();
+        let col = |name: &str| after.columns.iter().find(|c| c.name == name).unwrap().clone();
+        assert!(col("status").is_nullable);
+        assert_eq!(col("status").default_value.as_deref(), Some("'active'"));
+        assert_eq!(col("uid").default_value.as_deref(), Some("(uuid())"));
+        assert_eq!(col("label").default_value.as_deref(), Some("(concat(_utf8mb4'a',_utf8mb4'b'))"));
+
+        // The id is still generated after the rewrite.
+        sqlx::query("INSERT INTO items (status) VALUES ('x'), ('y')").execute(&pool).await.unwrap();
+        let ids: Vec<u32> = sqlx::query_scalar("SELECT id FROM items ORDER BY id").fetch_all(&pool).await.unwrap();
+        assert_eq!(ids, [1, 2]);
     }
 
-    #[test]
-    fn mysql_column_def_nullable_no_default() {
-        let col = test_col("notes", "text", true, None);
-        assert_eq!(mysql_column_def(&col), "`notes` text");
-    }
+    #[tokio::test]
+    #[ignore = "requires Docker"]
+    async fn mysql_structure_drop_rename_and_reorder_in_one_save() {
+        let (_container, pool) = start_mysql().await;
+        sqlx::query("CREATE TABLE people (a INT, b INT, c INT, full_name VARCHAR(10), name VARCHAR(10))")
+            .execute(&pool)
+            .await
+            .unwrap();
 
-    #[test]
-    fn mysql_column_def_empty_default_is_omitted() {
-        let col = StructureColumn {
-            default_value: Some("".into()),
-            ..test_col("col", "int", true, None)
+        let changes = StructureChanges {
+            edits: vec![
+                edit("a", "a2", "int", None, true, None),
+                edit("full_name", "name", "varchar", Some("10"), true, None),
+            ],
+            drops: vec!["name".into()],
+            reorder: Some(vec!["a".into(), "c".into(), "b".into(), "full_name".into(), "name".into()]),
+            adds: vec![add("e", "int", None, true, None)],
         };
-        assert_eq!(mysql_column_def(&col), "`col` int");
+        apply_mysql(&pool, "people", &changes).await.unwrap();
+
+        assert_eq!(mysql_column_order(&pool, "people").await, ["a2", "c", "b", "name", "e"]);
+    }
+
+    #[tokio::test]
+    #[ignore = "requires Docker"]
+    async fn pg_structure_changes_roll_back_on_failure() {
+        let container = Postgres::default().start().await.unwrap();
+        let port = container.get_host_port_ipv4(5432).await.unwrap();
+        let url = format!("postgres://postgres:postgres@127.0.0.1:{port}/postgres");
+        let pool = PgPoolOptions::new().max_connections(1).connect(&url).await.unwrap();
+
+        sqlx::query("CREATE TABLE stock (qty TEXT)").execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO stock VALUES ('not a number')").execute(&pool).await.unwrap();
+
+        // The rename succeeds, then the type change fails on the existing row.
+        let changes = StructureChanges {
+            edits: vec![edit("qty", "quantity", "integer", None, true, None)],
+            ..empty_changes()
+        };
+        let current = fetch_pg_structure(&pool, "stock").await.unwrap();
+        let stmts = generate_pg_alter("stock", &current.columns, &changes).unwrap();
+        assert!(DbPool::Postgres(pool.clone()).execute_in_transaction(&stmts).await.is_err());
+
+        let after = fetch_pg_structure(&pool, "stock").await.unwrap();
+        assert_eq!(after.columns[0].name, "qty");
+        assert_eq!(after.columns[0].data_type, "text");
     }
 }

@@ -41,6 +41,30 @@ export interface TableStructure {
   dialect: "postgres" | "mysql" | "sqlite";
 }
 
+export interface ColumnEditPayload {
+  originalName: string;
+  name: string;
+  dataType: string;
+  typeParams: string | null;
+  nullable: boolean;
+  defaultValue: string | null;
+}
+
+export interface ColumnAddPayload {
+  name: string;
+  dataType: string;
+  typeParams: string | null;
+  nullable: boolean;
+  defaultValue: string | null;
+}
+
+export interface StructureChanges {
+  edits: ColumnEditPayload[];
+  drops: string[];
+  adds: ColumnAddPayload[];
+  reorder: string[] | null;
+}
+
 export type FilterOperator =
   | "equals"
   | "not equals"

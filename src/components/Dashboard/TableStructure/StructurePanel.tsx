@@ -57,7 +57,13 @@ export function StructurePanel({ connectionId, database, activeTable }: Structur
 
       <div className="flex-1 overflow-auto bg-background">
         {activeTab === "Columns" ? (
-          <ColumnsTable connectionId={connectionId} database={database} table={activeTable} />
+          // Keyed so staged changes never carry over to a same-named table in another database or connection
+          <ColumnsTable
+            key={`${connectionId}::${database}::${activeTable}`}
+            connectionId={connectionId}
+            database={database}
+            table={activeTable}
+          />
         ) : activeTab === "DDL" ? (
           <DDL connectionId={connectionId} database={database} table={activeTable} />
         ) : (
