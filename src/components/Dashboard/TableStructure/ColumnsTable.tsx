@@ -1,6 +1,24 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from "react";
-import { LuGripVertical, LuPlus, LuTrash2, LuX, LuUndo2, LuLink } from "react-icons/lu";
+import { Button, Dropdown, Label, Switch } from "@heroui/react";
+import { LuGripVertical, LuTrash2, LuLink } from "react-icons/lu";
 import { KeyIcon } from "../shared/icons";
+import {
+  CenteredState,
+  DELETED_ROW_TINT,
+  HintIcon,
+  LoadErrorState,
+  LoadingState,
+  NEW_ROW_TINT,
+  NewRowActions,
+  RowActions,
+  RowIconButton,
+  SaveBar,
+  StatusAlert,
+  StructureToolbar,
+  UndoButton,
+  fieldBoxClass,
+  inputClass,
+} from "./shared";
 import { getTypeColor } from "../../../lib/typeColors";
 import { DIALECT_TYPES, TYPE_PARAMS_META } from "../../../lib/dialectTypes";
 import { useFetchTableStructure, useApplyStructureChanges } from "../../../hooks/useTables";
@@ -27,9 +45,6 @@ interface PendingAdd {
   dataType: string;
   typeParams: string | null;
   isNullable: boolean;
-  isPrimary: boolean;
-  isForeignKey: boolean;
-  isIndexed: boolean;
   defaultValue: string | null;
 }
 
@@ -37,36 +52,45 @@ interface ColumnsTableProps {
   connectionId: string | null;
   database: string | null;
   table: string | null;
+  /** Opens the Indexes tab with a new index on this (saved) column */
+  onAddIndex?: (column: string, unique: boolean) => void;
 }
 
-// ── Toggle ───────────────────────────────────────────────────────────────────
+// ── Key Glyph ────────────────────────────────────────────────────────────────
 
-function Toggle({ on, onClick }: { on: boolean; onClick: () => void }) {
-  return (
-    <button
-      onClick={onClick}
-      className="relative shrink-0 rounded-full border border-separator cursor-pointer p-0"
-      style={{
-        width: 36,
-        height: 20,
-        background: on
-          ? "color-mix(in oklch, oklch(74% 0.13 30) 32%, transparent)"
-          : "var(--surface-secondary)",
-      }}
-    >
-      <span
-        className="absolute rounded-full transition-[left] duration-[120ms] ease-out"
-        style={{
-          top: 1.5,
-          left: on ? 18 : 2,
-          width: 15,
-          height: 15,
-          background: on ? "oklch(74% 0.13 30)" : "var(--muted)",
-        }}
-      />
-    </button>
-  );
+const PK_COLOR = "oklch(76% 0.13 60)";
+const INDEX_COLOR = "oklch(70% 0.15 235)";
+
+type KeyFlags = Pick<StructureColumn, "isPrimary" | "isForeignKey" | "isIndexed">;
+
+// Sizes are classes, not the `size` prop: HeroUI's Button CSS forces nested SVGs
+// to 16px with a negative margin, which overrides width/height attributes but not
+// Tailwind utilities (they sit in a later cascade layer).
+function KeyGlyph({ isPrimary, isForeignKey, isIndexed }: KeyFlags) {
+  if (isPrimary) return <KeyIcon className="size-3.5 m-0" style={{ color: PK_COLOR }} />;
+  if (isForeignKey)
+    return (
+      // Sized to look equal, not to have equal boxes: the key drawing fills ~16 of its
+      // 24-unit viewBox with a 1.6 stroke, the link ~20 with a 2.0 stroke. At 12px / 10px
+      // both render ~8px tall with a ~0.8px stroke. (~23px wide, fits the 26px circle)
+      <span className="inline-flex items-center gap-px leading-none" style={{ color: INDEX_COLOR }}>
+        <KeyIcon className="size-3 m-0 shrink-0" />
+        <LuLink className="size-2.5 m-0 shrink-0" />
+      </span>
+    );
+  if (isIndexed) return <KeyIcon className="size-3.5 m-0" style={{ color: INDEX_COLOR }} />;
+  return null;
 }
+
+function keyStatus({ isPrimary, isForeignKey, isIndexed }: KeyFlags): string {
+  if (isPrimary) return "Primary key";
+  if (isForeignKey) return isIndexed ? "Foreign key · indexed" : "Foreign key";
+  return isIndexed ? "Indexed" : "Not indexed";
+}
+
+// Hidden until the row is hovered or focused, so unkeyed columns stay quiet
+const KEY_PLACEHOLDER_CLASS =
+  "text-muted opacity-0 transition-opacity duration-150 group-hover/row:opacity-40 group-focus-within/row:opacity-40 [[aria-expanded=true]_&]:opacity-60";
 
 // ── Highlight wrapper for changed fields ─────────────────────────────────────
 
@@ -90,21 +114,52 @@ function Highlight({ on, children }: { on: boolean; children: React.ReactNode })
   );
 }
 
-// ── Key Glyph ────────────────────────────────────────────────────────────────
+// ── Key Menu (saved columns) ─────────────────────────────────────────────────
 
-function KeyGlyph({ isPrimary, isForeignKey, isIndexed }: { isPrimary: boolean; isForeignKey: boolean; isIndexed: boolean }) {
-  if (isPrimary)
-    return <span className="inline-flex justify-center"><KeyIcon size={13} style={{ color: "oklch(76% 0.13 60)" }} /></span>;
-  if (isForeignKey)
-    return (
-      <span className="inline-flex items-center justify-center gap-0.5">
-        <KeyIcon size={12} style={{ color: "oklch(70% 0.15 235)" }} />
-        <LuLink size={9} style={{ color: "oklch(70% 0.15 235)", opacity: 0.85 }} />
-      </span>
-    );
-  if (isIndexed)
-    return <span className="inline-flex justify-center"><KeyIcon size={12} style={{ color: "oklch(70% 0.15 235)" }} /></span>;
-  return null;
+interface KeyMenuProps {
+  column: StructureColumn;
+  /** Set when the menu can't be used; shown instead of the actions */
+  disabledReason: string | null;
+  onAddIndex: (unique: boolean) => void;
+}
+
+function KeyMenu({ column, disabledReason, onAddIndex }: KeyMenuProps) {
+  const hasKey = column.isPrimary || column.isForeignKey || column.isIndexed;
+  return (
+    <Dropdown>
+      <Button
+        size="sm"
+        variant="ghost"
+        isIconOnly
+        aria-label={`${keyStatus(column)}. Index options for ${column.name}`}
+        className="size-6.5 min-w-0 p-0 rounded-full grid place-items-center transition-colors hover:bg-surface-secondary aria-expanded:bg-surface-secondary focus-visible:ring-1 focus-visible:ring-accent/60"
+      >
+        {hasKey ? (
+          <KeyGlyph {...column} />
+        ) : (
+          <KeyIcon className={`size-3.5 m-0 ${KEY_PLACEHOLDER_CLASS}`} />
+        )}
+      </Button>
+      <Dropdown.Popover className="w-[220px] p-1">
+        <Dropdown.Menu
+          disabledKeys={disabledReason ? ["add-index", "add-unique"] : []}
+          onAction={(key) => onAddIndex(key === "add-unique")}
+        >
+          <Dropdown.Item id="add-index" textValue="Add index">
+            <Label>Add index…</Label>
+          </Dropdown.Item>
+          <Dropdown.Item id="add-unique" textValue="Add unique index">
+            <Label>Add unique index…</Label>
+          </Dropdown.Item>
+          {disabledReason ? (
+            <Dropdown.Item id="disabled-reason" textValue={disabledReason} isDisabled>
+              <span className="text-[11px] text-muted whitespace-normal">{disabledReason}</span>
+            </Dropdown.Item>
+          ) : null}
+        </Dropdown.Menu>
+      </Dropdown.Popover>
+    </Dropdown>
+  );
 }
 
 // ── Editable Row ─────────────────────────────────────────────────────────────
@@ -115,11 +170,9 @@ interface EditableRowProps {
     dataType: string;
     typeParams: string | null;
     isNullable: boolean;
-    isPrimary: boolean;
-    isForeignKey: boolean;
-    isIndexed: boolean;
     defaultValue: string | null;
   };
+  keyCell: React.ReactNode;
   changed: Record<string, boolean>;
   onField: (field: string, value: unknown) => void;
   dialect: string;
@@ -130,15 +183,13 @@ interface EditableRowProps {
     onGripPointerDown: (e: React.PointerEvent) => void;
   };
   rightAction: React.ReactNode;
+  /** Scroll this row into view and focus its name field when it mounts */
+  autoFocus?: boolean;
 }
-
-const fieldBoxClass =
-  "h-[30px] rounded-md bg-surface border border-separator flex items-center";
-const inputClass =
-  "flex-1 bg-transparent border-none outline-none text-foreground text-xs font-mono px-2.5 w-full min-w-0";
 
 function EditableRow({
   values,
+  keyCell,
   changed,
   onField,
   dialect,
@@ -146,7 +197,18 @@ function EditableRow({
   disabled,
   drag,
   rightAction,
+  autoFocus,
 }: EditableRowProps) {
+  const nameInputRef = useRef<HTMLInputElement>(null);
+
+  // A freshly added column may sit far below the fold on wide tables
+  useEffect(() => {
+    if (!autoFocus) return;
+    const input = nameInputRef.current;
+    input?.scrollIntoView({ block: "center", behavior: "smooth" });
+    input?.focus({ preventScroll: true });
+  }, [autoFocus]);
+
   const typeList = DIALECT_TYPES[dialect] ?? DIALECT_TYPES.postgres;
   const paramsMeta = (TYPE_PARAMS_META[dialect] ?? {})[values.dataType];
   // Ensure the current type is always in the list
@@ -159,7 +221,7 @@ function EditableRow({
   const rowBg =
     tint ||
     (disabled
-      ? "color-mix(in oklch, oklch(65% 0.2 25) 12%, transparent)"
+      ? DELETED_ROW_TINT
       : Object.values(changed).some(Boolean)
         ? "color-mix(in oklch, oklch(85% 0.15 95) 6%, transparent)"
         : undefined);
@@ -167,6 +229,7 @@ function EditableRow({
   return (
     <tr
       data-row-idx
+      className="group/row"
       style={{
         background: rowBg,
         opacity: drag?.isDragging ? 0.4 : disabled ? 0.55 : 1,
@@ -187,14 +250,13 @@ function EditableRow({
         </td>
       )}
 
-      <td className="px-1.5 py-1.5 text-center">
-        <KeyGlyph isPrimary={values.isPrimary} isForeignKey={values.isForeignKey} isIndexed={values.isIndexed} />
-      </td>
+      <td className="px-1.5 py-1.5 text-center">{keyCell}</td>
 
       <td className="px-2.5 py-1.5">
         <Highlight on={!!changed.name}>
           <div className={fieldBoxClass} style={{ minWidth: 150 }}>
             <input
+              ref={nameInputRef}
               value={values.name}
               placeholder="column_name"
               onChange={(e) => onField("name", e.target.value)}
@@ -252,10 +314,16 @@ function EditableRow({
 
       <td className="px-2.5 py-1.5 text-center">
         <Highlight on={!!changed.isNullable}>
-          <Toggle
-            on={values.isNullable}
-            onClick={() => onField("isNullable", !values.isNullable)}
-          />
+          <Switch
+            size="sm"
+            aria-label="Nullable"
+            isSelected={values.isNullable}
+            onChange={(on) => onField("isNullable", on)}
+          >
+            <Switch.Control>
+              <Switch.Thumb />
+            </Switch.Control>
+          </Switch>
         </Highlight>
       </td>
 
@@ -276,7 +344,7 @@ function EditableRow({
       </td>
 
 
-      <td className="px-2.5 py-1.5 text-right whitespace-nowrap" style={{ width: 72 }}>
+      <td className="px-2.5 py-1.5 whitespace-nowrap" style={{ width: 72 }}>
         {rightAction}
       </td>
     </tr>
@@ -289,6 +357,7 @@ export function ColumnsTable({
   connectionId,
   database,
   table,
+  onAddIndex,
 }: ColumnsTableProps) {
   const applyChanges = useApplyStructureChanges();
   const { data, isLoading, error } = useFetchTableStructure(
@@ -361,9 +430,6 @@ export function ColumnsTable({
         dataType: defaultType,
         typeParams: null,
         isNullable: true,
-        isPrimary: false,
-        isForeignKey: false,
-        isIndexed: false,
         defaultValue: null,
       },
     ]);
@@ -576,54 +642,27 @@ export function ColumnsTable({
 
   if (!table) {
     return (
-      <div className="flex-1 flex items-center justify-center">
+      <CenteredState>
         <p className="text-sm text-muted">Select a table to view its columns</p>
-      </div>
+      </CenteredState>
     );
   }
-
-  if (isLoading) {
-    return (
-      <div className="flex-1 flex items-center justify-center">
-        <p className="text-sm text-muted">Loading...</p>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="flex-1 flex items-center justify-center">
-        <p className="text-sm text-danger">{String(error)}</p>
-      </div>
-    );
-  }
+  if (isLoading) return <LoadingState />;
+  if (error) return <LoadErrorState error={error} fallback="Failed to load columns" />;
 
   return (
     <div className="flex-1 flex flex-col min-h-0 bg-surface">
-      {/* Toolbar */}
-      <div className="h-11 px-4.5 flex items-center gap-2.5 border-b border-separator shrink-0">
-        <div className="flex-1" />
-        <span className="text-muted text-[11px] font-mono">
-          {cols.length} columns
-          {pendingCount > 0 && (
-            <span className="text-foreground">
-              {" "}· {pendingCount} unsaved
-            </span>
-          )}
-        </span>
-        <button
-          onClick={addColumn}
-          className="flex items-center gap-1.5 h-7 px-3 rounded-[7px] bg-surface-secondary text-foreground border border-separator text-xs font-medium cursor-pointer"
-        >
-          <LuPlus size={11} /> Add column
-        </button>
-      </div>
+      <StructureToolbar
+        summary={`${cols.length} columns`}
+        pendingCount={pendingCount}
+        addLabel="Add column"
+        onAdd={addColumn}
+      />
 
-      {/* Save error */}
       {saveError && (
-        <div className="px-4.5 py-2 bg-danger/10 text-danger text-xs border-b border-separator">
+        <StatusAlert status="danger" banner>
           {saveError}
-        </div>
+        </StatusAlert>
       )}
 
       {/* Columns table */}
@@ -665,6 +704,18 @@ export function ColumnsTable({
                 <EditableRow
                   key={col.name}
                   values={isDeleted ? col : eff}
+                  keyCell={
+                    isDeleted || !onAddIndex ? (
+                      <KeyGlyph isPrimary={col.isPrimary} isForeignKey={col.isForeignKey} isIndexed={col.isIndexed} />
+                    ) : (
+                      <KeyMenu
+                        column={col}
+                        // Switching tabs unmounts this table and would discard staged edits
+                        disabledReason={pendingCount > 0 ? "Save or cancel column changes first" : null}
+                        onAddIndex={(unique) => onAddIndex(col.name, unique)}
+                      />
+                    )
+                  }
                   changed={isDeleted ? {} : changed}
                   onField={(field, value) =>
                     updateColField(col.name, field, value)
@@ -676,23 +727,15 @@ export function ColumnsTable({
                     onGripPointerDown: (e) => handleGripDown(idx, e),
                   } : undefined}
                   rightAction={
-                    isDeleted ? (
-                      <button
-                        onClick={() => toggleDelete(col.name)}
-                        style={{ pointerEvents: "auto" }}
-                        className="inline-flex items-center gap-1.5 h-6 px-2.5 rounded-md bg-transparent border border-separator text-foreground text-[11px] cursor-pointer"
-                      >
-                        <LuUndo2 size={10} /> Undo
-                      </button>
-                    ) : (
-                      <button
-                        onClick={() => toggleDelete(col.name)}
-                        className="inline-grid place-items-center w-[26px] h-[26px] rounded-md bg-transparent border-none text-muted cursor-pointer"
-                        title="Delete column"
-                      >
-                        <LuTrash2 size={12} />
-                      </button>
-                    )
+                    <RowActions>
+                      {isDeleted ? (
+                        <UndoButton onPress={() => toggleDelete(col.name)} />
+                      ) : (
+                        <RowIconButton label="Delete column" onPress={() => toggleDelete(col.name)}>
+                          <LuTrash2 size={12} />
+                        </RowIconButton>
+                      )}
+                    </RowActions>
                   }
                 />
               );
@@ -703,26 +746,20 @@ export function ColumnsTable({
               <EditableRow
                 key={a.tempId}
                 values={a}
+                // Pending rows only mount from "Add column", so each one takes focus once
+                autoFocus
+                keyCell={
+                  <HintIcon hint="Save the column first to index it">
+                    <KeyIcon size={14} className={KEY_PLACEHOLDER_CLASS} />
+                  </HintIcon>
+                }
                 changed={{}}
                 onField={(field, value) =>
                   updatePendingAdd(a.tempId, field, value)
                 }
                 dialect={dialect}
-                tint="color-mix(in oklch, oklch(73% 0.18 153) 8%, transparent)"
-                rightAction={
-                  <>
-                    <span className="text-[10.5px] font-semibold mr-2" style={{ color: "oklch(73% 0.18 153)" }}>
-                      New
-                    </span>
-                    <button
-                      onClick={() => removePendingAdd(a.tempId)}
-                      className="inline-grid place-items-center w-[26px] h-[26px] rounded-md bg-transparent border-none text-muted cursor-pointer"
-                      title="Discard"
-                    >
-                      <LuX size={12} />
-                    </button>
-                  </>
-                }
+                tint={NEW_ROW_TINT}
+                rightAction={<NewRowActions onDiscard={() => removePendingAdd(a.tempId)} />}
               />
             ))}
 
@@ -741,38 +778,7 @@ export function ColumnsTable({
       </div>
 
       {/* Save / Cancel bar */}
-      <div className="px-4.5 py-3 flex items-center gap-2 shrink-0">
-        <div className="flex-1" />
-        <button
-          onClick={cancelAll}
-          disabled={pendingCount === 0}
-          className="h-[30px] px-3.5 rounded-[7px] bg-transparent border border-separator text-xs cursor-pointer disabled:cursor-default disabled:opacity-50"
-          style={{
-            color: pendingCount === 0 ? "var(--muted)" : "var(--foreground)",
-          }}
-        >
-          Cancel
-        </button>
-        <button
-          onClick={saveAll}
-          disabled={pendingCount === 0 || saving}
-          className="h-[30px] px-4 rounded-[7px] border-none text-xs font-medium cursor-pointer disabled:cursor-default disabled:opacity-60"
-          style={{
-            background:
-              pendingCount === 0
-                ? "var(--surface-secondary)"
-                : "var(--accent)",
-            color:
-              pendingCount === 0
-                ? "var(--muted)"
-                : "var(--accent-foreground)",
-          }}
-        >
-          {saving
-            ? "Saving..."
-            : `Save changes${pendingCount > 0 ? ` (${pendingCount})` : ""}`}
-        </button>
-      </div>
+      <SaveBar pendingCount={pendingCount} saving={saving} onCancel={cancelAll} onSave={saveAll} />
     </div>
   );
 }

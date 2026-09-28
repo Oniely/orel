@@ -65,6 +65,40 @@ export interface StructureChanges {
   reorder: string[] | null;
 }
 
+export interface IndexColumn {
+  /** Column name, or the expression text when isExpression is true */
+  name: string;
+  descending: boolean;
+  isExpression: boolean;
+  prefixLength: number | null;
+}
+
+export interface TableIndex {
+  name: string;
+  columns: IndexColumn[];
+  isUnique: boolean;
+  isPrimary: boolean;
+  method: string | null;
+  droppable: boolean;
+}
+
+export interface IndexColumnPayload {
+  name: string;
+  descending: boolean;
+  prefixLength: number | null;
+}
+
+export interface IndexAddPayload {
+  name: string;
+  unique: boolean;
+  columns: IndexColumnPayload[];
+}
+
+export interface IndexChanges {
+  drops: string[];
+  adds: IndexAddPayload[];
+}
+
 export type FilterOperator =
   | "equals"
   | "not equals"

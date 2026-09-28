@@ -40,6 +40,7 @@ Orel is a cross-platform desktop database GUI for **PostgreSQL**, **MySQL/MariaD
 │   │   │   ├── DataGrid/               # Grid, cells, editor overlay, filter bar, footers, row menu
 │   │   │   ├── RowInspector/           # Single-row detail/edit panel
 │   │   │   ├── SqlEditor/              # Monaco editor, result grid, workspace shell
+│   │   │   ├── TableStructure/         # Structure view: Columns, Indexes, DDL tabs (each tab stages + saves on its own)
 │   │   │   ├── Transactions/           # TransactionGuardDialog
 │   │   │   └── shared/                 # constants, icons
 │   │   └── icons/                      # Hand-rolled SVGs (e.g. SqliteIcon)
@@ -59,6 +60,8 @@ Orel is a cross-platform desktop database GUI for **PostgreSQL**, **MySQL/MariaD
     │       ├── connection.rs           # AppState, DbPool, connect/disconnect/CRUD/database switching
     │       ├── query.rs                # list_tables, fetch_rows (pagination + filters)
     │       ├── editor.rs               # Editor sessions, statement splitting, transaction control
+    │       ├── structure.rs            # fetch_table_ddl, fetch_table_structure, apply_structure_changes (ALTER TABLE)
+    │       ├── indexes.rs              # fetch_table_indexes, apply_index_changes (DROP / CREATE INDEX)
     │       ├── write_queue.rs          # generate_sql, apply_write_queue
     │       ├── sql_util.rs             # Dialect abstraction, type normalization, row-to-JSON builders
     │       └── test/*.test.rs          # Unit + Docker-gated integration tests
