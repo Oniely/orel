@@ -7,6 +7,8 @@ import type {
   TableDdl,
   TableStructure,
   StructureChanges,
+  TableIndex,
+  IndexChanges,
 } from "../types/database";
 
 export const databaseQueryKeys = {
@@ -34,6 +36,11 @@ export const databaseQueryKeys = {
     ["table-structure", connectionId, database] as const,
   tableStructure: (connectionId: string | null, database: string | null, table: string | null) =>
     ["table-structure", connectionId, database, table] as const,
+  tableIndexesForConnection: (connectionId: string) => ["table-indexes", connectionId] as const,
+  tableIndexesForDatabase: (connectionId: string, database: string) =>
+    ["table-indexes", connectionId, database] as const,
+  tableIndexes: (connectionId: string | null, database: string | null, table: string | null) =>
+    ["table-indexes", connectionId, database, table] as const,
 };
 
 export function useListTables(connectionId: string | null, database: string | null) {
@@ -95,9 +102,61 @@ export function useApplyStructureChanges() {
       void queryClient.invalidateQueries({
         queryKey: databaseQueryKeys.tableDdl(connectionId, database, table),
       });
+      // Dropping or renaming a column changes the indexes on it
+      void queryClient.invalidateQueries({
+        queryKey: databaseQueryKeys.tableIndexes(connectionId, database, table),
+      });
       // Cached rows carry the old column list
       void queryClient.invalidateQueries({
         queryKey: databaseQueryKeys.rowsForTable(connectionId, database, table),
+      });
+    },
+  });
+}
+
+export function useFetchTableIndexes(
+  connectionId: string | null,
+  database: string | null,
+  table: string | null,
+) {
+  return useQuery({
+    queryKey: databaseQueryKeys.tableIndexes(connectionId, database, table),
+    queryFn: () =>
+      invoke<TableIndex[]>("fetch_table_indexes", {
+        connectionId: connectionId!,
+        table: table!,
+      }),
+    enabled: !!connectionId && !!database && !!table,
+    staleTime: 30_000,
+  });
+}
+
+interface ApplyIndexInput {
+  connectionId: string;
+  database: string | null;
+  table: string;
+  changes: IndexChanges;
+}
+
+export function useApplyIndexChanges() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ connectionId, table, changes }: ApplyIndexInput) =>
+      invoke<string[]>("apply_index_changes", { connectionId, table, changes }),
+    onSuccess: (_stmts, { connectionId, database, table }) => {
+      void queryClient.invalidateQueries({
+        queryKey: databaseQueryKeys.tableIndexes(connectionId, database, table),
+      });
+      // Key glyphs on the Columns tab come from the structure query. Mark it stale
+      // without refetching: the Indexes tab only reads column names/types from it,
+      // which an index change doesn't touch, and the Columns tab refetches on mount.
+      void queryClient.invalidateQueries({
+        queryKey: databaseQueryKeys.tableStructure(connectionId, database, table),
+        refetchType: "none",
+      });
+      void queryClient.invalidateQueries({
+        queryKey: databaseQueryKeys.tableDdl(connectionId, database, table),
       });
     },
   });

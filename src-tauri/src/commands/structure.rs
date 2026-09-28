@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::commands::connection::{AppState, DbPool};
 
+use super::indexes::{fetch_sqlite_indexes, TableIndex};
 use super::sql_util::{
     mysql_quote, mysql_string_literal, normalize_mysql_type, normalize_pg_type, normalize_sqlite_type,
     pg_quote,
@@ -941,10 +942,13 @@ fn generate_mysql_alter(
     Ok(vec![format!("ALTER TABLE {} {};", mysql_quote(table), clauses.join(", "))])
 }
 
-/// Drops run first so a rename can reuse a dropped column's name.
+/// Drops run first so a rename can reuse a dropped column's name. SQLite
+/// refuses to drop an indexed column, so indexes covering a dropped column are
+/// dropped just before it (Postgres and MySQL handle this themselves).
 fn generate_sqlite_alter(
     table: &str,
     current: &[StructureColumn],
+    indexes: &[TableIndex],
     changes: &StructureChanges,
 ) -> Result<Vec<String>, String> {
     if changes.reorder.is_some() {
@@ -979,6 +983,13 @@ fn generate_sqlite_alter(
                 "SQLite does not support changing column defaults. Use the DDL tab to recreate the table."
                     .to_string(),
             );
+        }
+    }
+
+    for index in indexes {
+        let covers_dropped = index.columns.iter().any(|c| changes.drops.contains(&c.name));
+        if index.droppable && covers_dropped {
+            stmts.push(format!("DROP INDEX {};", pg_quote(&index.name)));
         }
     }
 
@@ -1038,7 +1049,15 @@ pub async fn apply_structure_changes(
     let stmts = match &pool {
         DbPool::Postgres(_) => generate_pg_alter(&table, &current.columns, &changes),
         DbPool::MySql(_) => generate_mysql_alter(&table, &current.columns, &changes),
-        DbPool::Sqlite(_) => generate_sqlite_alter(&table, &current.columns, &changes),
+        DbPool::Sqlite(sqlite) => {
+            // Only needed to drop indexes covering dropped columns
+            let indexes = if changes.drops.is_empty() {
+                vec![]
+            } else {
+                fetch_sqlite_indexes(sqlite, &table).await?
+            };
+            generate_sqlite_alter(&table, &current.columns, &indexes, &changes)
+        }
     }?;
 
     if stmts.is_empty() {
@@ -1897,7 +1916,7 @@ mod tests {
 
     #[test]
     fn sqlite_empty_changes_produces_nothing() {
-        let stmts = generate_sqlite_alter("t", &[test_col("a", "text", true, None)], &empty_changes()).unwrap();
+        let stmts = generate_sqlite_alter("t", &[test_col("a", "text", true, None)], &[], &empty_changes()).unwrap();
         assert!(stmts.is_empty());
     }
 
@@ -1908,14 +1927,14 @@ mod tests {
             edits: vec![edit("old", "new", "text", None, true, None)],
             ..empty_changes()
         };
-        let stmts = generate_sqlite_alter("t", &current, &changes).unwrap();
+        let stmts = generate_sqlite_alter("t", &current, &[], &changes).unwrap();
         assert_eq!(stmts, vec!["ALTER TABLE \"t\" RENAME COLUMN \"old\" TO \"new\";"]);
     }
 
     #[test]
     fn sqlite_drop() {
         let changes = StructureChanges { drops: vec!["col".into()], ..empty_changes() };
-        let stmts = generate_sqlite_alter("t", &[], &changes).unwrap();
+        let stmts = generate_sqlite_alter("t", &[], &[], &changes).unwrap();
         assert_eq!(stmts, vec!["ALTER TABLE \"t\" DROP COLUMN \"col\";"]);
     }
 
@@ -1925,7 +1944,7 @@ mod tests {
             adds: vec![add("col", "text", None, true, None)],
             ..empty_changes()
         };
-        let stmts = generate_sqlite_alter("t", &[], &changes).unwrap();
+        let stmts = generate_sqlite_alter("t", &[], &[], &changes).unwrap();
         assert_eq!(stmts, vec!["ALTER TABLE \"t\" ADD COLUMN \"col\" text;"]);
     }
 
@@ -1935,7 +1954,7 @@ mod tests {
             adds: vec![add("col", "integer", None, false, Some("0"))],
             ..empty_changes()
         };
-        let stmts = generate_sqlite_alter("t", &[], &changes).unwrap();
+        let stmts = generate_sqlite_alter("t", &[], &[], &changes).unwrap();
         assert_eq!(stmts, vec!["ALTER TABLE \"t\" ADD COLUMN \"col\" integer NOT NULL DEFAULT 0;"]);
     }
 
@@ -1945,7 +1964,7 @@ mod tests {
             adds: vec![add("name", "varchar", Some("100"), true, None)],
             ..empty_changes()
         };
-        let stmts = generate_sqlite_alter("t", &[], &changes).unwrap();
+        let stmts = generate_sqlite_alter("t", &[], &[], &changes).unwrap();
         assert_eq!(stmts, vec!["ALTER TABLE \"t\" ADD COLUMN \"name\" varchar(100);"]);
     }
 
@@ -1958,7 +1977,7 @@ mod tests {
             adds: vec![add("new", "integer", None, true, Some("42"))],
             reorder: None,
         };
-        let stmts = generate_sqlite_alter("t", &current, &changes).unwrap();
+        let stmts = generate_sqlite_alter("t", &current, &[], &changes).unwrap();
         assert_eq!(stmts.len(), 3);
         assert!(stmts[0].contains("DROP"));
         assert!(stmts[1].contains("RENAME"));
@@ -1972,7 +1991,7 @@ mod tests {
             edits: vec![edit("col", "col", "integer", None, true, None)],
             ..empty_changes()
         };
-        let err = generate_sqlite_alter("t", &current, &changes).unwrap_err();
+        let err = generate_sqlite_alter("t", &current, &[], &changes).unwrap_err();
         assert!(err.contains("column types"));
     }
 
@@ -1983,7 +2002,7 @@ mod tests {
             edits: vec![edit("col", "col", "text", None, false, None)],
             ..empty_changes()
         };
-        let err = generate_sqlite_alter("t", &current, &changes).unwrap_err();
+        let err = generate_sqlite_alter("t", &current, &[], &changes).unwrap_err();
         assert!(err.contains("nullability"));
     }
 
@@ -1994,14 +2013,14 @@ mod tests {
             edits: vec![edit("col", "col", "text", None, true, Some("'new'"))],
             ..empty_changes()
         };
-        let err = generate_sqlite_alter("t", &current, &changes).unwrap_err();
+        let err = generate_sqlite_alter("t", &current, &[], &changes).unwrap_err();
         assert!(err.contains("column defaults"));
     }
 
     #[test]
     fn sqlite_rejects_reorder() {
         let changes = StructureChanges { reorder: Some(vec!["a".into()]), ..empty_changes() };
-        assert!(generate_sqlite_alter("t", &[], &changes).is_err());
+        assert!(generate_sqlite_alter("t", &[], &[], &changes).is_err());
     }
 
     #[test]
@@ -2012,7 +2031,7 @@ mod tests {
             edits: vec![edit("a", "b", "text", None, true, Some("'hi'"))],
             ..empty_changes()
         };
-        let stmts = generate_sqlite_alter("t", &current, &changes).unwrap();
+        let stmts = generate_sqlite_alter("t", &current, &[], &changes).unwrap();
         assert_eq!(stmts.len(), 1);
         assert!(stmts[0].contains("RENAME"));
     }
@@ -2024,7 +2043,41 @@ mod tests {
             edits: vec![edit("ghost", "ghost", "text", None, true, None)],
             ..empty_changes()
         };
-        assert!(generate_sqlite_alter("t", &current, &changes).unwrap_err().contains("no longer exists"));
+        assert!(generate_sqlite_alter("t", &current, &[], &changes).unwrap_err().contains("no longer exists"));
+    }
+
+    #[tokio::test]
+    async fn sqlite_drop_indexed_column_drops_its_indexes_first() {
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        sqlx::query("CREATE TABLE t (id INTEGER PRIMARY KEY, a INT, b INT, c INT)")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("CREATE INDEX t_a_idx ON t (a)").execute(&pool).await.unwrap();
+        sqlx::query("CREATE INDEX t_a_b_idx ON t (a, b)").execute(&pool).await.unwrap();
+        sqlx::query("CREATE INDEX t_c_idx ON t (c)").execute(&pool).await.unwrap();
+
+        let current = fetch_sqlite_structure(&pool, "t").await.unwrap();
+        let indexes = fetch_sqlite_indexes(&pool, "t").await.unwrap();
+        let changes = StructureChanges { drops: vec!["a".into()], ..empty_changes() };
+        let stmts = generate_sqlite_alter("t", &current.columns, &indexes, &changes).unwrap();
+        assert_eq!(
+            stmts,
+            vec![
+                "DROP INDEX \"t_a_b_idx\";",
+                "DROP INDEX \"t_a_idx\";",
+                "ALTER TABLE \"t\" DROP COLUMN \"a\";",
+            ]
+        );
+
+        DbPool::Sqlite(pool.clone()).execute_in_transaction(&stmts).await.unwrap();
+        let after = fetch_sqlite_indexes(&pool, "t").await.unwrap();
+        assert!(after.iter().any(|i| i.name == "t_c_idx"));
+        assert!(after.iter().all(|i| i.name != "t_a_idx" && i.name != "t_a_b_idx"));
     }
 
     // -- Docker-backed integration tests --

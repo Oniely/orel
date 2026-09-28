@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { DDL } from "./DDL";
 import { ColumnsTable } from "./ColumnsTable";
+import { IndexesTable, type IndexSeed } from "./IndexesTable";
+import { CenteredState } from "./shared";
 
 const STRUCTURE_TABS = ["Columns", "Indexes", "Foreign Keys", "DDL"] as const;
 type StructureTabType = (typeof STRUCTURE_TABS)[number];
@@ -40,29 +42,50 @@ interface StructurePanelProps {
 
 export function StructurePanel({ connectionId, database, activeTable }: StructurePanelProps) {
   const [activeTab, setActiveTab] = useState<StructureTabType>("Columns");
+  // Set by the Columns tab's Key menu; consumed when the Indexes tab mounts
+  const [indexSeed, setIndexSeed] = useState<(IndexSeed & { scopeKey: string }) | null>(null);
+
+  const changeTab = (tab: StructureTabType) => {
+    setIndexSeed(null);
+    setActiveTab(tab);
+  };
 
   if (!activeTable) {
     return (
-      <div className="flex-1 flex items-center justify-center">
+      <CenteredState>
         <p className="text-sm text-muted">Select a table to view its structure</p>
-      </div>
+      </CenteredState>
     );
   }
+
+  // Keyed so staged changes never carry over to a same-named table in another database or connection
+  const scopeKey = `${connectionId}::${database}::${activeTable}`;
 
   return (
     <div className="flex-1 flex flex-col min-h-0">
       <div className="flex items-center px-4.5 h-10 border-b border-separator bg-surface shrink-0">
-        <PillTabBar tabs={STRUCTURE_TABS} active={activeTab} onChange={setActiveTab} />
+        <PillTabBar tabs={STRUCTURE_TABS} active={activeTab} onChange={changeTab} />
       </div>
 
       <div className="flex-1 overflow-auto bg-background">
         {activeTab === "Columns" ? (
-          // Keyed so staged changes never carry over to a same-named table in another database or connection
           <ColumnsTable
-            key={`${connectionId}::${database}::${activeTable}`}
+            key={scopeKey}
             connectionId={connectionId}
             database={database}
             table={activeTable}
+            onAddIndex={(column, unique) => {
+              setIndexSeed({ scopeKey, column, unique });
+              setActiveTab("Indexes");
+            }}
+          />
+        ) : activeTab === "Indexes" ? (
+          <IndexesTable
+            key={scopeKey}
+            connectionId={connectionId}
+            database={database}
+            table={activeTable}
+            seed={indexSeed?.scopeKey === scopeKey ? indexSeed : null}
           />
         ) : activeTab === "DDL" ? (
           <DDL connectionId={connectionId} database={database} table={activeTable} />
