@@ -10,6 +10,7 @@ import {
   HintIcon,
   LoadErrorState,
   LoadingState,
+  MAX_IDENTIFIER_LENGTH,
   NEW_ROW_TINT,
   NewRowActions,
   RowActions,
@@ -44,9 +45,6 @@ interface IndexesTableProps {
   seed: IndexSeed | null;
 }
 
-// Postgres truncates identifiers at 63 bytes; MySQL allows 64
-const MAX_INDEX_NAME = 63;
-
 // MySQL can only index these with a prefix length (error 1170)
 const MYSQL_PREFIX_TYPES = new Set([
   "tinytext", "text", "mediumtext", "longtext",
@@ -56,7 +54,7 @@ const MYSQL_PREFIX_TYPES = new Set([
 // Table-prefixed because Postgres index names are unique per schema, not per table
 function autoIndexName(table: string, columns: string[], unique: boolean): string {
   const parts = [table, ...columns, unique ? "key" : "idx"];
-  return parts.join("_").slice(0, MAX_INDEX_NAME);
+  return parts.join("_").slice(0, MAX_IDENTIFIER_LENGTH);
 }
 
 function withAutoName(table: string, index: PendingIndex): PendingIndex {

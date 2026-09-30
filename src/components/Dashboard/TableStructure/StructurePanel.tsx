@@ -1,11 +1,18 @@
 import { useState } from "react";
 import { DDL } from "./DDL";
 import { ColumnsTable } from "./ColumnsTable";
+import { ForeignKeysTable, type ForeignKeySeed } from "./ForeignKeysTable";
 import { IndexesTable, type IndexSeed } from "./IndexesTable";
 import { CenteredState } from "./shared";
 
 const STRUCTURE_TABS = ["Columns", "Indexes", "Foreign Keys", "DDL"] as const;
 type StructureTabType = (typeof STRUCTURE_TABS)[number];
+
+/** Set by the Columns tab's Key menu; consumed when the target tab mounts */
+type StructureSeed = { scopeKey: string } & (
+  | ({ kind: "index" } & IndexSeed)
+  | ({ kind: "foreign-key" } & ForeignKeySeed)
+);
 
 interface PillTabBarProps<T extends string> {
   tabs: readonly T[];
@@ -42,11 +49,22 @@ interface StructurePanelProps {
 
 export function StructurePanel({ connectionId, database, activeTable }: StructurePanelProps) {
   const [activeTab, setActiveTab] = useState<StructureTabType>("Columns");
-  // Set by the Columns tab's Key menu; consumed when the Indexes tab mounts
-  const [indexSeed, setIndexSeed] = useState<(IndexSeed & { scopeKey: string }) | null>(null);
+  const [seed, setSeed] = useState<StructureSeed | null>(null);
+
+  // Keyed so staged changes never carry over to a same-named table in another database or connection
+  const scopeKey = `${connectionId}::${database}::${activeTable}`;
+
+  // A seed belongs to one visit: drop it as soon as the table changes (during render,
+  // so no tab ever mounts with it), and coming back to the table won't re-add it
+  if (seed && seed.scopeKey !== scopeKey) setSeed(null);
 
   const changeTab = (tab: StructureTabType) => {
-    setIndexSeed(null);
+    setSeed(null);
+    setActiveTab(tab);
+  };
+
+  const seedTab = (next: StructureSeed, tab: StructureTabType) => {
+    setSeed(next);
     setActiveTab(tab);
   };
 
@@ -57,9 +75,6 @@ export function StructurePanel({ connectionId, database, activeTable }: Structur
       </CenteredState>
     );
   }
-
-  // Keyed so staged changes never carry over to a same-named table in another database or connection
-  const scopeKey = `${connectionId}::${database}::${activeTable}`;
 
   return (
     <div className="flex-1 flex flex-col min-h-0">
@@ -74,10 +89,8 @@ export function StructurePanel({ connectionId, database, activeTable }: Structur
             connectionId={connectionId}
             database={database}
             table={activeTable}
-            onAddIndex={(column, unique) => {
-              setIndexSeed({ scopeKey, column, unique });
-              setActiveTab("Indexes");
-            }}
+            onAddIndex={(column, unique) => seedTab({ scopeKey, kind: "index", column, unique }, "Indexes")}
+            onAddForeignKey={(column) => seedTab({ scopeKey, kind: "foreign-key", column }, "Foreign Keys")}
           />
         ) : activeTab === "Indexes" ? (
           <IndexesTable
@@ -85,14 +98,18 @@ export function StructurePanel({ connectionId, database, activeTable }: Structur
             connectionId={connectionId}
             database={database}
             table={activeTable}
-            seed={indexSeed?.scopeKey === scopeKey ? indexSeed : null}
+            seed={seed?.kind === "index" ? seed : null}
           />
-        ) : activeTab === "DDL" ? (
-          <DDL connectionId={connectionId} database={database} table={activeTable} />
+        ) : activeTab === "Foreign Keys" ? (
+          <ForeignKeysTable
+            key={scopeKey}
+            connectionId={connectionId}
+            database={database}
+            table={activeTable}
+            seed={seed?.kind === "foreign-key" ? seed : null}
+          />
         ) : (
-          <div className="flex items-center justify-center h-full">
-            <p className="text-sm text-muted">{activeTab} - coming soon</p>
-          </div>
+          <DDL connectionId={connectionId} database={database} table={activeTable} />
         )}
       </div>
     </div>

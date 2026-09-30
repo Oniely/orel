@@ -29,7 +29,7 @@ export function useDashboardCommands() {
   // Returns the IDs of query tabs that still have an open or failed transaction.
   const activeEditorIdsForKeys = useCallback((keys: string[]) => getActiveEditorIds(store.getState(), keys), [store]);
 
-  // Refetches tables, rows, DDL, structure, indexes, and databases for the current connection.
+  // Refetches tables, rows, DDL, structure, indexes, foreign keys, and databases for the current connection.
   const refresh = useCallback(() => {
     if (connectionId && activeDatabase) {
       void queryClient.refetchQueries({
@@ -46,6 +46,9 @@ export function useDashboardCommands() {
       });
       void queryClient.refetchQueries({
         queryKey: databaseQueryKeys.tableIndexesForDatabase(connectionId, activeDatabase),
+      });
+      void queryClient.refetchQueries({
+        queryKey: databaseQueryKeys.tableForeignKeysForDatabase(connectionId, activeDatabase),
       });
     }
     void queryClient.refetchQueries({
@@ -81,6 +84,9 @@ export function useDashboardCommands() {
               });
               void queryClient.invalidateQueries({
                 queryKey: databaseQueryKeys.tableIndexesForDatabase(intent.connectionId, intent.database),
+              });
+              void queryClient.invalidateQueries({
+                queryKey: databaseQueryKeys.tableForeignKeysForDatabase(intent.connectionId, intent.database),
               });
             },
           },

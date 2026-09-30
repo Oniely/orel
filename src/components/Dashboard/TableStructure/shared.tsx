@@ -2,11 +2,17 @@ import { Alert, Button, Spinner, Tooltip } from "@heroui/react";
 import { LuPlus, LuUndo2, LuX } from "react-icons/lu";
 import { getErrorMessage } from "../../../lib/error";
 
-// Pieces shared by the Columns and Indexes tabs, built on HeroUI controls.
+// Pieces shared by the Columns, Indexes, and Foreign Keys tabs, built on HeroUI controls.
 
 export const fieldBoxClass = "h-[30px] rounded-md bg-surface border border-separator flex items-center";
 export const inputClass =
   "flex-1 bg-transparent border-none outline-none text-foreground text-xs font-mono px-2.5 w-full min-w-0";
+
+// Pre-encoded SVG chevron for native select styling (avoids encodeURIComponent on every render)
+export const SELECT_CHEVRON_BG = `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='${encodeURIComponent("rgba(180,180,200,0.7)")}' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M6 9l6 6 6-6'/></svg>")`;
+
+// Postgres truncates identifiers at 63 bytes; MySQL allows 64
+export const MAX_IDENTIFIER_LENGTH = 63;
 
 // Row tint for staged-but-unsaved additions
 export const NEW_ROW_TINT = "color-mix(in oklch, oklch(73% 0.18 153) 8%, transparent)";
@@ -109,17 +115,85 @@ export function NewRowActions({ onDiscard }: { onDiscard: () => void }) {
   );
 }
 
-/** A non-interactive icon that explains itself on hover or keyboard focus */
-export function HintIcon({ hint, className = "", children }: { hint: string; className?: string; children: React.ReactNode }) {
+interface HintProps {
+  hint: string;
+  className?: string;
+  children: React.ReactNode;
+}
+
+/** Explains its (non-interactive or disabled) content on hover or keyboard focus */
+export function Hint({ hint, className = "", children }: HintProps) {
   return (
     <Tooltip>
       <Tooltip.Trigger>
-        <span tabIndex={0} aria-label={hint} className={`size-6.5 inline-grid place-items-center outline-none ${className}`}>
+        <span tabIndex={0} aria-label={hint} className={`outline-none ${className}`}>
           {children}
         </span>
       </Tooltip.Trigger>
       <Tooltip.Content>{hint}</Tooltip.Content>
     </Tooltip>
+  );
+}
+
+/** A row-sized icon that explains itself */
+export function HintIcon({ hint, className = "", children }: HintProps) {
+  return (
+    <Hint hint={hint} className={`size-6.5 inline-grid place-items-center ${className}`}>
+      {children}
+    </Hint>
+  );
+}
+
+// ── Field select (native select styled like the text fields) ─────────────────
+
+interface FieldSelectProps<T extends string> {
+  label: string;
+  value: T | "";
+  options: readonly T[];
+  onChange: (value: T) => void;
+  /** Shown while value is "" */
+  placeholder?: string;
+  isDisabled?: boolean;
+}
+
+export function FieldSelect<T extends string>({
+  label,
+  value,
+  options,
+  onChange,
+  placeholder,
+  isDisabled,
+}: FieldSelectProps<T>) {
+  return (
+    <div className={`${fieldBoxClass} w-full`} style={{ opacity: isDisabled ? 0.5 : 1 }}>
+      <select
+        aria-label={label}
+        value={value}
+        disabled={isDisabled}
+        onChange={(e) => {
+          const picked = options.find((o) => o === e.target.value);
+          if (picked !== undefined) onChange(picked);
+        }}
+        className="appearance-none bg-transparent border-none text-xs font-mono outline-none cursor-pointer disabled:cursor-default pl-2.5 pr-5 h-full w-full min-w-0 truncate"
+        style={{
+          color: value ? "var(--foreground)" : "var(--muted)",
+          backgroundImage: SELECT_CHEVRON_BG,
+          backgroundRepeat: "no-repeat",
+          backgroundPosition: "right 5px center",
+        }}
+      >
+        {placeholder !== undefined && (
+          <option value="" disabled>
+            {placeholder}
+          </option>
+        )}
+        {options.map((o) => (
+          <option key={o} value={o}>
+            {o}
+          </option>
+        ))}
+      </select>
+    </div>
   );
 }
 
@@ -131,9 +205,16 @@ interface StructureToolbarProps {
   pendingCount: number;
   addLabel: string;
   onAdd: () => void;
+  /** Disables the add button and explains why on hover */
+  addDisabledReason?: string;
 }
 
-export function StructureToolbar({ summary, pendingCount, addLabel, onAdd }: StructureToolbarProps) {
+export function StructureToolbar({ summary, pendingCount, addLabel, onAdd, addDisabledReason }: StructureToolbarProps) {
+  const addButton = (
+    <Button size="sm" variant="secondary" className="h-7 text-xs gap-1.5" isDisabled={!!addDisabledReason} onPress={onAdd}>
+      <LuPlus size={11} /> {addLabel}
+    </Button>
+  );
   return (
     <div className="h-11 px-4.5 flex items-center gap-2.5 border-b border-separator shrink-0">
       <div className="flex-1" />
@@ -141,9 +222,14 @@ export function StructureToolbar({ summary, pendingCount, addLabel, onAdd }: Str
         {summary}
         {pendingCount > 0 && <span className="text-foreground"> · {pendingCount} unsaved</span>}
       </span>
-      <Button size="sm" variant="secondary" className="h-7 text-xs gap-1.5" onPress={onAdd}>
-        <LuPlus size={11} /> {addLabel}
-      </Button>
+      {addDisabledReason ? (
+        // A disabled button gets no hover events, so the wrapper carries the tooltip
+        <Hint hint={addDisabledReason} className="inline-flex">
+          {addButton}
+        </Hint>
+      ) : (
+        addButton
+      )}
     </div>
   );
 }
