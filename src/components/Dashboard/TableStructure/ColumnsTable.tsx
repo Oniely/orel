@@ -12,6 +12,7 @@ import {
   NewRowActions,
   RowActions,
   RowIconButton,
+  SELECT_CHEVRON_BG,
   SaveBar,
   StatusAlert,
   StructureToolbar,
@@ -20,14 +21,10 @@ import {
   inputClass,
 } from "./shared";
 import { getTypeColor } from "../../../lib/typeColors";
-import { DIALECT_TYPES, TYPE_PARAMS_META } from "../../../lib/dialectTypes";
+import { DIALECT_TYPES, FOREIGN_KEYS_READ_ONLY_REASON, TYPE_PARAMS_META } from "../../../lib/dialectTypes";
 import { useFetchTableStructure, useApplyStructureChanges } from "../../../hooks/useTables";
 import { getErrorMessage } from "../../../lib/error";
 import type { StructureColumn } from "../../../types/database";
-
-// Pre-encoded SVG chevron for native select styling (avoids encodeURIComponent on every render)
-const SELECT_CHEVRON_BG = `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='${encodeURIComponent("rgba(180,180,200,0.7)")}' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M6 9l6 6 6-6'/></svg>")`;
-
 
 interface PendingEdits {
   [originalName: string]: Partial<{
@@ -48,12 +45,14 @@ interface PendingAdd {
   defaultValue: string | null;
 }
 
-interface ColumnsTableProps {
+export interface ColumnsTableProps {
   connectionId: string | null;
   database: string | null;
   table: string | null;
   /** Opens the Indexes tab with a new index on this (saved) column */
   onAddIndex?: (column: string, unique: boolean) => void;
+  /** Opens the Foreign Keys tab with a new foreign key on this (saved) column */
+  onAddForeignKey?: (column: string) => void;
 }
 
 // ── Key Glyph ────────────────────────────────────────────────────────────────
@@ -116,22 +115,29 @@ function Highlight({ on, children }: { on: boolean; children: React.ReactNode })
 
 // ── Key Menu (saved columns) ─────────────────────────────────────────────────
 
-interface KeyMenuProps {
-  column: StructureColumn;
-  /** Set when the menu can't be used; shown instead of the actions */
+interface KeyMenuItem {
+  id: string;
+  label: string;
+  /** Set when this item can't be used; listed under the items */
   disabledReason: string | null;
-  onAddIndex: (unique: boolean) => void;
+  onAction: () => void;
 }
 
-function KeyMenu({ column, disabledReason, onAddIndex }: KeyMenuProps) {
+interface KeyMenuProps {
+  column: StructureColumn;
+  items: KeyMenuItem[];
+}
+
+function KeyMenu({ column, items }: KeyMenuProps) {
   const hasKey = column.isPrimary || column.isForeignKey || column.isIndexed;
+  const reasons = [...new Set(items.flatMap((i) => (i.disabledReason ? [i.disabledReason] : [])))];
   return (
     <Dropdown>
       <Button
         size="sm"
         variant="ghost"
         isIconOnly
-        aria-label={`${keyStatus(column)}. Index options for ${column.name}`}
+        aria-label={`${keyStatus(column)}. Key options for ${column.name}`}
         className="size-6.5 min-w-0 p-0 rounded-full grid place-items-center transition-colors hover:bg-surface-secondary aria-expanded:bg-surface-secondary focus-visible:ring-1 focus-visible:ring-accent/60"
       >
         {hasKey ? (
@@ -142,20 +148,19 @@ function KeyMenu({ column, disabledReason, onAddIndex }: KeyMenuProps) {
       </Button>
       <Dropdown.Popover className="w-[220px] p-1">
         <Dropdown.Menu
-          disabledKeys={disabledReason ? ["add-index", "add-unique"] : []}
-          onAction={(key) => onAddIndex(key === "add-unique")}
+          disabledKeys={items.filter((i) => i.disabledReason).map((i) => i.id)}
+          onAction={(key) => items.find((i) => i.id === key)?.onAction()}
         >
-          <Dropdown.Item id="add-index" textValue="Add index">
-            <Label>Add index…</Label>
-          </Dropdown.Item>
-          <Dropdown.Item id="add-unique" textValue="Add unique index">
-            <Label>Add unique index…</Label>
-          </Dropdown.Item>
-          {disabledReason ? (
-            <Dropdown.Item id="disabled-reason" textValue={disabledReason} isDisabled>
-              <span className="text-[11px] text-muted whitespace-normal">{disabledReason}</span>
+          {items.map((i) => (
+            <Dropdown.Item key={i.id} id={i.id} textValue={i.label}>
+              <Label>{i.label}</Label>
             </Dropdown.Item>
-          ) : null}
+          ))}
+          {reasons.map((reason) => (
+            <Dropdown.Item key={reason} id={`reason:${reason}`} textValue={reason} isDisabled>
+              <span className="text-[11px] text-muted whitespace-normal">{reason}</span>
+            </Dropdown.Item>
+          ))}
         </Dropdown.Menu>
       </Dropdown.Popover>
     </Dropdown>
@@ -358,6 +363,7 @@ export function ColumnsTable({
   database,
   table,
   onAddIndex,
+  onAddForeignKey,
 }: ColumnsTableProps) {
   const applyChanges = useApplyStructureChanges();
   const { data, isLoading, error } = useFetchTableStructure(
@@ -550,6 +556,9 @@ export function ColumnsTable({
     pendingAdds.length +
     (pendingReorder ? 1 : 0);
 
+  // The Key menu switches tabs, which unmounts this table and would discard staged edits
+  const keyMenuLockReason = pendingCount > 0 ? "Save or cancel column changes first" : null;
+
   // ── Save / Cancel ────────────────────────────────────────────────────────
 
   const { reset: resetApply } = applyChanges;
@@ -710,9 +719,30 @@ export function ColumnsTable({
                     ) : (
                       <KeyMenu
                         column={col}
-                        // Switching tabs unmounts this table and would discard staged edits
-                        disabledReason={pendingCount > 0 ? "Save or cancel column changes first" : null}
-                        onAddIndex={(unique) => onAddIndex(col.name, unique)}
+                        items={[
+                          {
+                            id: "add-index",
+                            label: "Add index…",
+                            disabledReason: keyMenuLockReason,
+                            onAction: () => onAddIndex(col.name, false),
+                          },
+                          {
+                            id: "add-unique",
+                            label: "Add unique index…",
+                            disabledReason: keyMenuLockReason,
+                            onAction: () => onAddIndex(col.name, true),
+                          },
+                          ...(onAddForeignKey
+                            ? [
+                                {
+                                  id: "add-foreign-key",
+                                  label: "Add foreign key…",
+                                  disabledReason: keyMenuLockReason ?? FOREIGN_KEYS_READ_ONLY_REASON[dialect] ?? null,
+                                  onAction: () => onAddForeignKey(col.name),
+                                },
+                              ]
+                            : []),
+                        ]}
                       />
                     )
                   }

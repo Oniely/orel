@@ -1,3 +1,5 @@
+import type { ReferentialAction } from "../types/database";
+
 // Per-dialect type lists for the structure editor type dropdown.
 // Names match the normalized types returned by the backend (same as DataGrid/EditorResultGrid).
 
@@ -47,4 +49,16 @@ export const TYPE_PARAMS_META: Record<string, Record<string, { placeholder: stri
     set: { placeholder: "'val1','val2'" },
   },
   sqlite: {},
+};
+
+// ON UPDATE / ON DELETE choices for new foreign keys. InnoDB rejects SET DEFAULT.
+export const REFERENTIAL_ACTIONS: Record<string, ReferentialAction[]> = {
+  postgres: ["NO ACTION", "RESTRICT", "CASCADE", "SET NULL", "SET DEFAULT"],
+  mysql: ["NO ACTION", "RESTRICT", "CASCADE", "SET NULL"],
+  sqlite: ["NO ACTION", "RESTRICT", "CASCADE", "SET NULL", "SET DEFAULT"],
+};
+
+// Why a dialect's foreign keys can't be changed from the Structure view (absent = editable)
+export const FOREIGN_KEYS_READ_ONLY_REASON: Record<string, string | undefined> = {
+  sqlite: "SQLite can't change foreign keys without rebuilding the table",
 };

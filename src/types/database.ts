@@ -99,6 +99,34 @@ export interface IndexChanges {
   adds: IndexAddPayload[];
 }
 
+export type ReferentialAction = "NO ACTION" | "RESTRICT" | "CASCADE" | "SET NULL" | "SET DEFAULT";
+
+export interface ForeignKey {
+  /** Null on SQLite, which doesn't expose constraint names */
+  name: string | null;
+  columns: string[];
+  /** Set only when the referenced table is outside `public` / the current database */
+  referencedSchema: string | null;
+  referencedTable: string;
+  referencedColumns: string[];
+  onUpdate: ReferentialAction;
+  onDelete: ReferentialAction;
+}
+
+export interface ForeignKeyAddPayload {
+  name: string;
+  columns: string[];
+  referencedTable: string;
+  referencedColumns: string[];
+  onUpdate: ReferentialAction;
+  onDelete: ReferentialAction;
+}
+
+export interface ForeignKeyChanges {
+  drops: string[];
+  adds: ForeignKeyAddPayload[];
+}
+
 export type FilterOperator =
   | "equals"
   | "not equals"

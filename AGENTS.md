@@ -40,7 +40,7 @@ Orel is a cross-platform desktop database GUI for **PostgreSQL**, **MySQL/MariaD
 │   │   │   ├── DataGrid/               # Grid, cells, editor overlay, filter bar, footers, row menu
 │   │   │   ├── RowInspector/           # Single-row detail/edit panel
 │   │   │   ├── SqlEditor/              # Monaco editor, result grid, workspace shell
-│   │   │   ├── TableStructure/         # Structure view: Columns, Indexes, DDL tabs (each tab stages + saves on its own)
+│   │   │   ├── TableStructure/         # Structure view: Columns, Indexes, Foreign Keys, DDL tabs (each tab stages + saves on its own)
 │   │   │   ├── Transactions/           # TransactionGuardDialog
 │   │   │   └── shared/                 # constants, icons
 │   │   └── icons/                      # Hand-rolled SVGs (e.g. SqliteIcon)
@@ -62,6 +62,7 @@ Orel is a cross-platform desktop database GUI for **PostgreSQL**, **MySQL/MariaD
     │       ├── editor.rs               # Editor sessions, statement splitting, transaction control
     │       ├── structure.rs            # fetch_table_ddl, fetch_table_structure, apply_structure_changes (ALTER TABLE)
     │       ├── indexes.rs              # fetch_table_indexes, apply_index_changes (DROP / CREATE INDEX)
+    │       ├── foreign_keys.rs         # fetch_table_foreign_keys, apply_foreign_key_changes (DROP / ADD CONSTRAINT; SQLite read-only)
     │       ├── write_queue.rs          # generate_sql, apply_write_queue
     │       ├── sql_util.rs             # Dialect abstraction, type normalization, row-to-JSON builders
     │       └── test/*.test.rs          # Unit + Docker-gated integration tests
@@ -202,6 +203,8 @@ pnpm test                   # frontend (Vitest), pnpm test:watch to watch
 cd src-tauri && cargo test              # Rust unit tests
 cd src-tauri && cargo test -- --ignored # Docker-backed integration tests
 ```
+
+Polyfills for browser APIs jsdom lacks (e.g. `CSS.escape` for react-aria menus) go in `src/test/setup.ts`, not in individual test files.
 
 Rust tests live in `src-tauri/src/commands/test/*.test.rs`, attached with:
 

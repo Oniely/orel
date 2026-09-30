@@ -240,7 +240,7 @@ pub(crate) async fn fetch_sqlite_indexes(
     Ok(indexes)
 }
 
-async fn fetch_indexes(pool: &DbPool, table: &str) -> Result<Vec<TableIndex>, String> {
+pub(crate) async fn fetch_indexes(pool: &DbPool, table: &str) -> Result<Vec<TableIndex>, String> {
     match pool {
         DbPool::Postgres(pg) => fetch_pg_indexes(pg, table).await,
         DbPool::MySql(mysql) => fetch_mysql_indexes(mysql, table).await,

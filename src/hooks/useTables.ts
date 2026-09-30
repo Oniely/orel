@@ -9,6 +9,8 @@ import type {
   StructureChanges,
   TableIndex,
   IndexChanges,
+  ForeignKey,
+  ForeignKeyChanges,
 } from "../types/database";
 
 export const databaseQueryKeys = {
@@ -41,6 +43,11 @@ export const databaseQueryKeys = {
     ["table-indexes", connectionId, database] as const,
   tableIndexes: (connectionId: string | null, database: string | null, table: string | null) =>
     ["table-indexes", connectionId, database, table] as const,
+  tableForeignKeysForConnection: (connectionId: string) => ["table-foreign-keys", connectionId] as const,
+  tableForeignKeysForDatabase: (connectionId: string, database: string) =>
+    ["table-foreign-keys", connectionId, database] as const,
+  tableForeignKeys: (connectionId: string | null, database: string | null, table: string | null) =>
+    ["table-foreign-keys", connectionId, database, table] as const,
 };
 
 export function useListTables(connectionId: string | null, database: string | null) {
@@ -106,6 +113,12 @@ export function useApplyStructureChanges() {
       void queryClient.invalidateQueries({
         queryKey: databaseQueryKeys.tableIndexes(connectionId, database, table),
       });
+      // ...and the foreign keys on it, including other tables' keys that reference it
+      if (database) {
+        void queryClient.invalidateQueries({
+          queryKey: databaseQueryKeys.tableForeignKeysForDatabase(connectionId, database),
+        });
+      }
       // Cached rows carry the old column list
       void queryClient.invalidateQueries({
         queryKey: databaseQueryKeys.rowsForTable(connectionId, database, table),
@@ -157,6 +170,56 @@ export function useApplyIndexChanges() {
       });
       void queryClient.invalidateQueries({
         queryKey: databaseQueryKeys.tableDdl(connectionId, database, table),
+      });
+    },
+  });
+}
+
+export function useFetchTableForeignKeys(
+  connectionId: string | null,
+  database: string | null,
+  table: string | null,
+) {
+  return useQuery({
+    queryKey: databaseQueryKeys.tableForeignKeys(connectionId, database, table),
+    queryFn: () =>
+      invoke<ForeignKey[]>("fetch_table_foreign_keys", {
+        connectionId: connectionId!,
+        table: table!,
+      }),
+    enabled: !!connectionId && !!database && !!table,
+    staleTime: 30_000,
+  });
+}
+
+interface ApplyForeignKeyInput {
+  connectionId: string;
+  database: string | null;
+  table: string;
+  changes: ForeignKeyChanges;
+}
+
+export function useApplyForeignKeyChanges() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ connectionId, table, changes }: ApplyForeignKeyInput) =>
+      invoke<string[]>("apply_foreign_key_changes", { connectionId, table, changes }),
+    onSuccess: (_stmts, { connectionId, database, table }) => {
+      void queryClient.invalidateQueries({
+        queryKey: databaseQueryKeys.tableForeignKeys(connectionId, database, table),
+      });
+      // FK glyphs on the Columns tab come from the structure query; see useApplyIndexChanges
+      void queryClient.invalidateQueries({
+        queryKey: databaseQueryKeys.tableStructure(connectionId, database, table),
+        refetchType: "none",
+      });
+      void queryClient.invalidateQueries({
+        queryKey: databaseQueryKeys.tableDdl(connectionId, database, table),
+      });
+      // MySQL creates an index for a new foreign key when none covers its columns
+      void queryClient.invalidateQueries({
+        queryKey: databaseQueryKeys.tableIndexes(connectionId, database, table),
       });
     },
   });
