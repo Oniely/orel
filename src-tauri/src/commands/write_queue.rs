@@ -1,5 +1,5 @@
-use crate::commands::connection::{AppState, DbPool};
 use super::sql_util::Dialect;
+use crate::commands::connection::{AppState, DbPool};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 

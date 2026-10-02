@@ -40,13 +40,14 @@ Orel is a cross-platform desktop database GUI for **PostgreSQL**, **MySQL/MariaD
 │   │   │   ├── DataGrid/               # Grid, cells, editor overlay, filter bar, footers, row menu
 │   │   │   ├── RowInspector/           # Single-row detail/edit panel
 │   │   │   ├── SqlEditor/              # Monaco editor, result grid, workspace shell
+│   │   │   ├── TableStructure/         # Structure view: Columns, Indexes, Foreign Keys, DDL tabs (each tab stages + saves on its own; drafts in structure-drafts store)
 │   │   │   ├── Transactions/           # TransactionGuardDialog
 │   │   │   └── shared/                 # constants, icons
 │   │   └── icons/                      # Hand-rolled SVGs (e.g. SqliteIcon)
-│   ├── stores/                         # connection, dashboard (scoped), write-queue, settings, theme
+│   ├── stores/                         # connection, dashboard (scoped), write-queue, structure-drafts, settings, theme
 │   ├── hooks/                          # One hook per command group + dashboard/ subfolder
 │   ├── lib/                            # themes, monacoTheme, typeColors, format, parseValue, error
-│   ├── types/                          # connection, database, dashboard, editor, write-queue
+│   ├── types/                          # connection, database, dashboard, editor, write-queue, structure-drafts
 │   ├── utils/parseConnectionUrl.ts     # Paste a connection URL into the form
 │   ├── global.css                      # Fonts + fallback vars (JS theme system overrides these)
 │   └── main.tsx                        # Entry: QueryClient + RouterProvider
@@ -59,6 +60,9 @@ Orel is a cross-platform desktop database GUI for **PostgreSQL**, **MySQL/MariaD
     │       ├── connection.rs           # AppState, DbPool, connect/disconnect/CRUD/database switching
     │       ├── query.rs                # list_tables, fetch_rows (pagination + filters)
     │       ├── editor.rs               # Editor sessions, statement splitting, transaction control
+    │       ├── structure.rs            # fetch_table_ddl, fetch_table_structure, apply_structure_changes (ALTER TABLE)
+    │       ├── indexes.rs              # fetch_table_indexes, apply_index_changes (DROP / CREATE INDEX)
+    │       ├── foreign_keys.rs         # fetch_table_foreign_keys, apply_foreign_key_changes (DROP / ADD CONSTRAINT; SQLite read-only)
     │       ├── write_queue.rs          # generate_sql, apply_write_queue
     │       ├── sql_util.rs             # Dialect abstraction, type normalization, row-to-JSON builders
     │       └── test/*.test.rs          # Unit + Docker-gated integration tests
@@ -132,6 +136,8 @@ Sessions must be discarded when their tab closes, the database switches, or the 
 
 Grid edits are **staged, not immediate**. `write-queue.store.ts` accumulates `PendingChange` values (`Update` / `Delete` / `Insert`) per table scope, keyed by `RowIdentity` (PK columns + values). Applying calls `apply_write_queue`, which returns `ApplyResult { applied, failed, not_attempted }` so the UI can report partial success; `generate_sql` renders the same queue as copyable SQL without executing. Rows without a usable primary key can't be identified — handle that explicitly rather than guessing.
 
+Structure-view edits follow the same idea: each tab (Columns, Indexes, Foreign Keys) keeps its staged changes in `structure-drafts.store.ts`, keyed by tab and the dashboard's table `scopeKey` (passed down as a prop), so switching sub-tabs, tables, or the Data/Structure view never loses them. Keep them out of component `useState` — the tabs unmount on every switch. Each tab still saves and cancels on its own (`clearDraft`); the Key menu stages pre-filled rows with `stageAdd`.
+
 ### TanStack Query wraps all invoke() calls
 
 Never call `invoke()` directly in a component — wrap it in a hook in `src/hooks/`:
@@ -157,7 +163,7 @@ Routes live in `src/routes/`; the router plugin regenerates `src/routeTree.gen.t
 TanStack Query for anything async, Zustand for synchronous UI state, React Hook Form for forms. Never use `useState` for state that outlives a component or is read elsewhere.
 
 Two Zustand shapes are in play:
-1. **Global singletons** (`create(...)`) — `connection`, `write-queue`, `settings`, `theme`
+1. **Global singletons** (`create(...)`) — `connection`, `write-queue`, `structure-drafts`, `settings`, `theme`
 2. **Scoped store** (`createStore(...)` + context) — `dashboard.store.tsx`, via `useDashboardStore` / `useDashboardStoreApi`. Dashboard state is per-mounted-dashboard, not app-global.
 
 Dashboard state is keyed by two composite strings — respect them:
@@ -199,6 +205,8 @@ pnpm test                   # frontend (Vitest), pnpm test:watch to watch
 cd src-tauri && cargo test              # Rust unit tests
 cd src-tauri && cargo test -- --ignored # Docker-backed integration tests
 ```
+
+Polyfills for browser APIs jsdom lacks (e.g. `CSS.escape` for react-aria menus) go in `src/test/setup.ts`, not in individual test files.
 
 Rust tests live in `src-tauri/src/commands/test/*.test.rs`, attached with:
 

@@ -17,6 +17,9 @@ use commands::editor::{
     execute_editor_sql, rollback_editor_transaction,
 };
 use commands::query::{fetch_rows, list_tables};
+use commands::foreign_keys::{apply_foreign_key_changes, fetch_table_foreign_keys};
+use commands::indexes::{apply_index_changes, fetch_table_indexes};
+use commands::structure::{apply_structure_changes, fetch_table_ddl, fetch_table_structure};
 use commands::write_queue::{apply_write_queue, generate_sql};
 use sqlx::{
     sqlite::{SqliteConnectOptions, SqlitePoolOptions},
@@ -160,6 +163,13 @@ pub fn run() {
             switch_database,
             list_tables,
             fetch_rows,
+            fetch_table_ddl,
+            fetch_table_structure,
+            apply_structure_changes,
+            fetch_table_indexes,
+            apply_index_changes,
+            fetch_table_foreign_keys,
+            apply_foreign_key_changes,
             apply_write_queue,
             generate_sql,
             execute_editor_sql,

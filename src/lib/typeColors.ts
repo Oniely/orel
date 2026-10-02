@@ -1,77 +1,66 @@
-// Maps each SQL type to a category used for color assignment
+// Maps each normalized SQL type to a category used for color assignment.
+// Suffixes like [], " unsigned", and "(…)" are stripped by getTypeColor before lookup.
 const TYPE_CATEGORY: Record<string, string> = {
-  uuid: "uuid",
+  // String
   varchar: "string",
-  "character varying": "string",
   text: "string",
+  char: "string",
   tinytext: "string",
   mediumtext: "string",
   longtext: "string",
-  char: "string",
   enum: "string",
   set: "string",
+  xml: "string",
+  inet: "string",
+  cidr: "string",
+  macaddr: "string",
+  macaddr8: "string",
+  // Boolean
   boolean: "bool",
-  bool: "bool",
+  // Time
   timestamp: "time",
-  "timestamp with time zone": "time",
-  "timestamp without time zone": "time",
   timestamptz: "time",
+  timetz: "time",
   date: "time",
   time: "time",
   datetime: "time",
   year: "time",
   interval: "time",
+  // Number
   integer: "number",
   int: "number",
-  int2: "number",
-  int4: "number",
-  int8: "number",
-  tinyint: "number",
   smallint: "number",
-  mediumint: "number",
   bigint: "number",
-  "tinyint unsigned": "number",
-  "smallint unsigned": "number",
-  "mediumint unsigned": "number",
-  "int unsigned": "number",
-  "bigint unsigned": "number",
+  tinyint: "number",
+  mediumint: "number",
   numeric: "number",
   decimal: "number",
   float: "number",
-  float4: "number",
-  float8: "number",
   double: "number",
   real: "number",
   "double precision": "number",
-  serial: "number",
-  bigserial: "number",
-  jsonb: "json",
+  money: "number",
+  bit: "number",
+  varbit: "number",
+  // JSON
   json: "json",
-  "jsonb[]": "json",
-  "json[]": "json",
-  "text[]": "string",
-  "varchar[]": "string",
-  "bpchar[]": "string",
-  "int2[]": "number",
-  "int4[]": "number",
-  "int8[]": "number",
-  "float4[]": "number",
-  "float8[]": "number",
-  "bool[]": "bool",
-  "uuid[]": "uuid",
-  // Normalized array types (from normalize_pg_type)
-  "integer[]": "number",
-  "smallint[]": "number",
-  "bigint[]": "number",
-  "real[]": "number",
-  "double precision[]": "number",
-  "boolean[]": "bool",
-  "char[]": "string",
+  jsonb: "json",
+  // UUID
+  uuid: "uuid",
+  // Binary
+  bytea: "binary",
+  blob: "binary",
+  tinyblob: "binary",
+  mediumblob: "binary",
+  longblob: "binary",
+  binary: "binary",
+  varbinary: "binary",
 };
 
 // Hue offsets from the theme accent for each category
 const CATEGORY_HUE_OFFSET: Record<string, number> = {
   uuid: 0,
+  binary: 30,
   string: 90,
   bool: 150,
   time: 210,
@@ -110,7 +99,19 @@ function parseOklchHue(oklch: string): number {
 }
 
 export function getTypeColor(type: string): string {
-  const cat = TYPE_CATEGORY[type.toLowerCase()];
-  const varName = cat ? `--type-color-${cat}` : "--type-color-default";
-  return `var(${varName})`;
+  const lower = type.toLowerCase();
+  let cat = TYPE_CATEGORY[lower];
+
+  if (!cat && lower.endsWith("[]")) {
+    cat = TYPE_CATEGORY[lower.slice(0, -2)];
+  }
+  if (!cat && lower.endsWith(" unsigned")) {
+    cat = TYPE_CATEGORY[lower.slice(0, -9)];
+  }
+  if (!cat) {
+    const paren = lower.indexOf("(");
+    if (paren > 0) cat = TYPE_CATEGORY[lower.slice(0, paren)];
+  }
+
+  return `var(${cat ? `--type-color-${cat}` : "--type-color-default"})`;
 }

@@ -136,6 +136,10 @@ export function useDisconnect() {
       queryClient.removeQueries({ queryKey: databaseQueryKeys.databases(id) });
       queryClient.removeQueries({ queryKey: databaseQueryKeys.tablesForConnection(id) });
       queryClient.removeQueries({ queryKey: databaseQueryKeys.rowsForConnection(id) });
+      queryClient.removeQueries({ queryKey: databaseQueryKeys.tableDdlForConnection(id) });
+      queryClient.removeQueries({ queryKey: databaseQueryKeys.tableStructureForConnection(id) });
+      queryClient.removeQueries({ queryKey: databaseQueryKeys.tableIndexesForConnection(id) });
+      queryClient.removeQueries({ queryKey: databaseQueryKeys.tableForeignKeysForConnection(id) });
     },
   });
 }

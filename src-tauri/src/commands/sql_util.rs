@@ -1,11 +1,7 @@
 use std::collections::HashSet;
 
 use serde::Serialize;
-use sqlx::{
-    mysql::MySqlConnection,
-    postgres::PgConnection,
-    sqlite::SqliteConnection,
-};
+use sqlx::{mysql::MySqlConnection, postgres::PgConnection, sqlite::SqliteConnection};
 
 use super::connection::DbPool;
 
@@ -38,17 +34,50 @@ impl DbPool {
 
     pub async fn execute(&self, sql: &str) -> Result<u64, sqlx::Error> {
         let rows = match self {
-            Self::Postgres(pg) => {
-                sqlx::query(sqlx::AssertSqlSafe(sql)).execute(pg).await?.rows_affected()
-            }
-            Self::MySql(mysql) => {
-                sqlx::query(sqlx::AssertSqlSafe(sql)).execute(mysql).await?.rows_affected()
-            }
-            Self::Sqlite(sqlite) => {
-                sqlx::query(sqlx::AssertSqlSafe(sql)).execute(sqlite).await?.rows_affected()
-            }
+            Self::Postgres(pg) => sqlx::query(sqlx::AssertSqlSafe(sql))
+                .execute(pg)
+                .await?
+                .rows_affected(),
+            Self::MySql(mysql) => sqlx::query(sqlx::AssertSqlSafe(sql))
+                .execute(mysql)
+                .await?
+                .rows_affected(),
+            Self::Sqlite(sqlite) => sqlx::query(sqlx::AssertSqlSafe(sql))
+                .execute(sqlite)
+                .await?
+                .rows_affected(),
         };
         Ok(rows)
+    }
+
+    /// Runs every statement in one transaction so a failure rolls all of them
+    /// back. Postgres and SQLite DDL is transactional; MySQL implicitly commits
+    /// each DDL statement, so MySQL callers should send a single statement.
+    pub async fn execute_in_transaction(&self, stmts: &[String]) -> Result<(), sqlx::Error> {
+        match self {
+            Self::Postgres(pg) => {
+                let mut tx = pg.begin().await?;
+                for stmt in stmts {
+                    sqlx::query(sqlx::AssertSqlSafe(stmt.as_str())).execute(&mut *tx).await?;
+                }
+                tx.commit().await?;
+            }
+            Self::MySql(mysql) => {
+                let mut tx = mysql.begin().await?;
+                for stmt in stmts {
+                    sqlx::query(sqlx::AssertSqlSafe(stmt.as_str())).execute(&mut *tx).await?;
+                }
+                tx.commit().await?;
+            }
+            Self::Sqlite(sqlite) => {
+                let mut tx = sqlite.begin().await?;
+                for stmt in stmts {
+                    sqlx::query(sqlx::AssertSqlSafe(stmt.as_str())).execute(&mut *tx).await?;
+                }
+                tx.commit().await?;
+            }
+        }
+        Ok(())
     }
 }
 
@@ -60,6 +89,12 @@ pub(crate) fn pg_quote(name: &str) -> String {
 
 pub(crate) fn mysql_quote(name: &str) -> String {
     format!("`{}`", name.replace('`', "``"))
+}
+
+/// Plain single-quoted MySQL string literal, for places that only accept a
+/// literal (DEFAULT, COMMENT). Assumes NO_BACKSLASH_ESCAPES is off (the default).
+pub(crate) fn mysql_string_literal(value: &str) -> String {
+    format!("'{}'", value.replace('\\', "\\\\").replace('\'', "''"))
 }
 
 // ── Type normalization ──────────────────────────────────────────────────────
@@ -100,6 +135,8 @@ pub(crate) fn normalize_mysql_type(raw: &str) -> String {
     let s = raw.to_ascii_lowercase();
     match s.as_str() {
         "newdecimal" => "decimal".to_string(),
+        // MySQL BOOLEAN/BOOL is an alias for TINYINT(1), not a real boolean type
+        "boolean" | "bool" => "tinyint".to_string(),
         _ => s,
     }
 }
@@ -185,7 +222,6 @@ pub(crate) async fn fetch_column_info(
             let col_rows = sqlx::query_as::<_, (String, String, String, i8, i8)>(
                 "SELECT CAST(COLUMN_NAME AS CHAR), \
                 CAST(CASE \
-                  WHEN COLUMN_TYPE = 'tinyint(1)' THEN 'boolean' \
                   WHEN COLUMN_TYPE LIKE '% unsigned' THEN CONCAT(DATA_TYPE, ' unsigned') \
                   ELSE DATA_TYPE \
                 END AS CHAR), \
@@ -273,7 +309,10 @@ pub(crate) fn pg_json_row_sql(
 }
 
 /// Build a SELECT that returns one JSON-string per row for MySQL.
-/// Uses JSON_OBJECT with CAST(col AS CHAR) and hex-encoded column name keys.
+/// JSON_OBJECT would encode BIGINT/DECIMAL as JSON numbers (precision lost in
+/// serde_json and JS), FLOAT as widened doubles, BIT as base64, and DATETIME
+/// with a `.000000` suffix, so only types that round-trip exactly are passed
+/// raw; binary columns are hex-encoded, BIT as a bit string, the rest CAST to text.
 pub(crate) fn mysql_json_row_sql(
     table: &str,
     columns: &[ColumnInfo],
@@ -284,17 +323,48 @@ pub(crate) fn mysql_json_row_sql(
     let col_refs: String = columns
         .iter()
         .map(|c| {
-            format!(
-                "{}, CAST({} AS CHAR)",
-                mysql_utf8_literal(&c.name),
-                mysql_quote(&c.name)
-            )
+            let key = mysql_utf8_literal(&c.name);
+            let col = mysql_quote(&c.name);
+            if is_mysql_binary_type(&c.data_type) {
+                format!("{key}, CONCAT('0x', HEX({col}))")
+            } else if c.data_type == "bit" {
+                format!("{key}, BIN({col})")
+            } else if is_mysql_json_safe_type(&c.data_type) {
+                format!("{key}, {col}")
+            } else {
+                format!("{key}, CAST({col} AS CHAR)")
+            }
         })
         .collect::<Vec<_>>()
         .join(", ");
     format!(
         "SELECT CAST(JSON_OBJECT({}) AS CHAR) FROM {} {} {} LIMIT ? OFFSET ?",
         col_refs, quoted, filter_sql, order_clause,
+    )
+}
+
+/// Types JSON_OBJECT encodes without loss: integers that fit in a JS number
+/// (up to INT UNSIGNED) and JSON itself.
+fn is_mysql_json_safe_type(data_type: &str) -> bool {
+    matches!(
+        data_type,
+        "tinyint"
+            | "tinyint unsigned"
+            | "smallint"
+            | "smallint unsigned"
+            | "mediumint"
+            | "mediumint unsigned"
+            | "int"
+            | "int unsigned"
+            | "year"
+            | "json"
+    )
+}
+
+pub(crate) fn is_mysql_binary_type(data_type: &str) -> bool {
+    matches!(
+        data_type,
+        "tinyblob" | "blob" | "mediumblob" | "longblob" | "binary" | "varbinary"
     )
 }
 
@@ -416,6 +486,9 @@ mod tests {
         assert_eq!(normalize_mysql_type("NEWDECIMAL"), "decimal");
         assert_eq!(normalize_mysql_type("INT"), "int");
         assert_eq!(normalize_mysql_type("VARCHAR"), "varchar");
+        // MySQL BOOLEAN/BOOL is just TINYINT(1), not a real boolean
+        assert_eq!(normalize_mysql_type("BOOLEAN"), "tinyint");
+        assert_eq!(normalize_mysql_type("BOOL"), "tinyint");
     }
 
     #[test]
@@ -428,10 +501,69 @@ mod tests {
     }
 
     #[test]
+    fn mysql_unsigned_passthrough() {
+        assert_eq!(normalize_mysql_type("BIGINT UNSIGNED"), "bigint unsigned");
+        assert_eq!(normalize_mysql_type("INT UNSIGNED"), "int unsigned");
+        assert_eq!(
+            normalize_mysql_type("TINYINT UNSIGNED"),
+            "tinyint unsigned"
+        );
+    }
+
+    #[test]
     fn mysql_utf8_literal_handles_quotes_backslashes_and_unicode() {
         assert_eq!(
             mysql_utf8_literal("owner's\\猫"),
             "CONVERT(X'6F776E657227735CE78CAB' USING utf8mb4)"
         );
+    }
+
+    #[tokio::test]
+    #[ignore = "requires Docker"]
+    async fn mysql_json_rows_preserve_exact_values() {
+        use sqlx::mysql::{MySqlConnectOptions, MySqlPoolOptions};
+        use testcontainers_modules::{mysql::Mysql, testcontainers::runners::AsyncRunner};
+
+        let container = Mysql::default().start().await.unwrap();
+        let port = container.get_host_port_ipv4(3306).await.unwrap();
+        let host = container.get_host().await.unwrap().to_string();
+        let opts = MySqlConnectOptions::new().host(&host).port(port).username("root").database("test");
+        let pool = MySqlPoolOptions::new().max_connections(1).connect_with(opts).await.unwrap();
+
+        sqlx::query(
+            "CREATE TABLE vals (id INT PRIMARY KEY, big BIGINT UNSIGNED, amount DECIMAL(20,4), \
+             f FLOAT, flag BIT(1), dt DATETIME, doc JSON, blobby BLOB, missing VARCHAR(5))",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO vals VALUES (1, 9007199254740993, 12345678901234.5678, 0.1, b'1', \
+             '2024-01-02 03:04:05', '{\"a\": 1}', X'CAFE', NULL)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let db = DbPool::MySql(pool.clone());
+        let columns = fetch_column_info(&db, "vals").await.unwrap();
+        let sql = mysql_json_row_sql("vals", &columns, "", "");
+        let raw: String = sqlx::query_scalar(sqlx::AssertSqlSafe(sql))
+            .bind(10i64)
+            .bind(0i64)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        let row: serde_json::Value = serde_json::from_str(&raw).unwrap();
+
+        assert_eq!(row["id"], serde_json::json!(1));
+        assert_eq!(row["big"], "9007199254740993");
+        assert_eq!(row["amount"], "12345678901234.5678");
+        assert_eq!(row["f"], "0.1");
+        assert_eq!(row["flag"], "1");
+        assert_eq!(row["dt"], "2024-01-02 03:04:05");
+        assert_eq!(row["doc"], serde_json::json!({"a": 1}));
+        assert_eq!(row["blobby"], "0xCAFE");
+        assert!(row["missing"].is_null());
     }
 }
