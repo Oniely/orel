@@ -3,7 +3,13 @@ import { QueryClient, QueryClientProvider, QueryObserver } from "@tanstack/react
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 import type { ReactNode } from "react";
-import { databaseQueryKeys, useApplyForeignKeyChanges, useApplyStructureChanges } from "./useTables";
+import { useStructureDraftsStore } from "../stores/structure-drafts.store";
+import {
+  databaseQueryKeys,
+  useApplyForeignKeyChanges,
+  useApplyIndexChanges,
+  useApplyStructureChanges,
+} from "./useTables";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 
@@ -40,7 +46,7 @@ describe("useApplyForeignKeyChanges", () => {
 
     const { result } = renderHook(() => useApplyForeignKeyChanges(), { wrapper });
     await act(() =>
-      result.current.mutateAsync({ connectionId: "conn", database: "app", table: "orders", changes: { drops: ["x"], adds: [] } }),
+      result.current.mutateAsync({ connectionId: "conn", database: "app", table: "orders", scopeKey: "scope", changes: { drops: ["x"], adds: [] } }),
     );
 
     expect(invokeMock).toHaveBeenCalledWith("apply_foreign_key_changes", {
@@ -63,7 +69,7 @@ describe("useApplyForeignKeyChanges", () => {
 
     const { result } = renderHook(() => useApplyForeignKeyChanges(), { wrapper });
     await act(() =>
-      result.current.mutateAsync({ connectionId: "conn", database: "app", table: "orders", changes: { drops: [], adds: [] } }),
+      result.current.mutateAsync({ connectionId: "conn", database: "app", table: "orders", scopeKey: "scope", changes: { drops: [], adds: [] } }),
     );
 
     expect(client.getQueryState(structureKey)?.isInvalidated).toBe(true);
@@ -85,11 +91,48 @@ describe("useApplyStructureChanges", () => {
         connectionId: "conn",
         database: "app",
         table: "users",
+        scopeKey: "scope",
         changes: { edits: [], drops: ["email"], adds: [], reorder: null },
       }),
     );
 
     expect([own(), referencing()]).toEqual([true, true]);
     expect(otherDatabase()).toBe(false);
+  });
+});
+
+describe("staged drafts after a save", () => {
+  const cases = [
+    { name: "columns", tab: "columns", hook: useApplyStructureChanges, changes: { edits: [], drops: [], adds: [], reorder: null } },
+    { name: "indexes", tab: "indexes", hook: useApplyIndexChanges, changes: { drops: [], adds: [] } },
+    { name: "foreign keys", tab: "foreignKeys", hook: useApplyForeignKeyChanges, changes: { drops: [], adds: [] } },
+  ] as const;
+
+  it.each(cases)("clears the $name draft even when the tab unmounts before the save returns", async ({ tab, hook, changes }) => {
+    const store = useStructureDraftsStore.getState();
+    store.updateDraft(tab, "scope", (draft) => ({ ...draft, drops: ["x"] }));
+    expect("scope" in useStructureDraftsStore.getState().drafts[tab]).toBe(true);
+
+    let resolveSave: (value: string[]) => void = () => {};
+    invokeMock.mockReturnValue(new Promise<string[]>((resolve) => (resolveSave = resolve)));
+
+    const { result, unmount } = renderHook(() => hook(), { wrapper });
+    // Per-call callbacks are dropped on unmount, like the ones the tabs used to rely on
+    const perCall = vi.fn();
+    act(() => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (result.current as any).mutate(
+        { connectionId: "conn", database: "app", table: "orders", scopeKey: "scope", changes },
+        { onSuccess: perCall },
+      );
+    });
+    unmount();
+    await act(async () => {
+      resolveSave([]);
+      await Promise.resolve();
+    });
+
+    expect(perCall).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect("scope" in useStructureDraftsStore.getState().drafts[tab]).toBe(false));
   });
 });

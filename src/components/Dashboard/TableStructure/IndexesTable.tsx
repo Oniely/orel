@@ -179,12 +179,13 @@ export function IndexesTable({ connectionId, database, table, scopeKey }: Indexe
         connectionId,
         database,
         table,
+        scopeKey,
         changes: {
           drops: pendingDrops,
           adds: pendingAdds.map((a) => ({ name: a.name, unique: a.unique, columns: a.columns })),
         },
       },
-      { onSuccess: cancelAll },
+      { onSuccess: () => resetApply() },
     );
   }, [
     connectionId,
@@ -194,8 +195,9 @@ export function IndexesTable({ connectionId, database, table, scopeKey }: Indexe
     validationError,
     pendingDrops,
     pendingAdds,
+    scopeKey,
+    resetApply,
     applyChanges,
-    cancelAll,
   ]);
 
   const saving = applyChanges.isPending;
