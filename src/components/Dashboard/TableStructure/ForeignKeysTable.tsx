@@ -306,6 +306,7 @@ export function ForeignKeysTable({ connectionId, database, table, scopeKey }: Fo
         connectionId,
         database,
         table,
+        scopeKey,
         changes: {
           drops: pendingDrops,
           adds: pendingAdds.map((a) => ({
@@ -318,7 +319,7 @@ export function ForeignKeysTable({ connectionId, database, table, scopeKey }: Fo
           })),
         },
       },
-      { onSuccess: cancelAll },
+      { onSuccess: () => resetApply() },
     );
   }, [
     connectionId,
@@ -328,8 +329,9 @@ export function ForeignKeysTable({ connectionId, database, table, scopeKey }: Fo
     validationError,
     pendingDrops,
     pendingAdds,
+    scopeKey,
+    resetApply,
     applyChanges,
-    cancelAll,
   ]);
 
   const saving = applyChanges.isPending;

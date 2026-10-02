@@ -634,9 +634,10 @@ export function ColumnsTable({
         connectionId,
         database,
         table,
+        scopeKey,
         changes: { edits, drops: pendingDeletes, adds, reorder: pendingReorder },
       },
-      { onSuccess: cancelAll },
+      { onSuccess: () => resetApply() },
     );
   }, [
     connectionId,
@@ -649,7 +650,8 @@ export function ColumnsTable({
     pendingAdds,
     pendingReorder,
     cols,
-    cancelAll,
+    scopeKey,
+    resetApply,
     applyChanges,
   ]);
 

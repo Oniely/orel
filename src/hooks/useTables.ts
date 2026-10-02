@@ -12,6 +12,7 @@ import type {
   ForeignKey,
   ForeignKeyChanges,
 } from "../types/database";
+import { useStructureDraftsStore } from "../stores/structure-drafts.store";
 
 export const databaseQueryKeys = {
   databases: (connectionId: string | null) => ["databases", connectionId] as const,
@@ -93,6 +94,8 @@ interface ApplyStructureInput {
   connectionId: string;
   database: string | null;
   table: string;
+  /** Draft to clear on success; done here so it still runs if the tab unmounted mid-save */
+  scopeKey: string;
   changes: StructureChanges;
 }
 
@@ -102,7 +105,8 @@ export function useApplyStructureChanges() {
   return useMutation({
     mutationFn: ({ connectionId, table, changes }: ApplyStructureInput) =>
       invoke<string[]>("apply_structure_changes", { connectionId, table, changes }),
-    onSuccess: (_stmts, { connectionId, database, table }) => {
+    onSuccess: (_stmts, { connectionId, database, table, scopeKey }) => {
+      useStructureDraftsStore.getState().clearDraft("columns", scopeKey);
       void queryClient.invalidateQueries({
         queryKey: databaseQueryKeys.tableStructure(connectionId, database, table),
       });
@@ -148,6 +152,8 @@ interface ApplyIndexInput {
   connectionId: string;
   database: string | null;
   table: string;
+  /** Draft to clear on success; done here so it still runs if the tab unmounted mid-save */
+  scopeKey: string;
   changes: IndexChanges;
 }
 
@@ -157,7 +163,8 @@ export function useApplyIndexChanges() {
   return useMutation({
     mutationFn: ({ connectionId, table, changes }: ApplyIndexInput) =>
       invoke<string[]>("apply_index_changes", { connectionId, table, changes }),
-    onSuccess: (_stmts, { connectionId, database, table }) => {
+    onSuccess: (_stmts, { connectionId, database, table, scopeKey }) => {
+      useStructureDraftsStore.getState().clearDraft("indexes", scopeKey);
       void queryClient.invalidateQueries({
         queryKey: databaseQueryKeys.tableIndexes(connectionId, database, table),
       });
@@ -196,6 +203,8 @@ interface ApplyForeignKeyInput {
   connectionId: string;
   database: string | null;
   table: string;
+  /** Draft to clear on success; done here so it still runs if the tab unmounted mid-save */
+  scopeKey: string;
   changes: ForeignKeyChanges;
 }
 
@@ -205,7 +214,8 @@ export function useApplyForeignKeyChanges() {
   return useMutation({
     mutationFn: ({ connectionId, table, changes }: ApplyForeignKeyInput) =>
       invoke<string[]>("apply_foreign_key_changes", { connectionId, table, changes }),
-    onSuccess: (_stmts, { connectionId, database, table }) => {
+    onSuccess: (_stmts, { connectionId, database, table, scopeKey }) => {
+      useStructureDraftsStore.getState().clearDraft("foreignKeys", scopeKey);
       void queryClient.invalidateQueries({
         queryKey: databaseQueryKeys.tableForeignKeys(connectionId, database, table),
       });
