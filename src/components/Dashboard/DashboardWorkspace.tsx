@@ -116,7 +116,12 @@ export function DashboardWorkspace() {
           )}
         </>
       ) : (
-        <StructurePanel connectionId={connectionId} database={activeDatabase} activeTable={activeTableName} />
+        <StructurePanel
+          connectionId={connectionId}
+          database={activeDatabase}
+          activeTable={activeTableName}
+          scopeKey={scopeKey}
+        />
       )}
 
       {/* Write queue footer — only when there are pending changes */}

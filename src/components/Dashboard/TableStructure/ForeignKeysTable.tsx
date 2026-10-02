@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import { Chip } from "@heroui/react";
 import { LuLock, LuTrash2 } from "react-icons/lu";
 import {
@@ -9,7 +9,9 @@ import {
 } from "../../../hooks/useTables";
 import { FOREIGN_KEYS_READ_ONLY_REASON, REFERENTIAL_ACTIONS } from "../../../lib/dialectTypes";
 import { getErrorMessage } from "../../../lib/error";
+import { useStructureDraftField, useStructureDraftsStore } from "../../../stores/structure-drafts.store";
 import type { ForeignKey, ReferentialAction } from "../../../types/database";
+import type { PendingForeignKey } from "../../../types/structure-drafts";
 import {
   DELETED_ROW_TINT,
   FieldSelect,
@@ -22,35 +24,19 @@ import {
   RowActions,
   RowIconButton,
   SaveBar,
-  StatusAlert,
+  SaveStatusBanner,
   StructureToolbar,
   UndoButton,
   fieldBoxClass,
   inputClass,
 } from "./shared";
 
-interface PendingForeignKey {
-  tempId: string;
-  name: string;
-  /** Once the user edits the name it stops following the column */
-  nameTouched: boolean;
-  column: string;
-  referencedTable: string;
-  referencedColumn: string;
-  onUpdate: ReferentialAction;
-  onDelete: ReferentialAction;
-}
-
-/** Pre-fills a new foreign key when arriving from the Columns tab's Key menu */
-export interface ForeignKeySeed {
-  column: string;
-}
-
 interface ForeignKeysTableProps {
   connectionId: string | null;
   database: string | null;
   table: string;
-  seed: ForeignKeySeed | null;
+  /** The table's dashboard scope; staged changes are kept under it */
+  scopeKey: string;
 }
 
 // Table-prefixed because MySQL constraint names are unique per database, not per table
@@ -64,7 +50,8 @@ function withAutoName(table: string, fk: PendingForeignKey): PendingForeignKey {
   return { ...fk, name: autoForeignKeyName(table, fk.column) };
 }
 
-function newPendingForeignKey(table: string, column = ""): PendingForeignKey {
+/** A new staged foreign key; the Columns tab's Key menu pre-fills its column */
+export function newPendingForeignKey(table: string, column = ""): PendingForeignKey {
   return withAutoName(table, {
     tempId: crypto.randomUUID(),
     name: "",
@@ -231,7 +218,7 @@ function PendingForeignKeyRow({
 
 // ── Main Component ───────────────────────────────────────────────────────────
 
-export function ForeignKeysTable({ connectionId, database, table, seed }: ForeignKeysTableProps) {
+export function ForeignKeysTable({ connectionId, database, table, scopeKey }: ForeignKeysTableProps) {
   const applyChanges = useApplyForeignKeyChanges();
   const foreignKeysQuery = useFetchTableForeignKeys(connectionId, database, table);
   const structureQuery = useFetchTableStructure(connectionId, database, table);
@@ -247,10 +234,9 @@ export function ForeignKeysTable({ connectionId, database, table, seed }: Foreig
     [tablesQuery.data],
   );
 
-  const [pendingDrops, setPendingDrops] = useState<string[]>([]);
-  const [pendingAdds, setPendingAdds] = useState<PendingForeignKey[]>(() =>
-    seed ? [newPendingForeignKey(table, seed.column)] : [],
-  );
+  // Staged changes outlive this component, so leaving the tab or table keeps them
+  const [pendingDrops, setPendingDrops] = useStructureDraftField("foreignKeys", scopeKey, "drops");
+  const [pendingAdds, setPendingAdds] = useStructureDraftField("foreignKeys", scopeKey, "adds");
 
   // ── Edit helpers ─────────────────────────────────────────────────────────
 
@@ -258,11 +244,11 @@ export function ForeignKeysTable({ connectionId, database, table, seed }: Foreig
     setPendingDrops((prev) =>
       prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name],
     );
-  }, []);
+  }, [setPendingDrops]);
 
   const addForeignKey = useCallback(() => {
     setPendingAdds((prev) => [...prev, newPendingForeignKey(table)]);
-  }, [table]);
+  }, [table, setPendingAdds]);
 
   const updateAdd = useCallback(
     (tempId: string, update: (fk: PendingForeignKey) => PendingForeignKey) => {
@@ -270,12 +256,12 @@ export function ForeignKeysTable({ connectionId, database, table, seed }: Foreig
         prev.map((a) => (a.tempId === tempId ? withAutoName(table, update(a)) : a)),
       );
     },
-    [table],
+    [table, setPendingAdds],
   );
 
   const removeAdd = useCallback((tempId: string) => {
     setPendingAdds((prev) => prev.filter((a) => a.tempId !== tempId));
-  }, []);
+  }, [setPendingAdds]);
 
   // ── Validation ───────────────────────────────────────────────────────────
 
@@ -309,10 +295,9 @@ export function ForeignKeysTable({ connectionId, database, table, seed }: Foreig
 
   const { reset: resetApply } = applyChanges;
   const cancelAll = useCallback(() => {
-    setPendingDrops([]);
-    setPendingAdds([]);
+    useStructureDraftsStore.getState().clearDraft("foreignKeys", scopeKey);
     resetApply();
-  }, [resetApply]);
+  }, [resetApply, scopeKey]);
 
   const saveAll = useCallback(() => {
     if (!connectionId || pendingCount === 0 || validationError) return;
@@ -367,15 +352,7 @@ export function ForeignKeysTable({ connectionId, database, table, seed }: Foreig
         addDisabledReason={readOnlyReason}
       />
 
-      {saveError ? (
-        <StatusAlert status="danger" banner>
-          {saveError}
-        </StatusAlert>
-      ) : validationError ? (
-        <StatusAlert status="warning" banner>
-          {validationError}
-        </StatusAlert>
-      ) : null}
+      <SaveStatusBanner saveError={saveError} validationError={validationError} />
 
       {/* Foreign keys table */}
       <div className="flex-1 overflow-auto px-3.5">

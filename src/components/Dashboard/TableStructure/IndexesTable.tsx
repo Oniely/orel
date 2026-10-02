@@ -1,10 +1,12 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo } from "react";
 import { Button, Chip, Dropdown, Input, Label, Switch } from "@heroui/react";
 import { LuArrowDown, LuArrowUp, LuCheck, LuLock, LuPlus, LuTrash2, LuX } from "react-icons/lu";
 import { KeyIcon } from "../shared/icons";
 import { useApplyIndexChanges, useFetchTableIndexes, useFetchTableStructure } from "../../../hooks/useTables";
 import { getErrorMessage } from "../../../lib/error";
+import { useStructureDraftField, useStructureDraftsStore } from "../../../stores/structure-drafts.store";
 import type { IndexColumnPayload, StructureColumn, TableIndex } from "../../../types/database";
+import type { PendingIndex } from "../../../types/structure-drafts";
 import {
   DELETED_ROW_TINT,
   HintIcon,
@@ -16,33 +18,19 @@ import {
   RowActions,
   RowIconButton,
   SaveBar,
-  StatusAlert,
+  SaveStatusBanner,
   StructureToolbar,
   UndoButton,
   fieldBoxClass,
   inputClass,
 } from "./shared";
 
-interface PendingIndex {
-  tempId: string;
-  name: string;
-  /** Once the user edits the name it stops following the columns */
-  nameTouched: boolean;
-  unique: boolean;
-  columns: IndexColumnPayload[];
-}
-
-/** Pre-fills a new index when arriving from the Columns tab's Key menu */
-export interface IndexSeed {
-  column: string;
-  unique: boolean;
-}
-
 interface IndexesTableProps {
   connectionId: string | null;
   database: string | null;
   table: string;
-  seed: IndexSeed | null;
+  /** The table's dashboard scope; staged changes are kept under it */
+  scopeKey: string;
 }
 
 // MySQL can only index these with a prefix length (error 1170)
@@ -62,7 +50,8 @@ function withAutoName(table: string, index: PendingIndex): PendingIndex {
   return { ...index, name: autoIndexName(table, index.columns.map((c) => c.name), index.unique) };
 }
 
-function newPendingIndex(table: string, column?: string, unique = false): PendingIndex {
+/** A new staged index; the Columns tab's Key menu pre-fills its column */
+export function newPendingIndex(table: string, column?: string, unique = false): PendingIndex {
   return withAutoName(table, {
     tempId: crypto.randomUUID(),
     name: "",
@@ -93,7 +82,7 @@ function lockReason(index: TableIndex): string {
 
 // ── Main Component ───────────────────────────────────────────────────────────
 
-export function IndexesTable({ connectionId, database, table, seed }: IndexesTableProps) {
+export function IndexesTable({ connectionId, database, table, scopeKey }: IndexesTableProps) {
   const applyChanges = useApplyIndexChanges();
   const indexesQuery = useFetchTableIndexes(connectionId, database, table);
   const structureQuery = useFetchTableStructure(connectionId, database, table);
@@ -106,10 +95,9 @@ export function IndexesTable({ connectionId, database, table, seed }: IndexesTab
     [columns],
   );
 
-  const [pendingDrops, setPendingDrops] = useState<string[]>([]);
-  const [pendingAdds, setPendingAdds] = useState<PendingIndex[]>(() =>
-    seed ? [newPendingIndex(table, seed.column, seed.unique)] : [],
-  );
+  // Staged changes outlive this component, so leaving the tab or table keeps them
+  const [pendingDrops, setPendingDrops] = useStructureDraftField("indexes", scopeKey, "drops");
+  const [pendingAdds, setPendingAdds] = useStructureDraftField("indexes", scopeKey, "adds");
 
   const needsPrefix = useCallback(
     (column: string) =>
@@ -123,11 +111,11 @@ export function IndexesTable({ connectionId, database, table, seed }: IndexesTab
     setPendingDrops((prev) =>
       prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name],
     );
-  }, []);
+  }, [setPendingDrops]);
 
   const addIndex = useCallback(() => {
     setPendingAdds((prev) => [...prev, newPendingIndex(table)]);
-  }, [table]);
+  }, [table, setPendingAdds]);
 
   const updateAdd = useCallback(
     (tempId: string, update: (index: PendingIndex) => PendingIndex) => {
@@ -135,7 +123,7 @@ export function IndexesTable({ connectionId, database, table, seed }: IndexesTab
         prev.map((a) => (a.tempId === tempId ? withAutoName(table, update(a)) : a)),
       );
     },
-    [table],
+    [table, setPendingAdds],
   );
 
   const updateColumns = useCallback(
@@ -152,7 +140,7 @@ export function IndexesTable({ connectionId, database, table, seed }: IndexesTab
 
   const removeAdd = useCallback((tempId: string) => {
     setPendingAdds((prev) => prev.filter((a) => a.tempId !== tempId));
-  }, []);
+  }, [setPendingAdds]);
 
   // ── Validation ───────────────────────────────────────────────────────────
 
@@ -180,10 +168,9 @@ export function IndexesTable({ connectionId, database, table, seed }: IndexesTab
 
   const { reset: resetApply } = applyChanges;
   const cancelAll = useCallback(() => {
-    setPendingDrops([]);
-    setPendingAdds([]);
+    useStructureDraftsStore.getState().clearDraft("indexes", scopeKey);
     resetApply();
-  }, [resetApply]);
+  }, [resetApply, scopeKey]);
 
   const saveAll = useCallback(() => {
     if (!connectionId || pendingCount === 0 || validationError) return;
@@ -230,15 +217,7 @@ export function IndexesTable({ connectionId, database, table, seed }: IndexesTab
         onAdd={addIndex}
       />
 
-      {saveError ? (
-        <StatusAlert status="danger" banner>
-          {saveError}
-        </StatusAlert>
-      ) : validationError ? (
-        <StatusAlert status="warning" banner>
-          {validationError}
-        </StatusAlert>
-      ) : null}
+      <SaveStatusBanner saveError={saveError} validationError={validationError} />
 
       {/* Indexes table */}
       <div className="flex-1 overflow-auto px-3.5">

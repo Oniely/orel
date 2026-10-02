@@ -14,41 +14,32 @@ import {
   RowIconButton,
   SELECT_CHEVRON_BG,
   SaveBar,
-  StatusAlert,
+  SaveStatusBanner,
   StructureToolbar,
   UndoButton,
   fieldBoxClass,
   inputClass,
 } from "./shared";
 import { getTypeColor } from "../../../lib/typeColors";
-import { DIALECT_TYPES, FOREIGN_KEYS_READ_ONLY_REASON, TYPE_PARAMS_META } from "../../../lib/dialectTypes";
+import {
+  DIALECT_TYPES,
+  FOREIGN_KEYS_READ_ONLY_REASON,
+  TYPE_PARAMS_META,
+  defaultTypeParams,
+  missingTypeParams,
+} from "../../../lib/dialectTypes";
 import { useFetchTableStructure, useApplyStructureChanges } from "../../../hooks/useTables";
 import { getErrorMessage } from "../../../lib/error";
+import { useStructureDraftField, useStructureDraftsStore } from "../../../stores/structure-drafts.store";
 import type { StructureColumn } from "../../../types/database";
-
-interface PendingEdits {
-  [originalName: string]: Partial<{
-    name: string;
-    dataType: string;
-    typeParams: string | null;
-    isNullable: boolean;
-    defaultValue: string | null;
-  }>;
-}
-
-interface PendingAdd {
-  tempId: string;
-  name: string;
-  dataType: string;
-  typeParams: string | null;
-  isNullable: boolean;
-  defaultValue: string | null;
-}
+import type { ColumnEdit } from "../../../types/structure-drafts";
 
 export interface ColumnsTableProps {
   connectionId: string | null;
   database: string | null;
   table: string | null;
+  /** The table's dashboard scope; staged changes are kept under it */
+  scopeKey: string;
   /** Opens the Indexes tab with a new index on this (saved) column */
   onAddIndex?: (column: string, unique: boolean) => void;
   /** Opens the Foreign Keys tab with a new foreign key on this (saved) column */
@@ -170,19 +161,16 @@ function KeyMenu({ column, items }: KeyMenuProps) {
 // ── Editable Row ─────────────────────────────────────────────────────────────
 
 interface EditableRowProps {
-  values: {
-    name: string;
-    dataType: string;
-    typeParams: string | null;
-    isNullable: boolean;
-    defaultValue: string | null;
-  };
+  values: ColumnEdit;
   keyCell: React.ReactNode;
   changed: Record<string, boolean>;
   onField: (field: string, value: unknown) => void;
   dialect: string;
   tint?: string;
   disabled?: boolean;
+  /** The table has a drag-handle column; every row renders its cell so columns line up */
+  reorderable: boolean;
+  /** Set on rows that can be moved */
   drag?: {
     isDragging: boolean;
     onGripPointerDown: (e: React.PointerEvent) => void;
@@ -200,6 +188,7 @@ function EditableRow({
   dialect,
   tint,
   disabled,
+  reorderable,
   drag,
   rightAction,
   autoFocus,
@@ -241,8 +230,7 @@ function EditableRow({
         pointerEvents: disabled ? "none" : undefined,
       }}
     >
-      {/* Drag handle — only rendered when drag prop is provided */}
-      {drag !== undefined && (
+      {reorderable && (
         <td className="px-1 py-1.5 text-center">
           {drag && (
             <span
@@ -362,6 +350,7 @@ export function ColumnsTable({
   connectionId,
   database,
   table,
+  scopeKey,
   onAddIndex,
   onAddForeignKey,
 }: ColumnsTableProps) {
@@ -376,10 +365,11 @@ export function ColumnsTable({
   const dialect = data?.dialect ?? "postgres";
   const canReorder = dialect === "mysql";
 
-  const [pendingEdits, setPendingEdits] = useState<PendingEdits>({});
-  const [pendingDeletes, setPendingDeletes] = useState<string[]>([]);
-  const [pendingAdds, setPendingAdds] = useState<PendingAdd[]>([]);
-  const [pendingReorder, setPendingReorder] = useState<string[] | null>(null);
+  // Staged changes outlive this component, so leaving the tab or table keeps them
+  const [pendingEdits, setPendingEdits] = useStructureDraftField("columns", scopeKey, "edits");
+  const [pendingDeletes, setPendingDeletes] = useStructureDraftField("columns", scopeKey, "deletes");
+  const [pendingAdds, setPendingAdds] = useStructureDraftField("columns", scopeKey, "adds");
+  const [pendingReorder, setPendingReorder] = useStructureDraftField("columns", scopeKey, "reorder");
 
   // ── Edit helpers ─────────────────────────────────────────────────────────
 
@@ -388,11 +378,13 @@ export function ColumnsTable({
       const original = cols.find((c) => c.name === name);
       if (!original) return;
 
-      // Params belong to the type: a new type starts without them (the input is
-      // hidden for types that take none), and going back restores the original.
+      // Params belong to the type: a new type starts with its default params (none
+      // for most; the input is hidden for types that take none), and going back
+      // restores the original.
       const fields: Record<string, unknown> = { [field]: value };
       if (field === "dataType") {
-        fields.typeParams = value === original.dataType ? original.typeParams : null;
+        fields.typeParams =
+          value === original.dataType ? original.typeParams : defaultTypeParams(dialect, value as string);
       }
 
       setPendingEdits((prev) => {
@@ -412,16 +404,21 @@ export function ColumnsTable({
         return next;
       });
     },
-    [cols],
+    [cols, dialect, setPendingEdits],
   );
 
   const toggleDelete = useCallback((name: string) => {
     setPendingDeletes((prev) =>
       prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name],
     );
-  }, []);
+  }, [setPendingDeletes]);
+
+  // Only the column just added takes focus, not staged ones remounting when you come back
+  const [focusTempId, setFocusTempId] = useState<string | null>(null);
 
   const addColumn = useCallback(() => {
+    const tempId = crypto.randomUUID();
+    setFocusTempId(tempId);
     const defaultType =
       dialect === "sqlite"
         ? "text"
@@ -431,32 +428,36 @@ export function ColumnsTable({
     setPendingAdds((prev) => [
       ...prev,
       {
-        tempId: `new-${Date.now()}`,
+        tempId,
         name: "",
         dataType: defaultType,
-        typeParams: null,
+        typeParams: defaultTypeParams(dialect, defaultType),
         isNullable: true,
         defaultValue: null,
       },
     ]);
-  }, [dialect]);
+  }, [dialect, setPendingAdds]);
 
   const updatePendingAdd = useCallback(
     (tempId: string, field: string, value: unknown) => {
       setPendingAdds((prev) =>
         prev.map((a) =>
           a.tempId === tempId
-            ? { ...a, [field]: value, ...(field === "dataType" ? { typeParams: null } : {}) }
+            ? {
+                ...a,
+                [field]: value,
+                ...(field === "dataType" ? { typeParams: defaultTypeParams(dialect, value as string) } : {}),
+              }
             : a,
         ),
       );
     },
-    [],
+    [dialect, setPendingAdds],
   );
 
   const removePendingAdd = useCallback((tempId: string) => {
     setPendingAdds((prev) => prev.filter((a) => a.tempId !== tempId));
-  }, []);
+  }, [setPendingAdds]);
 
   // ── Drag-and-drop (pointer events) ───────────────────────────────────────
 
@@ -477,7 +478,7 @@ export function ColumnsTable({
         next.join("|") === cols.map((c) => c.name).join("|");
       setPendingReorder(sameAsOriginal ? null : next);
     },
-    [cols, pendingReorder],
+    [cols, pendingReorder, setPendingReorder],
   );
 
   // Clean up drag listeners on unmount
@@ -556,22 +557,46 @@ export function ColumnsTable({
     pendingAdds.length +
     (pendingReorder ? 1 : 0);
 
-  // The Key menu switches tabs, which unmounts this table and would discard staged edits
-  const keyMenuLockReason = pendingCount > 0 ? "Save or cancel column changes first" : null;
+  // ── Effective column values (original + pending edits) ───────────────────
+
+  const effectiveColumns = useMemo(() => {
+    const ordered = pendingReorder
+      ? pendingReorder.map((n) => cols.find((c) => c.name === n)!).filter(Boolean)
+      : cols;
+    return ordered.map((c) => {
+      const diff = pendingEdits[c.name];
+      if (!diff) return { col: c, eff: c, changed: {} as Record<string, boolean> };
+      const eff = { ...c, ...diff } as StructureColumn;
+      const changed = Object.fromEntries(
+        Object.keys(diff).map((k) => [k, true]),
+      );
+      return { col: c, eff, changed };
+    });
+  }, [cols, pendingEdits, pendingReorder]);
+
+  // ── Validation ───────────────────────────────────────────────────────────
+
+  const validationError = useMemo(() => {
+    const edited = effectiveColumns
+      .filter(({ col }) => pendingEdits[col.name] && !pendingDeletes.includes(col.name))
+      .map(({ eff }) => eff);
+    for (const column of [...edited, ...pendingAdds]) {
+      const missing = missingTypeParams(dialect, column);
+      if (missing) return missing;
+    }
+    return null;
+  }, [effectiveColumns, dialect, pendingEdits, pendingDeletes, pendingAdds]);
 
   // ── Save / Cancel ────────────────────────────────────────────────────────
 
   const { reset: resetApply } = applyChanges;
   const cancelAll = useCallback(() => {
-    setPendingEdits({});
-    setPendingDeletes([]);
-    setPendingAdds([]);
-    setPendingReorder(null);
+    useStructureDraftsStore.getState().clearDraft("columns", scopeKey);
     resetApply();
-  }, [resetApply]);
+  }, [resetApply, scopeKey]);
 
   const saveAll = useCallback(() => {
-    if (!connectionId || !table || pendingCount === 0) return;
+    if (!connectionId || !table || pendingCount === 0 || validationError) return;
 
     const edits = Object.entries(pendingEdits).flatMap(([originalName, diff]) => {
       const orig = cols.find((c) => c.name === originalName);
@@ -618,6 +643,7 @@ export function ColumnsTable({
     database,
     table,
     pendingCount,
+    validationError,
     pendingEdits,
     pendingDeletes,
     pendingAdds,
@@ -629,23 +655,6 @@ export function ColumnsTable({
 
   const saving = applyChanges.isPending;
   const saveError = applyChanges.error ? getErrorMessage(applyChanges.error, "Failed to apply changes") : null;
-
-  // ── Effective column values (original + pending edits) ───────────────────
-
-  const effectiveColumns = useMemo(() => {
-    const ordered = pendingReorder
-      ? pendingReorder.map((n) => cols.find((c) => c.name === n)!).filter(Boolean)
-      : cols;
-    return ordered.map((c) => {
-      const diff = pendingEdits[c.name];
-      if (!diff) return { col: c, eff: c, changed: {} as Record<string, boolean> };
-      const eff = { ...c, ...diff } as StructureColumn;
-      const changed = Object.fromEntries(
-        Object.keys(diff).map((k) => [k, true]),
-      );
-      return { col: c, eff, changed };
-    });
-  }, [cols, pendingEdits, pendingReorder]);
 
   // ── Render ───────────────────────────────────────────────────────────────
 
@@ -668,11 +677,7 @@ export function ColumnsTable({
         onAdd={addColumn}
       />
 
-      {saveError && (
-        <StatusAlert status="danger" banner>
-          {saveError}
-        </StatusAlert>
-      )}
+      <SaveStatusBanner saveError={saveError} validationError={validationError} />
 
       {/* Columns table */}
       <div ref={scrollRef} className="flex-1 overflow-auto px-3.5 relative">
@@ -708,6 +713,8 @@ export function ColumnsTable({
           <tbody ref={tbodyRef}>
             {effectiveColumns.map(({ col, eff, changed }, idx) => {
               const isDeleted = pendingDeletes.includes(col.name);
+              // A new index or foreign key would still point at the column's saved name
+              const keyMenuLock = pendingEdits[col.name]?.name !== undefined ? "Save the rename first" : null;
 
               return (
                 <EditableRow
@@ -723,13 +730,13 @@ export function ColumnsTable({
                           {
                             id: "add-index",
                             label: "Add index…",
-                            disabledReason: keyMenuLockReason,
+                            disabledReason: keyMenuLock,
                             onAction: () => onAddIndex(col.name, false),
                           },
                           {
                             id: "add-unique",
                             label: "Add unique index…",
-                            disabledReason: keyMenuLockReason,
+                            disabledReason: keyMenuLock,
                             onAction: () => onAddIndex(col.name, true),
                           },
                           ...(onAddForeignKey
@@ -737,7 +744,7 @@ export function ColumnsTable({
                                 {
                                   id: "add-foreign-key",
                                   label: "Add foreign key…",
-                                  disabledReason: keyMenuLockReason ?? FOREIGN_KEYS_READ_ONLY_REASON[dialect] ?? null,
+                                  disabledReason: keyMenuLock ?? FOREIGN_KEYS_READ_ONLY_REASON[dialect] ?? null,
                                   onAction: () => onAddForeignKey(col.name),
                                 },
                               ]
@@ -752,6 +759,7 @@ export function ColumnsTable({
                   }
                   dialect={dialect}
                   disabled={isDeleted}
+                  reorderable={canReorder}
                   drag={canReorder && !isDeleted ? {
                     isDragging: dragIdx === idx,
                     onGripPointerDown: (e) => handleGripDown(idx, e),
@@ -776,8 +784,7 @@ export function ColumnsTable({
               <EditableRow
                 key={a.tempId}
                 values={a}
-                // Pending rows only mount from "Add column", so each one takes focus once
-                autoFocus
+                autoFocus={a.tempId === focusTempId}
                 keyCell={
                   <HintIcon hint="Save the column first to index it">
                     <KeyIcon size={14} className={KEY_PLACEHOLDER_CLASS} />
@@ -788,6 +795,7 @@ export function ColumnsTable({
                   updatePendingAdd(a.tempId, field, value)
                 }
                 dialect={dialect}
+                reorderable={canReorder}
                 tint={NEW_ROW_TINT}
                 rightAction={<NewRowActions onDiscard={() => removePendingAdd(a.tempId)} />}
               />
@@ -808,7 +816,13 @@ export function ColumnsTable({
       </div>
 
       {/* Save / Cancel bar */}
-      <SaveBar pendingCount={pendingCount} saving={saving} onCancel={cancelAll} onSave={saveAll} />
+      <SaveBar
+        pendingCount={pendingCount}
+        saving={saving}
+        saveDisabled={!!validationError}
+        onCancel={cancelAll}
+        onSave={saveAll}
+      />
     </div>
   );
 }

@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 import type { TableStructure } from "../../../types/database";
+import { useStructureDraftsStore } from "../../../stores/structure-drafts.store";
 import { ColumnsTable, type ColumnsTableProps } from "./ColumnsTable";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
@@ -30,6 +31,8 @@ let dialect: TableStructure["dialect"] = "postgres";
 const scrollIntoView = vi.fn();
 
 beforeEach(() => {
+  // Staged drafts live in a global store, so each test starts clean
+  useStructureDraftsStore.setState(useStructureDraftsStore.getInitialState());
   dialect = "postgres";
   Element.prototype.scrollIntoView = scrollIntoView;
   scrollIntoView.mockClear();
@@ -45,7 +48,7 @@ function renderTable(props: Pick<ColumnsTableProps, "onAddIndex" | "onAddForeign
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
-      <ColumnsTable connectionId="conn" database="app" table="users" {...props} />
+      <ColumnsTable connectionId="conn" database="app" table="users" scopeKey="conn::app::users" {...props} />
     </QueryClientProvider>,
   );
 }
@@ -109,18 +112,79 @@ describe("ColumnsTable", () => {
     expect(onAddForeignKey).not.toHaveBeenCalled();
   });
 
-  it("locks the whole Key menu while column changes are unsaved", async () => {
+  it("locks the Key menu only for a renamed column", async () => {
     const user = userEvent.setup();
     renderTable({ onAddIndex: vi.fn(), onAddForeignKey: vi.fn() });
 
-    // Leaving for another tab would discard this edit
+    // A new index would still point at the saved name
     await user.type(await screen.findByDisplayValue("email"), "_2");
     await user.click(screen.getByRole("button", { name: /Key options for email/ }));
-
     for (const name of [/^Add index/, /Add unique index/, /Add foreign key/]) {
       expect((await screen.findByRole("menuitem", { name })).getAttribute("aria-disabled")).toBe("true");
     }
     // One reason row, not one per item
-    expect(screen.getAllByText("Save or cancel column changes first")).toHaveLength(1);
+    expect(screen.getAllByText("Save the rename first")).toHaveLength(1);
+    await user.keyboard("{Escape}");
+
+    // Other columns' menus stay usable while edits are staged
+    await user.click(screen.getByRole("button", { name: /Key options for name/ }));
+    expect((await screen.findByRole("menuitem", { name: /^Add index/ })).getAttribute("aria-disabled")).toBeNull();
+  });
+
+  it("gives new MySQL varchar columns a length so they can be saved", async () => {
+    const user = userEvent.setup();
+    dialect = "mysql";
+    renderTable();
+    await screen.findByDisplayValue("email");
+
+    await user.click(screen.getByRole("button", { name: /Add column/ }));
+    expect(screen.getByDisplayValue("varchar")).toBeTruthy();
+    expect(screen.getByDisplayValue("255")).toBeTruthy();
+  });
+
+  it("fills in a length when a MySQL column switches to varchar, and blocks saving without one", async () => {
+    const user = userEvent.setup();
+    dialect = "mysql";
+    renderTable();
+    await screen.findByDisplayValue("email");
+
+    const [, emailType] = screen.getAllByRole("combobox") as HTMLSelectElement[];
+    await user.selectOptions(emailType, "varchar");
+    const length = screen.getByDisplayValue("255");
+
+    await user.clear(length);
+    expect(screen.getByText('Column "email" (varchar) needs a length.')).toBeTruthy();
+    expect((screen.getByRole("button", { name: /Save changes \(1\)/ }) as HTMLButtonElement).disabled).toBe(true);
+
+    await user.type(length, "64");
+    expect(screen.queryByText(/needs a length/)).toBeNull();
+    expect((screen.getByRole("button", { name: /Save changes \(1\)/ }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("blocks saving a MySQL enum without its values", async () => {
+    const user = userEvent.setup();
+    dialect = "mysql";
+    renderTable();
+    await screen.findByDisplayValue("email");
+
+    const [, emailType] = screen.getAllByRole("combobox") as HTMLSelectElement[];
+    await user.selectOptions(emailType, "enum");
+    expect(screen.getByText('Column "email" (enum) needs a list of values.')).toBeTruthy();
+  });
+
+  it("keeps deleted and new rows aligned with the header when columns can be reordered", async () => {
+    const user = userEvent.setup();
+    dialect = "mysql";
+    renderTable();
+    await screen.findByDisplayValue("email");
+
+    await user.click(screen.getAllByRole("button", { name: "Delete column" })[1]);
+    await user.click(screen.getByRole("button", { name: /Add column/ }));
+
+    const headerCells = document.querySelectorAll("thead th").length;
+    expect(headerCells).toBe(7);
+    for (const row of document.querySelectorAll("tbody tr")) {
+      expect(row.querySelectorAll("td")).toHaveLength(headerCells);
+    }
   });
 });

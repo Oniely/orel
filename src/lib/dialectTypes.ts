@@ -30,8 +30,16 @@ export const DIALECT_TYPES: Record<string, string[]> = {
   ],
 };
 
+interface TypeParamsMeta {
+  placeholder: string;
+  /** Set when the type can't be declared without params, e.g. "a length" */
+  required?: string;
+  /** Filled in when a column switches to this type, so it can be saved as-is */
+  defaultParams?: string;
+}
+
 // Types that show a secondary parameter input (length, precision, enum values)
-export const TYPE_PARAMS_META: Record<string, Record<string, { placeholder: string }>> = {
+export const TYPE_PARAMS_META: Record<string, Record<string, TypeParamsMeta>> = {
   postgres: {
     varchar: { placeholder: "255" },
     char: { placeholder: "1" },
@@ -41,15 +49,34 @@ export const TYPE_PARAMS_META: Record<string, Record<string, { placeholder: stri
     varbit: { placeholder: "64" },
   },
   mysql: {
-    varchar: { placeholder: "255" },
+    varchar: { placeholder: "255", required: "a length", defaultParams: "255" },
     char: { placeholder: "1" },
     decimal: { placeholder: "10,2" },
     numeric: { placeholder: "10,2" },
-    enum: { placeholder: "'val1','val2'" },
-    set: { placeholder: "'val1','val2'" },
+    enum: { placeholder: "'val1','val2'", required: "a list of values" },
+    set: { placeholder: "'val1','val2'", required: "a list of values" },
+    binary: { placeholder: "1" },
+    varbinary: { placeholder: "255", required: "a length", defaultParams: "255" },
   },
   sqlite: {},
 };
+
+/** Params a column starts with when it switches to `dataType` */
+export function defaultTypeParams(dialect: string, dataType: string): string | null {
+  return TYPE_PARAMS_META[dialect]?.[dataType]?.defaultParams ?? null;
+}
+
+/** Why a column of this type can't be saved with these params, or null if it can */
+export function missingTypeParams(
+  dialect: string,
+  column: { name: string; dataType: string; typeParams: string | null },
+): string | null {
+  const required = TYPE_PARAMS_META[dialect]?.[column.dataType]?.required;
+  if (!required || column.typeParams?.trim()) return null;
+  const name = column.name.trim();
+  const label = name ? `Column "${name}"` : "A new column";
+  return `${label} (${column.dataType}) needs ${required}.`;
+}
 
 // ON UPDATE / ON DELETE choices for new foreign keys. InnoDB rejects SET DEFAULT.
 export const REFERENTIAL_ACTIONS: Record<string, ReferentialAction[]> = {
