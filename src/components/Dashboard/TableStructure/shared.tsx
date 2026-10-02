@@ -65,6 +65,25 @@ export function StatusAlert({ status, banner, children }: StatusAlertProps) {
   );
 }
 
+/** Banner under a tab's toolbar: a failed save, otherwise why Save is disabled */
+export function SaveStatusBanner({ saveError, validationError }: { saveError: string | null; validationError: string | null }) {
+  if (saveError) {
+    return (
+      <StatusAlert status="danger" banner>
+        {saveError}
+      </StatusAlert>
+    );
+  }
+  if (validationError) {
+    return (
+      <StatusAlert status="warning" banner>
+        {validationError}
+      </StatusAlert>
+    );
+  }
+  return null;
+}
+
 // ── Row actions ──────────────────────────────────────────────────────────────
 
 /** Right-aligned, vertically centered action area of a row */

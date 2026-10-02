@@ -4,7 +4,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 import type { TableIndex, TableStructure } from "../../../types/database";
-import { IndexesTable, type IndexSeed } from "./IndexesTable";
+import { useStructureDraftsStore } from "../../../stores/structure-drafts.store";
+import { IndexesTable, newPendingIndex } from "./IndexesTable";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 
@@ -38,16 +39,24 @@ const indexes: TableIndex[] = [
   },
 ];
 
-function renderTable(seed: IndexSeed | null = null) {
+const SCOPE_KEY = "conn::app::users";
+
+/** `seed` stages a row the way the Columns tab's Key menu does */
+function renderTable(seed: { column: string; unique: boolean } | null = null) {
+  if (seed) {
+    useStructureDraftsStore.getState().stageAdd("indexes", SCOPE_KEY, newPendingIndex("users", seed.column, seed.unique));
+  }
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
-      <IndexesTable connectionId="conn" database="app" table="users" seed={seed} />
+      <IndexesTable connectionId="conn" database="app" table="users" scopeKey={SCOPE_KEY} />
     </QueryClientProvider>,
   );
 }
 
 beforeEach(() => {
+  // Staged drafts live in a global store, so each test starts clean
+  useStructureDraftsStore.setState(useStructureDraftsStore.getInitialState());
   invokeMock.mockImplementation(async (cmd) => {
     if (cmd === "fetch_table_indexes") return indexes;
     if (cmd === "fetch_table_structure") return structure;

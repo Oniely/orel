@@ -1,18 +1,13 @@
 import { useState } from "react";
 import { DDL } from "./DDL";
 import { ColumnsTable } from "./ColumnsTable";
-import { ForeignKeysTable, type ForeignKeySeed } from "./ForeignKeysTable";
-import { IndexesTable, type IndexSeed } from "./IndexesTable";
+import { ForeignKeysTable, newPendingForeignKey } from "./ForeignKeysTable";
+import { IndexesTable, newPendingIndex } from "./IndexesTable";
 import { CenteredState } from "./shared";
+import { useStructureDraftsStore } from "../../../stores/structure-drafts.store";
 
 const STRUCTURE_TABS = ["Columns", "Indexes", "Foreign Keys", "DDL"] as const;
 type StructureTabType = (typeof STRUCTURE_TABS)[number];
-
-/** Set by the Columns tab's Key menu; consumed when the target tab mounts */
-type StructureSeed = { scopeKey: string } & (
-  | ({ kind: "index" } & IndexSeed)
-  | ({ kind: "foreign-key" } & ForeignKeySeed)
-);
 
 interface PillTabBarProps<T extends string> {
   tabs: readonly T[];
@@ -45,30 +40,14 @@ interface StructurePanelProps {
   connectionId: string | null;
   database: string | null;
   activeTable: string | null;
+  /** The active table's dashboard scope (null without one); staged changes are kept under it */
+  scopeKey: string | null;
 }
 
-export function StructurePanel({ connectionId, database, activeTable }: StructurePanelProps) {
+export function StructurePanel({ connectionId, database, activeTable, scopeKey }: StructurePanelProps) {
   const [activeTab, setActiveTab] = useState<StructureTabType>("Columns");
-  const [seed, setSeed] = useState<StructureSeed | null>(null);
 
-  // Keyed so staged changes never carry over to a same-named table in another database or connection
-  const scopeKey = `${connectionId}::${database}::${activeTable}`;
-
-  // A seed belongs to one visit: drop it as soon as the table changes (during render,
-  // so no tab ever mounts with it), and coming back to the table won't re-add it
-  if (seed && seed.scopeKey !== scopeKey) setSeed(null);
-
-  const changeTab = (tab: StructureTabType) => {
-    setSeed(null);
-    setActiveTab(tab);
-  };
-
-  const seedTab = (next: StructureSeed, tab: StructureTabType) => {
-    setSeed(next);
-    setActiveTab(tab);
-  };
-
-  if (!activeTable) {
+  if (!activeTable || !scopeKey) {
     return (
       <CenteredState>
         <p className="text-sm text-muted">Select a table to view its structure</p>
@@ -76,10 +55,13 @@ export function StructurePanel({ connectionId, database, activeTable }: Structur
     );
   }
 
+  const { stageAdd } = useStructureDraftsStore.getState();
+
+  // Tabs are keyed by scopeKey so local UI state (drag, focus, save status) resets per table
   return (
     <div className="flex-1 flex flex-col min-h-0">
       <div className="flex items-center px-4.5 h-10 border-b border-separator bg-surface shrink-0">
-        <PillTabBar tabs={STRUCTURE_TABS} active={activeTab} onChange={changeTab} />
+        <PillTabBar tabs={STRUCTURE_TABS} active={activeTab} onChange={setActiveTab} />
       </div>
 
       <div className="flex-1 overflow-auto bg-background">
@@ -89,8 +71,16 @@ export function StructurePanel({ connectionId, database, activeTable }: Structur
             connectionId={connectionId}
             database={database}
             table={activeTable}
-            onAddIndex={(column, unique) => seedTab({ scopeKey, kind: "index", column, unique }, "Indexes")}
-            onAddForeignKey={(column) => seedTab({ scopeKey, kind: "foreign-key", column }, "Foreign Keys")}
+            scopeKey={scopeKey}
+            // The Key menu stages a pre-filled row on the target tab, then opens it
+            onAddIndex={(column, unique) => {
+              stageAdd("indexes", scopeKey, newPendingIndex(activeTable, column, unique));
+              setActiveTab("Indexes");
+            }}
+            onAddForeignKey={(column) => {
+              stageAdd("foreignKeys", scopeKey, newPendingForeignKey(activeTable, column));
+              setActiveTab("Foreign Keys");
+            }}
           />
         ) : activeTab === "Indexes" ? (
           <IndexesTable
@@ -98,7 +88,7 @@ export function StructurePanel({ connectionId, database, activeTable }: Structur
             connectionId={connectionId}
             database={database}
             table={activeTable}
-            seed={seed?.kind === "index" ? seed : null}
+            scopeKey={scopeKey}
           />
         ) : activeTab === "Foreign Keys" ? (
           <ForeignKeysTable
@@ -106,7 +96,7 @@ export function StructurePanel({ connectionId, database, activeTable }: Structur
             connectionId={connectionId}
             database={database}
             table={activeTable}
-            seed={seed?.kind === "foreign-key" ? seed : null}
+            scopeKey={scopeKey}
           />
         ) : (
           <DDL connectionId={connectionId} database={database} table={activeTable} />

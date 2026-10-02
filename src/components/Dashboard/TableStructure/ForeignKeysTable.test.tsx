@@ -4,7 +4,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 import type { ForeignKey, StructureColumn, TableInfo, TableStructure } from "../../../types/database";
-import { ForeignKeysTable, type ForeignKeySeed } from "./ForeignKeysTable";
+import { useStructureDraftsStore } from "../../../stores/structure-drafts.store";
+import { ForeignKeysTable, newPendingForeignKey } from "./ForeignKeysTable";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 
@@ -44,16 +45,24 @@ let dialect: TableStructure["dialect"] = "postgres";
 let currentForeignKeys = foreignKeys;
 let applyError: string | null = null;
 
-function renderTable(seed: ForeignKeySeed | null = null) {
+const SCOPE_KEY = "conn::app::orders";
+
+/** `seed` stages a row the way the Columns tab's Key menu does */
+function renderTable(seed: { column: string } | null = null) {
+  if (seed) {
+    useStructureDraftsStore.getState().stageAdd("foreignKeys", SCOPE_KEY, newPendingForeignKey("orders", seed.column));
+  }
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
-      <ForeignKeysTable connectionId="conn" database="app" table="orders" seed={seed} />
+      <ForeignKeysTable connectionId="conn" database="app" table="orders" scopeKey={SCOPE_KEY} />
     </QueryClientProvider>,
   );
 }
 
 beforeEach(() => {
+  // Staged drafts live in a global store, so each test starts clean
+  useStructureDraftsStore.setState(useStructureDraftsStore.getInitialState());
   dialect = "postgres";
   currentForeignKeys = foreignKeys;
   applyError = null;
