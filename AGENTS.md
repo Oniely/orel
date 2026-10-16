@@ -22,7 +22,11 @@ Orel is a cross-platform desktop database GUI for **PostgreSQL**, **MySQL/MariaD
 
 ## Project structure
 
-```
+├── docker-compose.yml                  # Local development Postgres + MySQL containers
+├── .env.example                        # Port & credential overrides for local DBs
+├── docker/                             # DB initialization schemas & seed data
+│   ├── postgres/01-init.sql            # PostgreSQL schema + seed data (orel_dev & test dbs)
+│   └── mysql/01-init.sql               # MySQL schema + seed data (orel_dev & test dbs)
 ├── src/                                # React frontend
 │   ├── routes/                         # TanStack Router file-based routes
 │   │   ├── __root.tsx                  # Shell: theme init, settings modal, update check, global hotkeys
@@ -195,6 +199,42 @@ Built in `lib.rs`. Menu items emit Tauri events the frontend listens for (`open-
 ### Rust conventions
 
 Commands live in `src-tauri/src/commands/`, one file per domain. Always return `Result<T, String>` — never panic in a command. Pool connections; never open one per query. Never log connection strings, passwords, or row data. Section headers use the `// ── Name ─────` style.
+
+---
+
+## Local Docker Databases (Postgres & MySQL)
+
+Orel includes a `docker-compose.yml` with pre-configured PostgreSQL 16 and MySQL 8.0 instances preloaded with relational sample data (`users`, `categories`, `products`, `orders`, `order_items`, `activity_logs`), foreign keys, indexes, and test databases.
+
+### Control commands
+
+```bash
+docker compose up -d              # Start containers in background
+docker compose down               # Stop and remove containers
+docker compose stop               # Stop containers without removing
+docker compose start              # Start existing stopped containers
+docker compose down -v && docker compose up -d  # Wipe volumes & re-seed data
+docker compose logs -f            # Tail container logs
+```
+
+### Connection credentials for local dev & agent debugging
+
+| Engine | Host | Port | Database | Username | Password | Connection URL |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **PostgreSQL** | `localhost` | `5432` | `orel_dev` (or `test`, `postgres`) | `postgres` | `postgres` | `postgres://postgres:postgres@localhost:5432/orel_dev` |
+| **MySQL** | `localhost` | `3306` | `orel_dev` (or `test`) | `root` / `orel` | `root` / `orel_password` | `mysql://root:root@localhost:3306/orel_dev` |
+
+### Querying from terminal during agent debugging
+
+Agents can run SQL queries directly inside the containers without installing client binaries on the host:
+
+```bash
+# PostgreSQL
+docker compose exec postgres psql -U postgres -d orel_dev -c "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public';"
+
+# MySQL
+docker compose exec mysql mysql -u root -proot orel_dev -e "SHOW TABLES;"
+```
 
 ---
 

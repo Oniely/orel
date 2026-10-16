@@ -1,6 +1,52 @@
 # Orel
 
-A cross-platform database GUI built with Tauri and React.
+A cross-platform database GUI built with Tauri and React for PostgreSQL, MySQL, and SQLite.
+
+## Getting Started
+
+### 1. Prerequisites
+
+- [Node.js](https://nodejs.org/) (v20+) & [pnpm](https://pnpm.io/)
+- [Rust](https://www.rust-lang.org/tools/install)
+- [Docker](https://www.docker.com/) & Docker Compose
+
+### 2. Start Local Databases (Docker)
+
+To make it easy to develop and debug against real databases immediately after cloning, Orel includes pre-configured PostgreSQL and MySQL Docker containers with sample relational data and schemas:
+
+```bash
+# Start PostgreSQL (5432) and MySQL (3306) in the background
+docker compose up -d
+
+# Check logs
+docker compose logs -f
+
+# Stop containers when done
+docker compose down
+
+# Reset data back to initial seed state
+docker compose down -v && docker compose up -d
+```
+
+### 3. Local Database Connections
+
+You can connect directly in Orel using either the form fields or by pasting the connection URL into Orel's **Add Connection** dialog:
+
+| Database | Host | Port | Database Name | User | Password | Quick Connect URL |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **PostgreSQL** | `localhost` | `5432` | `orel_dev` | `postgres` | `postgres` | `postgres://postgres:postgres@localhost:5432/orel_dev` |
+| **MySQL** | `localhost` | `3306` | `orel_dev` | `root` / `orel` | `root` / `orel_password` | `mysql://root:root@localhost:3306/orel_dev` |
+
+Both databases are pre-populated with realistic e-commerce sample data (`users`, `categories`, `products`, `orders`, `order_items`, `activity_logs`) with foreign keys, indexes, JSON columns, and timestamps. Each container also provides a blank `test` database.
+
+Port overrides and custom credentials can be configured by copying `.env.example` to `.env`.
+
+### 4. Run Orel in Development
+
+```bash
+pnpm install
+pnpm tauri dev
+```
 
 ## Publishing a release
 
