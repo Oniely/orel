@@ -320,6 +320,10 @@ export function DataGrid() {
           onPointerDown={handlePointerDown}
           onPointerUp={cancelLongPress}
           onPointerLeave={cancelLongPress}
+          onMouseDown={(e) => {
+            // Prevent text selection from a right-click drag before the context menu opens
+            if (e.button === 2) e.preventDefault();
+          }}
           onClick={(e) => {
             if (longPressTriggered.current) {
               longPressTriggered.current = false;
