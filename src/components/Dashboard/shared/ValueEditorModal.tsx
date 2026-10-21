@@ -94,13 +94,15 @@ export function ValueEditorModal({ table, column, value, original, onApply, onSe
                 </span>
                 <div className="flex-1" />
                 {isJson && (
-                  <Button size="sm" variant="ghost" className="text-xs" isDisabled={!!error} onPress={() => setText(formatJsonForEditor(text))}>
+                  <Button size="sm" variant="tertiary" className="text-xs h-7" isDisabled={!!error} onPress={() => setText(formatJsonForEditor(text))}>
                     Format
                   </Button>
                 )}
               </Modal.Header>
 
-              <Modal.Body className="min-h-0 flex-1 p-0">
+              {/* The shared Monaco theme paints the gutter with the darker app background (fits the SQL
+                  editor pane); in the modal that reads as a cut-off strip, so let the editor surface show through. */}
+              <Modal.Body className="min-h-0 flex-1 p-0 [&_.monaco-editor_.margin]:!bg-transparent">
                 <Editor
                   height="100%"
                   language={isJson ? "json" : "plaintext"}
@@ -145,17 +147,17 @@ export function ValueEditorModal({ table, column, value, original, onApply, onSe
                     </p>
                   )}
                 </div>
-                <Button size="sm" variant="outline" onPress={onCancel}>
+                <Button size="sm" variant="outline" className="text-xs h-7" onPress={onCancel}>
                   Cancel
                 </Button>
                 {column.isNullable && (
-                  <Button size="sm" variant="outline" onPress={onSetNull}>
+                  <Button size="sm" variant="outline" className="text-xs h-7" onPress={onSetNull}>
                     Set NULL
                   </Button>
                 )}
-                <Button size="sm" className="flex items-center gap-1.5" isDisabled={!!error} onPress={apply}>
+                <Button size="sm" variant="primary" className="text-xs h-7 gap-1.5" isDisabled={!!error} onPress={apply}>
                   Apply
-                  <Kbd className="scale-80">
+                  <Kbd className="h-4 px-1 text-[10px] leading-none">
                     <Kbd.Abbr keyValue={os === "macos" ? "command" : "ctrl"} />
                     <Kbd.Abbr keyValue="enter" />
                   </Kbd>
