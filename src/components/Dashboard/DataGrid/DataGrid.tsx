@@ -103,9 +103,12 @@ export function DataGrid() {
       }
     } else {
       const originalValue = rows[rowIndex]?.[column];
-      if (JSON.stringify(parsed) !== JSON.stringify(originalValue)) {
-        wq.handleCellEdit(rowIndex, column, originalValue, parsed);
-      }
+      // Always stage the edit, even if parsed === originalValue — the write
+      // queue store's own no-op filtering is what clears a reverted cell
+      // back to "unchanged". Short-circuiting here left stale pending
+      // changes in place when a value was edited back to its original
+      // (e.g. toggling a boolean true -> false -> true).
+      wq.handleCellEdit(rowIndex, column, originalValue, parsed);
     }
     setEditingCell(null);
   };
