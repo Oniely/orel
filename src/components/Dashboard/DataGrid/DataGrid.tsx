@@ -470,6 +470,8 @@ export function DataGrid() {
               : `${editingCell.rowIndex}::${editingCell.column}`
           }
           initialValue={editingCell.initialValue}
+          dataType={colInfos.find((c) => c.name === editingCell.column)?.dataType}
+          isNullable={colInfos.find((c) => c.name === editingCell.column)?.isNullable}
           onCommit={commitEdit}
           onCancel={() => setEditingCell(null)}
           onAdvance={advanceColumn}
