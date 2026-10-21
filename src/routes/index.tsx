@@ -55,8 +55,13 @@ function ConnectionManager() {
   };
 
   useEffect(() => {
-    appWindow.setSize(new LogicalSize(1280, 720));
-    appWindow.center();
+    void (async () => {
+      // setSize on a maximized window (e.g. after disconnecting from a maximized dashboard)
+      // leaves it stuck in a half-maximized state.
+      if (await appWindow.isMaximized()) await appWindow.unmaximize();
+      await appWindow.setSize(new LogicalSize(1280, 720));
+      await appWindow.center();
+    })();
   }, []);
 
   return (
