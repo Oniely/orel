@@ -49,7 +49,7 @@ export default function ConnectionRow({
 
   return (
     <div
-      className={`group px-4 py-3 rounded-xl border border-separator bg-default transition-colors h-16 relative ${
+      className={`${lockHover ? "" : "group"} px-4 py-3 rounded-xl border border-separator bg-default transition-colors h-16 relative ${
         isConnecting ? "border-loading" : ""
       } ${isDisabled ? "opacity-50 pointer-events-none cursor-not-allowed" : lockHover ? "cursor-default" : "cursor-pointer hover:border-border"}`}
       onClick={handleConnect}
