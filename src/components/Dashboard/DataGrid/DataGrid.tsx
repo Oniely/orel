@@ -1,15 +1,23 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useReactTable, getCoreRowModel, flexRender, type CellContext, type ColumnDef } from "@tanstack/react-table";
+import { useHotkeys } from "react-hotkeys-hook";
 import { KeyIcon } from "../shared/icons";
 import { getTypeColor } from "../../../lib/typeColors";
-import { formatEditValue, parseEditValue } from "../../../lib/parseValue";
+import { formatEditValue, isJsonValue, isLongText, jsonEditError, parseEditValue } from "../../../lib/parseValue";
 import Cell from "./Cell";
 import { useDashboardStore } from "../../../stores/dashboard.store";
 import { useDashboardContext } from "../../../hooks/dashboard/useDashboardContext";
 import { useActiveTable } from "../../../hooks/dashboard/useActiveTable";
 import { CellEditorOverlay } from "./CellEditorOverlay";
+import { ValueEditorModal } from "../shared/ValueEditorModal";
 
 const ROW_NUMBER_COL = "__row_number";
+
+type EditMode = "inline" | "modal";
+
+/** `data-cell` attribute value: `${rowIndex}::${column}`, or `insert-${index}::${column}` for pending inserts */
+const cellAttrOf = (rowIndex: number, column: string, isInsert?: boolean) =>
+  isInsert ? `insert-${rowIndex}::${column}` : `${rowIndex}::${column}`;
 
 // ── Data Grid ─────────────────────────────────────────────────────────────────
 
@@ -24,6 +32,7 @@ const savedStyle: React.CSSProperties = {
   background: "color-mix(in oklch, var(--accent) 12%, transparent)",
 };
 const insertRowStyle: React.CSSProperties = { background: "color-mix(in oklch, var(--success) 8%, transparent)" };
+const selectedCellClass = " outline outline-1 -outline-offset-1 outline-accent";
 
 export function DataGrid() {
   const { activeTableName: activeTable } = useDashboardContext();
@@ -32,6 +41,8 @@ export function DataGrid() {
   const setSelectedRowIndex = useDashboardStore((state) => state.setSelectedRowIndex);
   const setShowInspector = useDashboardStore((state) => state.setShowInspector);
   const setContextMenu = useDashboardStore((state) => state.setContextMenu);
+  const valueEditorRequest = useDashboardStore((state) => state.valueEditorRequest);
+  const setValueEditorRequest = useDashboardStore((state) => state.setValueEditorRequest);
   const inspectRow = (index: number) => {
     setSelectedRowIndex(index);
     setShowInspector(true);
@@ -41,8 +52,10 @@ export function DataGrid() {
     rowIndex: number;
     column: string;
     isInsert?: boolean;
-    initialValue: string;
+    value: unknown;
+    mode: EditMode;
   } | null>(null);
+  const [selectedCell, setSelectedCell] = useState<string | null>(null);
 
   // Pre-compute dirty/deleted/saved state once per render — avoids per-cell store lookups
   const { rowKindMap, cellDirtyMap, cellSavedSet } = useMemo(() => {
@@ -84,24 +97,34 @@ export function DataGrid() {
     return { rowKindMap: rk, cellDirtyMap: cd, cellSavedSet: cs };
   }, [wq.tableChanges, wq.scopeKey, wq.hasPrimaryKey, wq.recentlySaved, colInfos, rows]);
 
-  const commitEdit = (rawValue: string) => {
-    if (!editingCell) return;
+  /**
+   * Stage an edit from the inline editor or the value editor modal.
+   * `rawValue` null means an explicit NULL. Returns an error message (and
+   * stages nothing) when a JSON column gets invalid JSON.
+   */
+  const commitEdit = (rawValue: string | null): string | null => {
+    if (!editingCell) return null;
     const { rowIndex, column, isInsert } = editingCell;
     const colInfo = colInfos.find((c) => c.name === column);
     if (!colInfo) {
       setEditingCell(null);
-      return;
+      return null;
     }
 
     const originalValue = isInsert ? undefined : rows[rowIndex]?.[column];
-    const parsed = parseEditValue(rawValue, colInfo.dataType, colInfo.isNullable, originalValue);
+    const useDefault = isInsert && rawValue === "" && colInfo.hasDefault;
+    if (rawValue !== null && !useDefault && isJsonValue(colInfo.dataType, originalValue)) {
+      const error = jsonEditError(rawValue, colInfo.isNullable);
+      if (error) {
+        const at = error.line !== undefined ? ` (line ${error.line}, col ${error.column})` : "";
+        return `Invalid JSON: ${error.message}${at}`;
+      }
+    }
+    const parsed =
+      rawValue === null ? null : parseEditValue(rawValue, colInfo.dataType, colInfo.isNullable, originalValue);
 
     if (isInsert) {
-      if (rawValue === "" && colInfo.hasDefault) {
-        wq.handleInsertCellEdit(rowIndex, column, undefined);
-      } else {
-        wq.handleInsertCellEdit(rowIndex, column, parsed);
-      }
+      wq.handleInsertCellEdit(rowIndex, column, useDefault ? undefined : parsed);
     } else {
       // Always stage the edit, even if parsed === originalValue — the write
       // queue store's own no-op filtering is what clears a reverted cell
@@ -111,9 +134,11 @@ export function DataGrid() {
       wq.handleCellEdit(rowIndex, column, originalValue, parsed);
     }
     setEditingCell(null);
+    return null;
   };
 
-  const startEdit = (rowIndex: number, column: string, isInsert?: boolean) => {
+  /** `mode` omitted: JSON and long / multi-line text open the modal, everything else edits inline */
+  const startEdit = (rowIndex: number, column: string, isInsert?: boolean, mode?: EditMode) => {
     if (!isInsert && !wq.hasPrimaryKey) return;
     if (column === ROW_NUMBER_COL) return;
     if (!isInsert && rowKindMap.get(rowIndex) === "Delete") return;
@@ -128,8 +153,41 @@ export function DataGrid() {
 
     const dirty = !isInsert ? cellDirtyMap.get(`${rowIndex}::${column}`) : undefined;
     const displayVal = dirty ? dirty.newValue : currentValue;
-    setEditingCell({ rowIndex, column, isInsert, initialValue: formatEditValue(displayVal) });
+    const dataType = col?.dataType ?? "";
+    const isBoolean = dataType.toLowerCase() === "boolean";
+    const wantsModal = isJsonValue(dataType, currentValue) || isLongText(dataType, displayVal);
+    setEditingCell({
+      rowIndex,
+      column,
+      isInsert,
+      value: displayVal,
+      mode: isBoolean ? "inline" : (mode ?? (wantsModal ? "modal" : "inline")),
+    });
   };
+
+  // "Edit in editor…" from the row context menu
+  useEffect(() => {
+    if (!valueEditorRequest) return;
+    setValueEditorRequest(null);
+    startEdit(valueEditorRequest.rowIndex, valueEditorRequest.column, false, "modal");
+    // startEdit is recreated every render; the request is the only trigger
+  }, [valueEditorRequest, setValueEditorRequest]);
+
+  useHotkeys(
+    "shift+enter",
+    (event) => {
+      if (!selectedCell || editingCell) return;
+      event.preventDefault();
+      const [ri, col] = selectedCell.split("::");
+      const isInsert = ri.startsWith("insert-");
+      const index = Number(isInsert ? ri.slice("insert-".length) : ri);
+      // The selection can outlive its row/column after a table or page switch
+      const exists = isInsert ? !!wq.insertedRows[index] : !!rows[index];
+      if (!exists || !colInfos.some((c) => c.name === col)) return;
+      startEdit(index, col, isInsert, "modal");
+    },
+    [selectedCell, editingCell, startEdit, rows, colInfos, wq.insertedRows],
+  );
 
   const advanceColumn = (direction: 1 | -1) => {
     if (!editingCell) return;
@@ -142,8 +200,9 @@ export function DataGrid() {
         nextIdx += direction;
       }
     }
+    // Tabbing stays inline — popping a modal mid-row would break the flow
     if (nextIdx >= 0 && nextIdx < colNames.length) {
-      startEdit(editingCell.rowIndex, colNames[nextIdx], editingCell.isInsert);
+      startEdit(editingCell.rowIndex, colNames[nextIdx], editingCell.isInsert, "inline");
     }
   };
 
@@ -257,6 +316,8 @@ export function DataGrid() {
     columnResizeMode: "onChange",
   });
 
+  const editingCol = editingCell ? colInfos.find((c) => c.name === editingCell.column) : undefined;
+
   if (!activeTable) {
     return (
       <div className="flex-1 flex items-center justify-center">
@@ -332,13 +393,21 @@ export function DataGrid() {
             }
             const tr = (e.target as HTMLElement).closest("tr[data-row]") as HTMLElement | null;
             if (tr) setSelectedRowIndex(Number(tr.dataset.row));
+            const td = (e.target as HTMLElement).closest("td[data-cell]") as HTMLElement | null;
+            setSelectedCell(td?.dataset.cell ?? null);
           }}
           onContextMenu={(e) => {
             cancelLongPress();
             const tr = (e.target as HTMLElement).closest("tr[data-row]") as HTMLElement | null;
             if (tr) {
               e.preventDefault();
-              setContextMenu({ rowIndex: Number(tr.dataset.row), x: e.clientX, y: e.clientY });
+              const td = (e.target as HTMLElement).closest("td[data-cell]") as HTMLElement | null;
+              setContextMenu({
+                rowIndex: Number(tr.dataset.row),
+                column: td?.dataset.cell?.split("::")[1],
+                x: e.clientX,
+                y: e.clientY,
+              });
             }
           }}
           onDoubleClick={(e) => {
@@ -368,12 +437,13 @@ export function DataGrid() {
                   const colId = cell.column.id;
                   const dirty = colId !== ROW_NUMBER_COL ? cellDirtyMap.get(`${i}::${colId}`) : undefined;
                   const saved = !dirty && colId !== ROW_NUMBER_COL && cellSavedSet.has(`${i}::${colId}`);
+                  const cellAttr = colId !== ROW_NUMBER_COL ? cellAttrOf(i, colId) : undefined;
 
                   return (
                     <td
                       key={cell.id}
-                      data-cell={colId !== ROW_NUMBER_COL ? `${i}::${colId}` : undefined}
-                      className={`border-b-hairline overflow-hidden whitespace-nowrap px-[14px]${dirty ? "" : " cell-hoverable"}`}
+                      data-cell={cellAttr}
+                      className={`border-b-hairline overflow-hidden whitespace-nowrap px-[14px]${dirty ? "" : " cell-hoverable"}${cellAttr && cellAttr === selectedCell ? selectedCellClass : ""}`}
                       style={dirty ? dirtyStyle : saved ? savedStyle : undefined}
                     >
                       <div className="overflow-hidden text-ellipsis whitespace-nowrap">
@@ -415,11 +485,12 @@ export function DataGrid() {
                 {colInfos.map((c) => {
                   const isAutoGenPK = c.hasDefault && c.isPrimary;
                   const hasValue = insert.values[c.name] !== undefined;
+                  const cellAttr = isAutoGenPK ? undefined : cellAttrOf(insertIdx, c.name, true);
                   return (
                     <td
                       key={c.name}
-                      data-cell={isAutoGenPK ? undefined : `insert-${insertIdx}::${c.name}`}
-                      className={`border-b-hairline overflow-hidden whitespace-nowrap px-[14px]${isAutoGenPK ? "" : " cell-hoverable"}`}
+                      data-cell={cellAttr}
+                      className={`border-b-hairline overflow-hidden whitespace-nowrap px-[14px]${isAutoGenPK ? "" : " cell-hoverable"}${cellAttr && cellAttr === selectedCell ? selectedCellClass : ""}`}
                     >
                       <div className="overflow-hidden text-ellipsis whitespace-nowrap">
                         {isAutoGenPK ? (
@@ -461,25 +532,30 @@ export function DataGrid() {
       </table>
 
       {/* Single floating editor — only mounts when actively editing */}
-      {editingCell && (
+      {editingCell?.mode === "inline" && (
         <CellEditorOverlay
-          key={
-            editingCell.isInsert
-              ? `insert-${editingCell.rowIndex}::${editingCell.column}`
-              : `${editingCell.rowIndex}::${editingCell.column}`
-          }
+          key={cellAttrOf(editingCell.rowIndex, editingCell.column, editingCell.isInsert)}
           containerRef={scrollRef}
-          cellAttr={
-            editingCell.isInsert
-              ? `insert-${editingCell.rowIndex}::${editingCell.column}`
-              : `${editingCell.rowIndex}::${editingCell.column}`
-          }
-          initialValue={editingCell.initialValue}
-          dataType={colInfos.find((c) => c.name === editingCell.column)?.dataType}
-          isNullable={colInfos.find((c) => c.name === editingCell.column)?.isNullable}
+          cellAttr={cellAttrOf(editingCell.rowIndex, editingCell.column, editingCell.isInsert)}
+          initialValue={formatEditValue(editingCell.value)}
+          dataType={editingCol?.dataType}
+          isNullable={editingCol?.isNullable}
           onCommit={commitEdit}
           onCancel={() => setEditingCell(null)}
           onAdvance={advanceColumn}
+          onExpand={(text) => setEditingCell({ ...editingCell, value: text, mode: "modal" })}
+        />
+      )}
+
+      {editingCell?.mode === "modal" && editingCol && (
+        <ValueEditorModal
+          table={activeTable}
+          column={editingCol}
+          value={editingCell.value}
+          original={editingCell.isInsert ? undefined : rows[editingCell.rowIndex]?.[editingCell.column]}
+          onApply={commitEdit}
+          onSetNull={() => commitEdit(null)}
+          onCancel={() => setEditingCell(null)}
         />
       )}
     </div>

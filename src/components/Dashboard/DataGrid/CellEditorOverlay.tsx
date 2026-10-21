@@ -8,9 +8,12 @@ interface CellEditorOverlayProps {
   initialValue: string;
   dataType?: string;
   isNullable?: boolean;
-  onCommit: (value: string) => void;
+  /** Returns an error message to keep the editor open (e.g. invalid JSON) */
+  onCommit: (value: string) => string | null;
   onCancel: () => void;
   onAdvance: (direction: 1 | -1) => void;
+  /** Continue editing the current text in the expanded value editor */
+  onExpand: (value: string) => void;
 }
 
 export function CellEditorOverlay({
@@ -22,11 +25,13 @@ export function CellEditorOverlay({
   onCommit,
   onCancel,
   onAdvance,
+  onExpand,
 }: CellEditorOverlayProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const selectRef = useRef<HTMLSelectElement>(null);
   const committedRef = useRef(false);
   const [localValue, setLocalValue] = useState(initialValue);
+  const [error, setError] = useState<string | null>(null);
   const [pos, setPos] = useState<{ top: number; left: number; width: number; height: number } | null>(null);
 
   // Measure target cell position relative to the scroll container
@@ -59,10 +64,19 @@ export function CellEditorOverlay({
 
   if (!pos) return null;
 
+  /** Returns false when the value was rejected and the editor stays open */
   const doCommit = (value: string = localValue) => {
-    if (committedRef.current) return;
+    if (committedRef.current) return true;
+    const rejected = onCommit(value);
+    setError(rejected);
+    if (rejected) return false;
     committedRef.current = true;
-    onCommit(value);
+    return true;
+  };
+
+  const expand = () => {
+    committedRef.current = true;
+    onExpand(localValue);
   };
 
   const isBoolean = dataType?.toLowerCase() === "boolean";
@@ -75,9 +89,10 @@ export function CellEditorOverlay({
         left: pos.left,
         width: pos.width,
         height: pos.height,
-        background: "color-mix(in oklch, var(--warning) 10%, var(--background))",
-        boxShadow: "inset 0 0 0 1px var(--warning)",
+        background: `color-mix(in oklch, var(${error ? "--danger" : "--warning"}) 10%, var(--background))`,
+        boxShadow: `inset 0 0 0 1px var(${error ? "--danger" : "--warning"})`,
       }}
+      title={error ?? undefined}
     >
       {isBoolean ? (
         <select
@@ -112,10 +127,20 @@ export function CellEditorOverlay({
           className="w-full bg-transparent border-none outline-none font-mono text-xs"
           style={{ color: "var(--foreground)" }}
           value={localValue}
-          onChange={(e) => setLocalValue(e.target.value)}
-          onBlur={() => doCommit()}
+          aria-invalid={!!error}
+          onChange={(e) => {
+            setLocalValue(e.target.value);
+            setError(null);
+          }}
+          // Invalid text isn't thrown away on blur — it moves to the expanded editor instead
+          onBlur={() => {
+            if (!doCommit()) expand();
+          }}
           onKeyDown={(e) => {
-            if (e.key === "Enter") {
+            if (e.key === "Enter" && e.shiftKey) {
+              e.preventDefault();
+              expand();
+            } else if (e.key === "Enter") {
               e.preventDefault();
               doCommit();
             } else if (e.key === "Escape") {
@@ -124,8 +149,7 @@ export function CellEditorOverlay({
               onCancel();
             } else if (e.key === "Tab") {
               e.preventDefault();
-              doCommit();
-              onAdvance(e.shiftKey ? -1 : 1);
+              if (doCommit()) onAdvance(e.shiftKey ? -1 : 1);
             }
           }}
         />
@@ -133,7 +157,7 @@ export function CellEditorOverlay({
       {/* Dot indicator */}
       <div
         className="absolute bottom-0 right-0 w-2 h-2 rounded-full translate-x-1/2 translate-y-1/2"
-        style={{ background: "var(--warning)" }}
+        style={{ background: error ? "var(--danger)" : "var(--warning)" }}
       />
     </div>
   );

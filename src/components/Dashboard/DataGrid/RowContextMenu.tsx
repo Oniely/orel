@@ -1,17 +1,28 @@
 import { useEffect, useRef } from "react";
-import { ArrowCounterClockwiseIcon, MagnifyingGlassIcon, TrashIcon } from "@phosphor-icons/react";
+import { ArrowCounterClockwiseIcon, ArrowsOutSimpleIcon, MagnifyingGlassIcon, TrashIcon } from "@phosphor-icons/react";
 
 interface RowContextMenuProps {
   x: number;
   y: number;
   onInspect: () => void;
   onClose: () => void;
+  /** Present when the right-clicked cell can be edited in the expanded value editor */
+  onEditInEditor?: () => void;
   onDeleteRow?: () => void;
   isRowDeleted?: boolean;
   onUndoDelete?: () => void;
 }
 
-export function RowContextMenu({ x, y, onInspect, onClose, onDeleteRow, isRowDeleted, onUndoDelete }: RowContextMenuProps) {
+export function RowContextMenu({
+  x,
+  y,
+  onInspect,
+  onClose,
+  onEditInEditor,
+  onDeleteRow,
+  isRowDeleted,
+  onUndoDelete,
+}: RowContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -44,6 +55,17 @@ export function RowContextMenu({ x, y, onInspect, onClose, onDeleteRow, isRowDel
         <MagnifyingGlassIcon size={12} className="text-muted shrink-0" />
         Inspect
       </button>
+
+      {onEditInEditor && (
+        <button
+          onClick={onEditInEditor}
+          className="w-full flex items-center gap-2.5 px-3 py-[7px] text-xs text-foreground hover:bg-surface-secondary transition-colors"
+        >
+          <ArrowsOutSimpleIcon size={12} className="text-muted shrink-0" />
+          Edit in editor…
+          <span className="ml-auto pl-4 text-[10px] text-muted">⇧↵</span>
+        </button>
+      )}
 
       <div className="h-px bg-separator mx-2 my-1" />
 
