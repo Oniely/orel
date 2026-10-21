@@ -46,7 +46,7 @@ Orel is a cross-platform desktop database GUI for **PostgreSQL**, **MySQL/MariaD
 │   │   │   ├── SqlEditor/              # Monaco editor, result grid, workspace shell
 │   │   │   ├── TableStructure/         # Structure view: Columns, Indexes, Foreign Keys, DDL tabs (each tab stages + saves on its own; drafts in structure-drafts store)
 │   │   │   ├── Transactions/           # TransactionGuardDialog
-│   │   │   └── shared/                 # constants, icons
+│   │   │   └── shared/                 # constants, icons, ValueEditorModal (Monaco JSON/long-text cell editor used by grid + inspector)
 │   │   └── icons/                      # Hand-rolled SVGs (e.g. SqliteIcon)
 │   ├── stores/                         # connection, dashboard (scoped), write-queue, structure-drafts, settings, theme
 │   ├── hooks/                          # One hook per command group + dashboard/ subfolder
@@ -163,6 +163,8 @@ Sessions must be discarded when their tab closes, the database switches, or the 
 
 Grid edits are **staged, not immediate**. `write-queue.store.ts` accumulates `PendingChange` values (`Update` / `Delete` / `Insert`) per table scope, keyed by `RowIdentity` (PK columns + values). Applying calls `apply_write_queue`, which returns `ApplyResult { applied, failed, not_attempted }` so the UI can report partial success; `generate_sql` renders the same queue as copyable SQL without executing. Rows without a usable primary key can't be identified — handle that explicitly rather than guessing.
 
+JSON and long / multi-line text cells edit in `ValueEditorModal` instead of the inline input (grid double-click, Shift+Enter on the selected cell, "Edit in editor…" in the row menu, or the inspector's expand icon). It hands back raw text that goes through the same `commitEdit` / `parseEditValue` path as an inline edit — never stage or save from the modal directly. JSON-ness comes from `isJsonValue` (json/jsonb type or an object value); invalid JSON is rejected via `jsonEditError` before staging. SQLite returns JSON as strings, so keep staging text there — `parseEditValue` returns the original string when an edit only reformats it.
+
 Structure-view edits follow the same idea: each tab (Columns, Indexes, Foreign Keys) keeps its staged changes in `structure-drafts.store.ts`, keyed by tab and the dashboard's table `scopeKey` (passed down as a prop), so switching sub-tabs, tables, or the Data/Structure view never loses them. Keep them out of component `useState` — the tabs unmount on every switch. Each tab still saves and cancels on its own (`clearDraft`); the Key menu stages pre-filled rows with `stageAdd`.
 
 ### TanStack Query wraps all invoke() calls
@@ -213,7 +215,7 @@ HeroUI gotchas that have bitten this codebase:
 
 Registered with `react-hotkeys-hook` in `useDashboardHotkeys` and `__root.tsx`. Always use `mod+` rather than `ctrl+`/`meta+` so bindings work on macOS and Windows. Shared options live in `APP_HOTKEY_OPTIONS`.
 
-`mod+t` new query tab · `mod+w` close tab · `mod+1`–`9` jump to tab · `ctrl+tab` / `ctrl+shift+tab` cycle · `alt+z` sidebar · `mod+r` refresh · `mod+s` apply write queue (or inspected row) · `mod+shift+s` copy SQL · `mod+f` filter bar · `mod+left` / `mod+right` page · `mod+,` settings.
+`mod+t` new query tab · `mod+w` close tab · `mod+1`–`9` jump to tab · `ctrl+tab` / `ctrl+shift+tab` cycle · `alt+z` sidebar · `mod+r` refresh · `mod+s` apply write queue (or inspected row) · `mod+shift+s` copy SQL · `mod+f` filter bar · `mod+left` / `mod+right` page · `mod+,` settings · `shift+enter` open the selected grid cell (or the inline cell editor's text) in the value editor, where `mod+enter` applies and `esc` cancels.
 
 ### Native menu
 
