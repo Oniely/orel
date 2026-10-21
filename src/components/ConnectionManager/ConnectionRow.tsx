@@ -37,6 +37,8 @@ export default function ConnectionRow({
         // Load the dashboard chunk while the connection manager is still visible.
         // This keeps the native resize and route transition visually contiguous.
         await router.preloadRoute({ to: "/dashboard" }).catch(() => undefined);
+        // setSize on a maximized window leaves it stuck in a half-maximized state.
+        if (await appWindow.isMaximized()) await appWindow.unmaximize();
         await appWindow.setSize(new LogicalSize(1400, 900));
         await appWindow.center();
         await navigate({ to: "/dashboard" });

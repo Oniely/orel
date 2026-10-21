@@ -13,6 +13,8 @@
     "process:default",
     "core:window:allow-set-size",
     "core:window:allow-center",
+    "core:window:allow-is-maximized",
+    "core:window:allow-unmaximize",
     "os:default"
   ]
 }
