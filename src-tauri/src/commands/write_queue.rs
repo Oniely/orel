@@ -1,4 +1,4 @@
-use super::sql_util::Dialect;
+use super::sql_util::{mysql_string_literal, Dialect};
 use crate::commands::connection::{AppState, DbPool};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -65,12 +65,40 @@ fn format_sql_value(val: &Value, dialect: &Dialect) -> String {
             }
         },
         Value::Number(n) => n.to_string(),
-        Value::String(s) => format!("'{}'", s.replace('\'', "''")),
+        Value::String(s) => string_literal(s, dialect),
         // JSON arrays/objects — serialize as string literal
         Value::Array(_) | Value::Object(_) => {
-            let json = serde_json::to_string(val).unwrap_or_default();
-            format!("'{}'", json.replace('\'', "''"))
+            string_literal(&serde_json::to_string(val).unwrap_or_default(), dialect)
         }
+    }
+}
+
+/// MySQL treats backslashes in string literals as escapes (unless
+/// NO_BACKSLASH_ESCAPES is set), so `\"` inside JSON text would be unescaped
+/// into a bare quote and corrupt the value. Postgres/SQLite literals are raw.
+fn string_literal(s: &str, dialect: &Dialect) -> String {
+    match dialect {
+        Dialect::MySql => mysql_string_literal(s),
+        Dialect::Postgres | Dialect::Sqlite => format!("'{}'", s.replace('\'', "''")),
+    }
+}
+
+#[cfg(test)]
+mod format_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn mysql_escapes_backslashes_in_json() {
+        let v = json!({"note": "say \"hi\"", "path": "C:\\tmp"});
+        let sql = format_sql_value(&v, &Dialect::MySql);
+        assert_eq!(sql, r#"'{"note":"say \\"hi\\"","path":"C:\\\\tmp"}'"#);
+    }
+
+    #[test]
+    fn postgres_keeps_backslashes_raw() {
+        let v = json!("a\\b 'q'");
+        assert_eq!(format_sql_value(&v, &Dialect::Postgres), r"'a\b ''q'''");
     }
 }
 
