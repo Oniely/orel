@@ -28,6 +28,7 @@ export default function ConnectionRow({
     Object.values(s.activeConnections).some((c) => c.status === "connecting"),
   );
   const isDisabled = isAnyConnecting && !isConnecting; // disable row except the one that's connecting
+  const lockHover = isDisabled || isConnecting; // no hover feedback while this row (or another) is connecting
 
   const handleConnect = () => {
     if (isAnyConnecting) return;
@@ -50,7 +51,7 @@ export default function ConnectionRow({
     <div
       className={`group px-4 py-3 rounded-xl border border-separator bg-default transition-colors h-16 relative ${
         isConnecting ? "border-loading" : ""
-      } ${isDisabled ? "opacity-50 pointer-events-none cursor-not-allowed" : "cursor-pointer hover:border-border"}`}
+      } ${isDisabled ? "opacity-50 pointer-events-none cursor-not-allowed" : lockHover ? "cursor-default" : "cursor-pointer hover:border-border"}`}
       onClick={handleConnect}
     >
       <div className="absolute inset-0 z-10 flex items-center gap-3 py-3 px-4">
