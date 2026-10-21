@@ -67,14 +67,14 @@ export function ValueEditorModal({ table, column, value, original, onApply, onSe
             <div
               className="flex min-h-0 flex-1 flex-col"
               onKeyDown={(e) => {
-                // Handled here (not by the modal) and stopped so grid / inspector Esc hotkeys don't also fire
+                // Keys stop here so dashboard hotkeys behind the modal (inspector Esc / arrow-key
+                // row navigation) don't fire. Tab is left alone for the modal's focus trap.
+                if (e.key !== "Tab") e.stopPropagation();
                 if (e.key === "Escape") {
                   e.preventDefault();
-                  e.stopPropagation();
                   onCancel();
                 } else if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
                   e.preventDefault();
-                  e.stopPropagation();
                   apply();
                 }
               }}
