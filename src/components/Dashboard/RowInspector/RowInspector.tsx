@@ -13,6 +13,7 @@ import { buildRowIdentity, identityKey } from "../../../types/write-queue";
 import { useHotkeys } from "react-hotkeys-hook";
 import { useDashboardStore } from "../../../stores/dashboard.store";
 import { useActiveTable } from "../../../hooks/dashboard/useActiveTable";
+import { useDashboardContext } from "../../../hooks/dashboard/useDashboardContext";
 import { HoldToDeleteButton } from "./HoldToDeleteButton";
 import { InspectorEditableField } from "./InspectorEditableField";
 
@@ -21,6 +22,7 @@ export function RowInspector() {
   const setSelectedRowIndex = useDashboardStore((state) => state.setSelectedRowIndex);
   const setShowInspector = useDashboardStore((state) => state.setShowInspector);
   const { rows, columns, writeQueue: wq } = useActiveTable();
+  const { activeTableName } = useDashboardContext();
   const rowIndex = selectedRowIndex ?? 0;
   const totalRows = rows.length;
   const row = selectedRowIndex === null ? null : (rows[selectedRowIndex] ?? null);
@@ -128,6 +130,7 @@ export function RowInspector() {
                 <div key={col.name} className="flex gap-2 pl-4 min-w-0">
                   <span style={{ color: getTypeColor(col.dataType), flexShrink: 0, opacity: 0.8 }}>{col.name}:</span>
                   <InspectorEditableField
+                    table={activeTableName}
                     column={col}
                     originalValue={row[col.name]}
                     dirtyValue={dirtyValue}
