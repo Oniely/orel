@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { ColumnInfo } from "../../../types/database";
-import { parseEditValue } from "../../../lib/parseValue";
+import { formatEditValue, parseEditValue } from "../../../lib/parseValue";
 import { getTypeColor } from "../../../lib/typeColors";
 
 // ── Editable Field ───────────────────────────────────────────────────────────
@@ -55,15 +55,14 @@ export function InspectorEditableField({
 
   const handleDoubleClick = () => {
     if (!editable) return;
-    const val = displayValue === null || displayValue === undefined ? "" : String(displayValue);
-    setInputValue(val);
+    setInputValue(formatEditValue(displayValue));
     setIsEditing(true);
   };
 
   const doCommit = () => {
     if (committedRef.current) return;
     committedRef.current = true;
-    const parsed = parseEditValue(inputValue, column.dataType, column.isNullable);
+    const parsed = parseEditValue(inputValue, column.dataType, column.isNullable, originalValue);
     onCommit(parsed);
     setIsEditing(false);
   };

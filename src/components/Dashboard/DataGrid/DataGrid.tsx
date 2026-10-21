@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useReactTable, getCoreRowModel, flexRender, type CellContext, type ColumnDef } from "@tanstack/react-table";
 import { KeyIcon } from "../shared/icons";
 import { getTypeColor } from "../../../lib/typeColors";
-import { parseEditValue } from "../../../lib/parseValue";
+import { formatEditValue, parseEditValue } from "../../../lib/parseValue";
 import Cell from "./Cell";
 import { useDashboardStore } from "../../../stores/dashboard.store";
 import { useDashboardContext } from "../../../hooks/dashboard/useDashboardContext";
@@ -93,7 +93,8 @@ export function DataGrid() {
       return;
     }
 
-    const parsed = parseEditValue(rawValue, colInfo.dataType, colInfo.isNullable);
+    const originalValue = isInsert ? undefined : rows[rowIndex]?.[column];
+    const parsed = parseEditValue(rawValue, colInfo.dataType, colInfo.isNullable, originalValue);
 
     if (isInsert) {
       if (rawValue === "" && colInfo.hasDefault) {
@@ -102,7 +103,6 @@ export function DataGrid() {
         wq.handleInsertCellEdit(rowIndex, column, parsed);
       }
     } else {
-      const originalValue = rows[rowIndex]?.[column];
       // Always stage the edit, even if parsed === originalValue — the write
       // queue store's own no-op filtering is what clears a reverted cell
       // back to "unchanged". Short-circuiting here left stale pending
@@ -128,9 +128,7 @@ export function DataGrid() {
 
     const dirty = !isInsert ? cellDirtyMap.get(`${rowIndex}::${column}`) : undefined;
     const displayVal = dirty ? dirty.newValue : currentValue;
-    const initialValue = displayVal === null || displayVal === undefined ? "" : String(displayVal);
-
-    setEditingCell({ rowIndex, column, isInsert, initialValue });
+    setEditingCell({ rowIndex, column, isInsert, initialValue: formatEditValue(displayVal) });
   };
 
   const advanceColumn = (direction: 1 | -1) => {
