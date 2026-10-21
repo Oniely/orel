@@ -29,6 +29,7 @@ export function DashboardWorkspace() {
     setActiveView,
     contextMenu,
     setContextMenu,
+    setValueEditorRequest,
   } = useDashboardStore(
     useShallow((s) => ({
       setSelectedRowIndex: s.setSelectedRowIndex,
@@ -44,6 +45,7 @@ export function DashboardWorkspace() {
       setActiveView: s.setActiveView,
       contextMenu: s.contextMenu,
       setContextMenu: s.setContextMenu,
+      setValueEditorRequest: s.setValueEditorRequest,
     })),
   );
   const isQueryTab = activeTab?.type === "query";
@@ -56,6 +58,13 @@ export function DashboardWorkspace() {
   const rows = error ? [] : (queryResult?.rows ?? []);
 
   const firstCol = columns[0]?.name ?? "";
+  const menuColumn = columns.find((c) => c.name === contextMenu?.column);
+  const canEditInEditor =
+    !!contextMenu &&
+    !!menuColumn &&
+    wq.hasPrimaryKey &&
+    !wq.isRowDeleted(contextMenu.rowIndex) &&
+    menuColumn.dataType.toLowerCase() !== "boolean";
 
   return (
     <div className="flex-1 flex flex-col min-w-0 bg-background">
@@ -94,6 +103,14 @@ export function DashboardWorkspace() {
                 setShowInspector(true);
                 setContextMenu(null);
               }}
+              onEditInEditor={
+                canEditInEditor
+                  ? () => {
+                      setValueEditorRequest({ rowIndex: contextMenu.rowIndex, column: menuColumn.name });
+                      setContextMenu(null);
+                    }
+                  : undefined
+              }
               onDeleteRow={
                 wq.hasPrimaryKey
                   ? () => {

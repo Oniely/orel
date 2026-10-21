@@ -2,7 +2,13 @@ import { createContext, useContext, useRef, type ReactNode } from "react";
 import { createStore, type StoreApi } from "zustand/vanilla";
 import { useStore } from "zustand";
 import type { FilterRow } from "../types/database";
-import type { DashboardTabState, DashboardView, RowContextMenuState, TransactionGuardState } from "../types/dashboard";
+import type {
+  DashboardTabState,
+  DashboardView,
+  RowContextMenuState,
+  TransactionGuardState,
+  ValueEditorRequest,
+} from "../types/dashboard";
 import type { SqlEditorState } from "../types/editor";
 import { createSqlEditorState } from "../types/editor";
 
@@ -32,6 +38,7 @@ export interface DashboardState {
   showFilterBar: Record<string, boolean>;
   activeView: DashboardView;
   contextMenu: RowContextMenuState | null;
+  valueEditorRequest: ValueEditorRequest | null;
   transactionGuard: TransactionGuardState | null;
 
   openTable: (databaseKey: string, name: string) => void;
@@ -55,6 +62,7 @@ export interface DashboardState {
   setLimit: (scopeKey: string | null, limit: number) => void;
   setActiveView: (view: DashboardView) => void;
   setContextMenu: (menu: RowContextMenuState | null) => void;
+  setValueEditorRequest: (request: ValueEditorRequest | null) => void;
   setTransactionGuard: (guard: TransactionGuardState | null) => void;
 }
 
@@ -88,6 +96,7 @@ export function createDashboardStore(): StoreApi<DashboardState> {
     showFilterBar: {},
     activeView: "Data",
     contextMenu: null,
+    valueEditorRequest: null,
     transactionGuard: null,
 
     openTable: (databaseKey, name) =>
@@ -240,6 +249,7 @@ export function createDashboardStore(): StoreApi<DashboardState> {
         : undefined,
     setActiveView: (activeView) => set({ activeView }),
     setContextMenu: (contextMenu) => set({ contextMenu }),
+    setValueEditorRequest: (valueEditorRequest) => set({ valueEditorRequest }),
     setTransactionGuard: (transactionGuard) => set({ transactionGuard }),
   }));
 }

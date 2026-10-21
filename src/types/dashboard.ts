@@ -25,8 +25,16 @@ export type DashboardView = "Data" | "Structure";
 
 export interface RowContextMenuState {
   rowIndex: number;
+  /** Column of the right-clicked cell (absent when the row-number cell was clicked) */
+  column?: string;
   x: number;
   y: number;
+}
+
+/** Asks the data grid to open the expanded value editor for a cell */
+export interface ValueEditorRequest {
+  rowIndex: number;
+  column: string;
 }
 
 export type NavigationIntent =
