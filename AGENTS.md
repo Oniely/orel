@@ -64,7 +64,9 @@ Orel is a cross-platform desktop database GUI for **PostgreSQL**, **MySQL/MariaD
     │       ├── connection.rs           # AppState, DbPool, connect/disconnect/CRUD/database switching
     │       ├── query.rs                # list_tables, fetch_rows (pagination + filters)
     │       ├── editor.rs               # Editor sessions, statement splitting, transaction control
-    │       ├── structure.rs            # fetch_table_ddl, fetch_table_structure, apply_structure_changes (ALTER TABLE)
+    │       ├── structure/              # fetch_table_ddl, fetch_table_structure, apply_structure_changes (ALTER TABLE)
+│       │   ├── mod.rs              # Shared types, edit resolution, and the 3 commands (dispatch by DbPool only)
+│       │   └── postgres.rs  mysql.rs  sqlite.rs   # Per-database DDL, introspection, ALTER generation
     │       ├── indexes.rs              # fetch_table_indexes, apply_index_changes (DROP / CREATE INDEX)
     │       ├── foreign_keys.rs         # fetch_table_foreign_keys, apply_foreign_key_changes (DROP / ADD CONSTRAINT; SQLite read-only)
     │       ├── write_queue.rs          # generate_sql, apply_write_queue
@@ -74,6 +76,27 @@ Orel is a cross-platform desktop database GUI for **PostgreSQL**, **MySQL/MariaD
     ├── capabilities/ icons/
     └── tauri.conf.json                 # Bundle, updater endpoint + pubkey, window config
 ```
+
+---
+
+## Simplicity (read before writing code)
+
+Make the smallest change that solves the problem. A reviewer has to understand every line, so extra structure is a cost.
+
+- Fix the reported problem only. No unrelated refactors, renames, or reformatting in the same change.
+- No new abstraction, helper, wrapper, or dependency unless it is used in 3 or more places or the task requires it.
+- Prefer extending an existing function, hook, or store over adding a parallel one. Search the codebase first.
+- No speculative flexibility: no options, config, generics, or fallbacks that nothing needs today.
+- Don't add defensive code for cases the types or callers already rule out.
+- Keep functions short and flat. If a change needs more than ~60 new lines in one function, say why or split it.
+- A new file needs one sentence in the change description explaining why an existing file wasn't the right home.
+- Match the surrounding style and patterns, even if you would write it differently.
+- Add a test for the bug or behavior you changed. Don't rewrite existing tests to make them pass.
+- When two designs work, pick the one with the smaller diff and say what the alternative was.
+
+Per-database code (Postgres / MySQL / SQLite) goes in that database's own module (`structure/postgres.rs`, `structure/mysql.rs`, `structure/sqlite.rs`) or in `sql_util.rs`. Shared files may dispatch on `DbPool`, but must not contain SQL or logic specific to one database. Adding a database means adding one module per command group, not editing every command.
+
+Files over ~600 lines are a smell. If your change pushes a file past that, split by responsibility first, as a separate commit.
 
 ---
 
@@ -248,7 +271,7 @@ cd src-tauri && cargo test -- --ignored # Docker-backed integration tests
 
 Polyfills for browser APIs jsdom lacks (e.g. `CSS.escape` for react-aria menus) go in `src/test/setup.ts`, not in individual test files.
 
-Rust tests live in `src-tauri/src/commands/test/*.test.rs`, attached with:
+Rust tests live in `src-tauri/src/commands/test/*.test.rs` (not inline `mod tests {}` blocks), attached with:
 
 ```rust
 #[cfg(test)]
@@ -278,7 +301,7 @@ macOS builds are ad-hoc signed (`signingIdentity: "-"`) and not notarized; Windo
 - Do not hold a `std::sync::Mutex` guard across an `await`
 - Do not add a command without registering it in `lib.rs`
 - Do not interpolate user values into SQL — bind parameters, quote identifiers via `sql_util`
-- Do not scatter dialect `match` arms outside `sql_util.rs`
+- Do not put database-specific SQL or logic in shared files — use `sql_util.rs` or the per-database module (see Simplicity)
 - Do not edit `src/routeTree.gen.ts`
 - Do not use `any` in TypeScript
 - Do not use SSR features — Tauri serves a static SPA
