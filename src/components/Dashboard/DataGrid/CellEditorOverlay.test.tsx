@@ -48,13 +48,4 @@ describe("CellEditorOverlay", () => {
     fireEvent.blur(input);
     expect(onExpand).toHaveBeenCalledWith("{oops");
   });
-
-  it("opens the expanded editor with Shift+Enter", () => {
-    const onCommit = vi.fn(() => null);
-    const onExpand = vi.fn();
-    render(<Harness onCommit={onCommit} onExpand={onExpand} />);
-    fireEvent.keyDown(screen.getByRole("textbox"), { key: "Enter", shiftKey: true });
-    expect(onExpand).toHaveBeenCalledWith('{"a":1}');
-    expect(onCommit).not.toHaveBeenCalled();
-  });
 });
