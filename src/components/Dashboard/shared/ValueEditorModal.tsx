@@ -110,8 +110,9 @@ export function ValueEditorModal({ table, column, value, original, onApply, onSe
               </Modal.Header>
 
               {/* The shared Monaco theme paints the gutter with the darker app background (fits the SQL
-                  editor pane); in the modal that reads as a cut-off strip, so let the editor surface show through. */}
-              <Modal.Body className="min-h-0 flex-1 p-0 [&_.monaco-editor_.margin]:!bg-transparent">
+                  editor pane); in the modal that reads as a cut-off strip, so let the editor surface show through.
+                  mx-px: the dialog's border is a 1px inset box-shadow, which the opaque editor would paint over. */}
+              <Modal.Body className="mx-px min-h-0 flex-1 p-0 [&_.monaco-editor_.margin]:!bg-transparent">
                 <Editor
                   height="100%"
                   language={isJson ? "json" : "plaintext"}
@@ -166,7 +167,7 @@ export function ValueEditorModal({ table, column, value, original, onApply, onSe
                 )}
                 <Button size="sm" variant="primary" className="text-[13px] h-8 gap-1.5" isDisabled={!!error} onPress={apply}>
                   Apply
-                  <Kbd className="h-4 px-1 text-[10px] leading-none">
+                  <Kbd className="h-5 px-1 text-[15px] leading-none rounded-full">
                     <Kbd.Abbr keyValue={os === "macos" ? "command" : "ctrl"} />
                     <Kbd.Abbr keyValue="enter" />
                   </Kbd>
