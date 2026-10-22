@@ -63,7 +63,6 @@ export function RowContextMenu({
         >
           <ArrowsOutSimpleIcon size={12} className="text-muted shrink-0" />
           Edit in editor…
-          <span className="ml-auto pl-4 text-[10px] text-muted">⇧↵</span>
         </button>
       )}
 
