@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { useNavigate, useRouter } from "@tanstack/react-router";
 import { useConnect } from "../../hooks/useConnections";
 import { useConnectionStore } from "../../stores/connection.store";
@@ -9,6 +10,9 @@ import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
 import { PencilLineIcon, TrashIcon } from "@phosphor-icons/react";
 import { getErrorMessage } from "../../lib/error";
 const appWindow = getCurrentWindow();
+
+// Avoids flashing the loading border for connections that resolve almost instantly.
+const LOADING_INDICATOR_DELAY_MS = 200;
 
 export default function ConnectionRow({
   connection,
@@ -23,6 +27,17 @@ export default function ConnectionRow({
   const router = useRouter();
   const connect = useConnect();
   const isConnecting = connect.isPending;
+  // Only surface the loading border after a short delay, so a fast/local
+  // connection doesn't flash it on and off.
+  const [showLoading, setShowLoading] = useState(false);
+  useEffect(() => {
+    if (!isConnecting) {
+      setShowLoading(false);
+      return;
+    }
+    const timer = setTimeout(() => setShowLoading(true), LOADING_INDICATOR_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [isConnecting]);
   // check for any connection that are connecting (global check)
   const isAnyConnecting = useConnectionStore((s) =>
     Object.values(s.activeConnections).some((c) => c.status === "connecting"),
@@ -52,7 +67,7 @@ export default function ConnectionRow({
   return (
     <div
       className={`${lockHover ? "" : "group"} px-4 py-3 rounded-xl border border-separator bg-default transition-colors h-16 relative ${
-        isConnecting ? "border-loading" : ""
+        showLoading ? "border-loading" : ""
       } ${isDisabled ? "opacity-50 pointer-events-none cursor-not-allowed" : lockHover ? "cursor-default" : "cursor-pointer hover:border-border"}`}
       onClick={handleConnect}
     >
