@@ -26,6 +26,14 @@ const APP_HOTKEY_OPTIONS: HotkeyOptions = {
   eventListenerOptions: { capture: true },
 };
 
+// Cmd/Ctrl+Left/Right are native line-start/line-end navigation in text fields and editors,
+// so pagination must not fire (or preventDefault) while an input, textarea or editor has focus.
+const PAGINATION_HOTKEY_OPTIONS: HotkeyOptions = {
+  ...APP_HOTKEY_OPTIONS,
+  enableOnFormTags: false,
+  enableOnContentEditable: false,
+};
+
 export function useDashboardHotkeys() {
   const { connectionId, activeDatabase, openTabs, activeTabId, activeTableName, scopeKey } = useDashboardContext();
   const {
@@ -157,7 +165,7 @@ export function useDashboardHotkeys() {
       const { page } = pagination;
       if (page > 1) setPage(scopeKey, page - 1);
     },
-    APP_HOTKEY_OPTIONS,
+    PAGINATION_HOTKEY_OPTIONS,
     [scopeKey, pagination, setPage],
   );
   useHotkeys(
@@ -168,7 +176,7 @@ export function useDashboardHotkeys() {
       const totalPages = queryResult?.totalPages ?? 1;
       if (page < totalPages) setPage(scopeKey, page + 1);
     },
-    APP_HOTKEY_OPTIONS,
+    PAGINATION_HOTKEY_OPTIONS,
     [scopeKey, pagination, setPage, queryResult],
   );
 }
