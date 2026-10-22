@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useReactTable, getCoreRowModel, flexRender, type CellContext, type ColumnDef } from "@tanstack/react-table";
-import { useHotkeys } from "react-hotkeys-hook";
 import { KeyIcon } from "../shared/icons";
 import { getTypeColor } from "../../../lib/typeColors";
 import { formatEditValue, isJsonValue, isLongText, jsonEditError, parseEditValue } from "../../../lib/parseValue";
@@ -32,7 +31,6 @@ const savedStyle: React.CSSProperties = {
   background: "color-mix(in oklch, var(--accent) 12%, transparent)",
 };
 const insertRowStyle: React.CSSProperties = { background: "color-mix(in oklch, var(--success) 8%, transparent)" };
-const selectedCellClass = " outline outline-1 -outline-offset-1 outline-accent";
 
 export function DataGrid() {
   const { activeTableName: activeTable } = useDashboardContext();
@@ -55,7 +53,6 @@ export function DataGrid() {
     value: unknown;
     mode: EditMode;
   } | null>(null);
-  const [selectedCell, setSelectedCell] = useState<string | null>(null);
 
   // Pre-compute dirty/deleted/saved state once per render — avoids per-cell store lookups
   const { rowKindMap, cellDirtyMap, cellSavedSet } = useMemo(() => {
@@ -172,22 +169,6 @@ export function DataGrid() {
     startEdit(valueEditorRequest.rowIndex, valueEditorRequest.column, false, "modal");
     // startEdit is recreated every render; the request is the only trigger
   }, [valueEditorRequest, setValueEditorRequest]);
-
-  useHotkeys(
-    "shift+enter",
-    (event) => {
-      if (!selectedCell || editingCell) return;
-      event.preventDefault();
-      const [ri, col] = selectedCell.split("::");
-      const isInsert = ri.startsWith("insert-");
-      const index = Number(isInsert ? ri.slice("insert-".length) : ri);
-      // The selection can outlive its row/column after a table or page switch
-      const exists = isInsert ? !!wq.insertedRows[index] : !!rows[index];
-      if (!exists || !colInfos.some((c) => c.name === col)) return;
-      startEdit(index, col, isInsert, "modal");
-    },
-    [selectedCell, editingCell, startEdit, rows, colInfos, wq.insertedRows],
-  );
 
   const advanceColumn = (direction: 1 | -1) => {
     if (!editingCell) return;
@@ -393,8 +374,6 @@ export function DataGrid() {
             }
             const tr = (e.target as HTMLElement).closest("tr[data-row]") as HTMLElement | null;
             if (tr) setSelectedRowIndex(Number(tr.dataset.row));
-            const td = (e.target as HTMLElement).closest("td[data-cell]") as HTMLElement | null;
-            setSelectedCell(td?.dataset.cell ?? null);
           }}
           onContextMenu={(e) => {
             cancelLongPress();
@@ -443,7 +422,7 @@ export function DataGrid() {
                     <td
                       key={cell.id}
                       data-cell={cellAttr}
-                      className={`border-b-hairline overflow-hidden whitespace-nowrap px-[14px]${dirty ? "" : " cell-hoverable"}${cellAttr && cellAttr === selectedCell ? selectedCellClass : ""}`}
+                      className={`border-b-hairline overflow-hidden whitespace-nowrap px-[14px]${dirty ? "" : " cell-hoverable"}`}
                       style={dirty ? dirtyStyle : saved ? savedStyle : undefined}
                     >
                       <div className="overflow-hidden text-ellipsis whitespace-nowrap">
@@ -490,7 +469,7 @@ export function DataGrid() {
                     <td
                       key={c.name}
                       data-cell={cellAttr}
-                      className={`border-b-hairline overflow-hidden whitespace-nowrap px-[14px]${isAutoGenPK ? "" : " cell-hoverable"}${cellAttr && cellAttr === selectedCell ? selectedCellClass : ""}`}
+                      className={`border-b-hairline overflow-hidden whitespace-nowrap px-[14px]${isAutoGenPK ? "" : " cell-hoverable"}`}
                     >
                       <div className="overflow-hidden text-ellipsis whitespace-nowrap">
                         {isAutoGenPK ? (

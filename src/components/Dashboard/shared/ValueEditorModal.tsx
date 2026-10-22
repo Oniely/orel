@@ -1,4 +1,5 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import type { Monaco } from "@monaco-editor/react";
 import Editor, { type OnMount } from "@monaco-editor/react";
 import { Button, Kbd, Modal } from "@heroui/react";
 import { WarningCircleIcon } from "@phosphor-icons/react";
@@ -47,7 +48,15 @@ export function ValueEditorModal({ table, column, value, original, onApply, onSe
   const applyRef = useRef(apply);
   applyRef.current = apply;
 
+  // Rebuild on theme switch — dark→dark keeps the same Monaco theme name, so the
+  // `theme` prop alone never repaints an open editor (same as SqlEditor/DDL).
+  const monacoRef = useRef<Monaco | null>(null);
+  useEffect(() => {
+    if (monacoRef.current) buildOrelTheme(monacoRef.current, theme.colors, theme.isDark);
+  }, [theme]);
+
   const handleMount: OnMount = (editor, monaco) => {
+    monacoRef.current = monaco;
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => applyRef.current());
     editor.focus();
   };
@@ -63,7 +72,7 @@ export function ValueEditorModal({ table, column, value, original, onApply, onSe
         }}
       >
         <Modal.Container>
-          <Modal.Dialog className="flex h-[70vh] w-full max-w-3xl flex-col overflow-hidden p-0">
+          <Modal.Dialog className="flex h-[min(60vh,560px)] w-full max-w-2xl flex-col overflow-hidden p-0">
             <div
               className="flex min-h-0 flex-1 flex-col"
               onKeyDown={(e) => {
@@ -94,7 +103,7 @@ export function ValueEditorModal({ table, column, value, original, onApply, onSe
                 </span>
                 <div className="flex-1" />
                 {isJson && (
-                  <Button size="sm" variant="tertiary" className="text-xs h-7" isDisabled={!!error} onPress={() => setText(formatJsonForEditor(text))}>
+                  <Button size="sm" variant="tertiary" className="text-[13px] h-8" isDisabled={!!error} onPress={() => setText(formatJsonForEditor(text))}>
                     Format
                   </Button>
                 )}
@@ -147,15 +156,15 @@ export function ValueEditorModal({ table, column, value, original, onApply, onSe
                     </p>
                   )}
                 </div>
-                <Button size="sm" variant="outline" className="text-xs h-7" onPress={onCancel}>
+                <Button size="sm" variant="outline" className="text-[13px] h-8" onPress={onCancel}>
                   Cancel
                 </Button>
                 {column.isNullable && (
-                  <Button size="sm" variant="outline" className="text-xs h-7" onPress={onSetNull}>
+                  <Button size="sm" variant="outline" className="text-[13px] h-8" onPress={onSetNull}>
                     Set NULL
                   </Button>
                 )}
-                <Button size="sm" variant="primary" className="text-xs h-7 gap-1.5" isDisabled={!!error} onPress={apply}>
+                <Button size="sm" variant="primary" className="text-[13px] h-8 gap-1.5" isDisabled={!!error} onPress={apply}>
                   Apply
                   <Kbd className="h-4 px-1 text-[10px] leading-none">
                     <Kbd.Abbr keyValue={os === "macos" ? "command" : "ctrl"} />

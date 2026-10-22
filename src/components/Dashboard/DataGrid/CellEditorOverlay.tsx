@@ -137,10 +137,7 @@ export function CellEditorOverlay({
             if (!doCommit()) expand();
           }}
           onKeyDown={(e) => {
-            if (e.key === "Enter" && e.shiftKey) {
-              e.preventDefault();
-              expand();
-            } else if (e.key === "Enter") {
+            if (e.key === "Enter") {
               e.preventDefault();
               doCommit();
             } else if (e.key === "Escape") {
