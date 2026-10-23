@@ -186,6 +186,10 @@ pub async fn list_tables(
             .clone()
     };
 
+    fetch_tables(&pool).await
+}
+
+pub(crate) async fn fetch_tables(pool: &DbPool) -> Result<Vec<TableInfo>, String> {
     match pool {
         DbPool::Postgres(pg) => {
             let rows = sqlx::query_as::<_, (String, String, Option<i64>)>(
@@ -203,7 +207,7 @@ pub async fn list_tables(
                 WHERE t.table_schema = 'public' \
                 ORDER BY t.table_type DESC, t.table_name",
             )
-            .fetch_all(&pg)
+            .fetch_all(pg)
             .await
             .map_err(|e| e.to_string())?;
 
@@ -229,7 +233,7 @@ pub async fn list_tables(
                 WHERE TABLE_SCHEMA = DATABASE() \
                 ORDER BY TABLE_TYPE DESC, TABLE_NAME",
             )
-            .fetch_all(&mysql)
+            .fetch_all(mysql)
             .await
             .map_err(|e| e.to_string())?;
 
@@ -248,7 +252,7 @@ pub async fn list_tables(
                 WHERE type IN ('table', 'view') AND name NOT LIKE 'sqlite_%' \
                 ORDER BY type DESC, name",
             )
-            .fetch_all(&sqlite)
+            .fetch_all(sqlite)
             .await
             .map_err(|e| e.to_string())?;
 

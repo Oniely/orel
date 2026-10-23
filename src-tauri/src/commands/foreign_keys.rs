@@ -279,7 +279,7 @@ pub(crate) async fn fetch_sqlite_foreign_keys(
     Ok(fks)
 }
 
-async fn fetch_foreign_keys(pool: &DbPool, table: &str) -> Result<Vec<ForeignKey>, String> {
+pub(crate) async fn fetch_foreign_keys(pool: &DbPool, table: &str) -> Result<Vec<ForeignKey>, String> {
     match pool {
         DbPool::Postgres(pg) => fetch_pg_foreign_keys(pg, table).await,
         DbPool::MySql(mysql) => fetch_mysql_foreign_keys(mysql, table).await,
@@ -445,7 +445,7 @@ fn constraint_definition(add: &ForeignKeyAddPayload, dialect: Dialect) -> String
 }
 
 /// Postgres: drops first so a dropped name can be reused; run in one transaction.
-fn generate_pg_fk_sql(table: &str, changes: &ForeignKeyChanges) -> Vec<String> {
+pub(crate) fn generate_pg_fk_sql(table: &str, changes: &ForeignKeyChanges) -> Vec<String> {
     let qt = pg_quote(table);
     let mut stmts: Vec<String> = changes
         .drops
@@ -463,7 +463,7 @@ fn generate_pg_fk_sql(table: &str, changes: &ForeignKeyChanges) -> Vec<String> {
 }
 
 /// MySQL: one ALTER TABLE so the save is all-or-nothing (DDL auto-commits).
-fn generate_mysql_fk_sql(table: &str, changes: &ForeignKeyChanges) -> Vec<String> {
+pub(crate) fn generate_mysql_fk_sql(table: &str, changes: &ForeignKeyChanges) -> Vec<String> {
     let mut clauses: Vec<String> = changes
         .drops
         .iter()

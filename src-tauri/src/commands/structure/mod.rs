@@ -6,9 +6,9 @@ use crate::commands::connection::{AppState, DbPool};
 
 use super::indexes::fetch_sqlite_indexes;
 
-mod mysql;
-mod postgres;
-mod sqlite;
+pub(crate) mod mysql;
+pub(crate) mod postgres;
+pub(crate) mod sqlite;
 
 use mysql::*;
 use postgres::*;

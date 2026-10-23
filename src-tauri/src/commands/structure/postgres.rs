@@ -3,23 +3,24 @@
 use super::*;
 use crate::commands::sql_util::{normalize_pg_type, pg_quote};
 
-pub(super) struct PgColumnDdl {
-    pub(super) name: String,
+pub(crate) struct PgColumnDdl {
+    pub(crate) name: String,
     pub(super) data_type: String,
     pub(super) not_null: bool,
     pub(super) default_expr: Option<String>,
-    pub(super) identity: String,
-    pub(super) serial_type: Option<String>,
+    /// `pg_attribute.attidentity`: "a" (ALWAYS), "d" (BY DEFAULT), or "".
+    pub(crate) identity: String,
+    pub(crate) serial_type: Option<String>,
 }
 
 
-pub(super) struct PgConstraintDdl {
+pub(crate) struct PgConstraintDdl {
     pub(super) name: String,
     pub(super) definition: String,
 }
 
 
-pub(super) fn render_pg_create_table(
+pub(crate) fn render_pg_create_table(
     table: &str,
     columns: Vec<PgColumnDdl>,
     constraints: Vec<PgConstraintDdl>,
@@ -84,6 +85,21 @@ pub(super) async fn fetch_postgres_ddl(pool: sqlx::PgPool, table: &str) -> Resul
         return Err("DDL is only available for tables".to_string());
     }
 
+    let columns = fetch_pg_column_ddl(&pool, table).await?;
+    let constraints = fetch_pg_constraint_ddl(&pool, table, true).await?;
+
+    Ok(TableDdl {
+        ddl: render_pg_create_table(table, columns, constraints),
+        dialect: "postgres".to_string(),
+        source: "generated".to_string(),
+    })
+}
+
+
+pub(crate) async fn fetch_pg_column_ddl(
+    pool: &sqlx::PgPool,
+    table: &str,
+) -> Result<Vec<PgColumnDdl>, String> {
     let column_rows =
         sqlx::query_as::<_, (String, String, bool, Option<String>, String, Option<String>)>(
             "SELECT \
@@ -123,11 +139,11 @@ pub(super) async fn fetch_postgres_ddl(pool: sqlx::PgPool, table: &str) -> Resul
          ORDER BY a.attnum",
         )
         .bind(table)
-        .fetch_all(&pool)
+        .fetch_all(pool)
         .await
         .map_err(|e| e.to_string())?;
 
-    let columns = column_rows
+    Ok(column_rows
         .into_iter()
         .map(
             |(name, data_type, not_null, default_expr, identity, serial_type)| PgColumnDdl {
@@ -139,9 +155,18 @@ pub(super) async fn fetch_postgres_ddl(pool: sqlx::PgPool, table: &str) -> Resul
                 serial_type,
             },
         )
-        .collect();
+        .collect())
+}
 
-    let constraints = sqlx::query_as::<_, (String, String)>(
+
+/// `with_foreign_keys: false` leaves FOREIGN KEY constraints out, for dumps
+/// that add them once all tables and data exist.
+pub(crate) async fn fetch_pg_constraint_ddl(
+    pool: &sqlx::PgPool,
+    table: &str,
+    with_foreign_keys: bool,
+) -> Result<Vec<PgConstraintDdl>, String> {
+    sqlx::query_as::<_, (String, String)>(
         "SELECT \
             con.conname, \
             pg_catalog.pg_get_constraintdef(con.oid, true) \
@@ -151,6 +176,7 @@ pub(super) async fn fetch_postgres_ddl(pool: sqlx::PgPool, table: &str) -> Resul
          WHERE c.relname = $1 \
             AND n.nspname = 'public' \
             AND con.contype IN ('p', 'u', 'c', 'f', 'x') \
+            AND ($2 OR con.contype <> 'f') \
          ORDER BY \
             CASE con.contype \
                 WHEN 'p' THEN 1 \
@@ -163,18 +189,15 @@ pub(super) async fn fetch_postgres_ddl(pool: sqlx::PgPool, table: &str) -> Resul
             con.conname",
     )
     .bind(table)
-    .fetch_all(&pool)
+    .bind(with_foreign_keys)
+    .fetch_all(pool)
     .await
-    .map_err(|e| e.to_string())?
-    .into_iter()
-    .map(|(name, definition)| PgConstraintDdl { name, definition })
-    .collect();
-
-    Ok(TableDdl {
-        ddl: render_pg_create_table(table, columns, constraints),
-        dialect: "postgres".to_string(),
-        source: "generated".to_string(),
+    .map(|rows| {
+        rows.into_iter()
+            .map(|(name, definition)| PgConstraintDdl { name, definition })
+            .collect()
     })
+    .map_err(|e| e.to_string())
 }
 
 

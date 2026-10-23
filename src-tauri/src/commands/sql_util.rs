@@ -51,33 +51,49 @@ impl DbPool {
     }
 
     /// Runs every statement in one transaction so a failure rolls all of them
-    /// back. Postgres and SQLite DDL is transactional; MySQL implicitly commits
-    /// each DDL statement, so MySQL callers should send a single statement.
-    pub async fn execute_in_transaction(&self, stmts: &[String]) -> Result<(), sqlx::Error> {
+    /// back (dropping an uncommitted sqlx transaction rolls it back). Postgres
+    /// and SQLite DDL is transactional; MySQL implicitly commits each DDL
+    /// statement, so MySQL callers should send a single statement.
+    pub async fn execute_in_transaction(&self, stmts: &[String]) -> Result<(), TransactionError> {
+        macro_rules! run_tx {
+            ($pool:expr) => {{
+                let mut tx = $pool.begin().await?;
+                for (index, stmt) in stmts.iter().enumerate() {
+                    sqlx::query(sqlx::AssertSqlSafe(stmt.as_str()))
+                        .execute(&mut *tx)
+                        .await
+                        .map_err(|source| TransactionError { index: Some(index), source })?;
+                }
+                tx.commit().await?;
+            }};
+        }
+
         match self {
-            Self::Postgres(pg) => {
-                let mut tx = pg.begin().await?;
-                for stmt in stmts {
-                    sqlx::query(sqlx::AssertSqlSafe(stmt.as_str())).execute(&mut *tx).await?;
-                }
-                tx.commit().await?;
-            }
-            Self::MySql(mysql) => {
-                let mut tx = mysql.begin().await?;
-                for stmt in stmts {
-                    sqlx::query(sqlx::AssertSqlSafe(stmt.as_str())).execute(&mut *tx).await?;
-                }
-                tx.commit().await?;
-            }
-            Self::Sqlite(sqlite) => {
-                let mut tx = sqlite.begin().await?;
-                for stmt in stmts {
-                    sqlx::query(sqlx::AssertSqlSafe(stmt.as_str())).execute(&mut *tx).await?;
-                }
-                tx.commit().await?;
-            }
+            Self::Postgres(pg) => run_tx!(pg),
+            Self::MySql(mysql) => run_tx!(mysql),
+            Self::Sqlite(sqlite) => run_tx!(sqlite),
         }
         Ok(())
+    }
+}
+
+/// A failed `execute_in_transaction`; displays as the database error.
+#[derive(Debug)]
+pub struct TransactionError {
+    /// The statement that failed, or None when BEGIN or COMMIT did.
+    pub index: Option<usize>,
+    pub source: sqlx::Error,
+}
+
+impl From<sqlx::Error> for TransactionError {
+    fn from(source: sqlx::Error) -> Self {
+        Self { index: None, source }
+    }
+}
+
+impl std::fmt::Display for TransactionError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.source.fmt(f)
     }
 }
 

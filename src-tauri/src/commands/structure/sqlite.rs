@@ -6,7 +6,7 @@ use super::*;
 use crate::commands::indexes::TableIndex;
 use crate::commands::sql_util::{normalize_sqlite_type, pg_quote};
 
-pub(super) async fn fetch_sqlite_ddl(pool: sqlx::SqlitePool, table: &str) -> Result<TableDdl, String> {
+pub(crate) async fn fetch_sqlite_ddl(pool: sqlx::SqlitePool, table: &str) -> Result<TableDdl, String> {
     let row = sqlx::query_as::<_, (String, Option<String>)>(
         "SELECT type, sql FROM sqlite_master \
          WHERE name = ? AND type IN ('table', 'view')",

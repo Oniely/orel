@@ -52,7 +52,7 @@ pub(super) struct MySqlColumnRow {
 }
 
 
-pub(super) async fn fetch_mysql_structure(
+pub(crate) async fn fetch_mysql_structure(
     pool: &sqlx::MySqlPool,
     table: &str,
 ) -> Result<TableStructure, String> {
@@ -204,7 +204,7 @@ pub(super) fn mysql_definition_changed(orig: &StructureColumn, edit: &ColumnEdit
 /// Full column definition for MODIFY/CHANGE COLUMN. MySQL replaces the whole
 /// definition, so anything not restated here — AUTO_INCREMENT, COMMENT,
 /// charset, ON UPDATE, generated expressions — would be silently dropped.
-pub(super) fn mysql_column_def(orig: &StructureColumn, edit: Option<&ColumnEditPayload>) -> String {
+pub(crate) fn mysql_column_def(orig: &StructureColumn, edit: Option<&ColumnEditPayload>) -> String {
     let (name, data_type, type_params, nullable, default_value) = match edit {
         Some(e) => (&e.name, &e.data_type, &e.type_params, e.nullable, &e.default_value),
         None => (&orig.name, &orig.data_type, &orig.type_params, orig.is_nullable, &orig.default_value),
