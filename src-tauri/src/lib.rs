@@ -12,6 +12,7 @@ use commands::connection::{
     connect, delete_connection, disconnect, list_databases, load_connections, save_connection,
     switch_database, test_connection, update_connection, AppState,
 };
+use commands::dump::{export_database_dump, import_sql_dump};
 use commands::editor::{
     begin_editor_transaction, commit_editor_transaction, discard_editor_session,
     execute_editor_sql, rollback_editor_transaction,
@@ -170,6 +171,8 @@ pub fn run() {
             apply_index_changes,
             fetch_table_foreign_keys,
             apply_foreign_key_changes,
+            export_database_dump,
+            import_sql_dump,
             apply_write_queue,
             generate_sql,
             execute_editor_sql,

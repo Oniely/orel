@@ -63,7 +63,11 @@ Orel is a cross-platform desktop database GUI for **PostgreSQL**, **MySQL/MariaD
     │   └── commands/
     │       ├── connection.rs           # AppState, DbPool, connect/disconnect/CRUD/database switching
     │       ├── query.rs                # list_tables, fetch_rows (pagination + filters)
-    │       ├── editor.rs               # Editor sessions, statement splitting, transaction control
+    │       ├── editor.rs               # Editor sessions, transaction control
+    │       ├── sql_split.rs            # Statement splitter (quotes, comments, $$ bodies, MySQL DELIMITER, line numbers) shared by editor + dump import
+    │       ├── dump/                   # export_database_dump, import_sql_dump (plain .sql files)
+│       │   ├── mod.rs              # Shared flow: CREATE TABLEs → data → FKs (PG/MySQL) → views; SQLite topo order; import in one transaction
+│       │   └── postgres.rs  mysql.rs  sqlite.rs   # Per-database table DDL, row literals, view definitions
     │       ├── structure/              # fetch_table_ddl, fetch_table_structure, apply_structure_changes (ALTER TABLE)
 │       │   ├── mod.rs              # Shared types, edit resolution, and the 3 commands (dispatch by DbPool only)
 │       │   └── postgres.rs  mysql.rs  sqlite.rs   # Per-database DDL, introspection, ALTER generation
