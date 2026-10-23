@@ -15,6 +15,7 @@ use sqlx::{
 use uuid::Uuid;
 
 use super::connection::{AppState, DbPool};
+use super::sql_split::split_sql_statements;
 use super::sql_util::{
     is_mysql_binary_type, mysql_primary_columns, normalize_type, pg_primary_columns,
     sqlite_primary_columns, Dialect,
@@ -1034,117 +1035,11 @@ fn apply_successful_statement_state(
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-enum ScanState {
-    Normal,
-    SingleQuote,
-    DoubleQuote,
-    Backtick,
-    LineComment,
-    BlockComment(usize),
-    DollarQuote(String),
-}
-
 fn split_statements(sql: &str, dialect: SqlDialect) -> Vec<String> {
-    let bytes = sql.as_bytes();
-    let mut state = ScanState::Normal;
-    let mut statements = Vec::new();
-    let mut start = 0;
-    let mut index = 0;
-    while index < bytes.len() {
-        match &mut state {
-            ScanState::Normal => match bytes[index] {
-                b'\'' => state = ScanState::SingleQuote,
-                b'"' => state = ScanState::DoubleQuote,
-                b'`' => state = ScanState::Backtick,
-                b'-' if bytes.get(index + 1) == Some(&b'-') => {
-                    state = ScanState::LineComment;
-                    index += 1;
-                }
-                b'#' if dialect == SqlDialect::MySql => state = ScanState::LineComment,
-                b'/' if bytes.get(index + 1) == Some(&b'*') => {
-                    state = ScanState::BlockComment(1);
-                    index += 1;
-                }
-                b'$' => {
-                    if let Some(relative_end) =
-                        bytes[index + 1..].iter().position(|byte| *byte == b'$')
-                    {
-                        let end = index + 1 + relative_end;
-                        let tag = &sql[index..=end];
-                        if tag[1..tag.len() - 1]
-                            .chars()
-                            .all(|character| character.is_ascii_alphanumeric() || character == '_')
-                        {
-                            state = ScanState::DollarQuote(tag.to_string());
-                            index = end;
-                        }
-                    }
-                }
-                b';' => {
-                    let statement = sql[start..index].trim();
-                    if !statement.is_empty() && !first_words(statement, 1, dialect).is_empty() {
-                        statements.push(statement.to_string());
-                    }
-                    start = index + 1;
-                }
-                _ => {}
-            },
-            ScanState::SingleQuote => match bytes[index] {
-                b'\\' => index += usize::from(index + 1 < bytes.len()),
-                b'\'' if bytes.get(index + 1) == Some(&b'\'') => index += 1,
-                b'\'' => state = ScanState::Normal,
-                _ => {}
-            },
-            ScanState::DoubleQuote => {
-                if bytes[index] == b'"' {
-                    if bytes.get(index + 1) == Some(&b'"') {
-                        index += 1;
-                    } else {
-                        state = ScanState::Normal;
-                    }
-                }
-            }
-            ScanState::Backtick => {
-                if bytes[index] == b'`' {
-                    if bytes.get(index + 1) == Some(&b'`') {
-                        index += 1;
-                    } else {
-                        state = ScanState::Normal;
-                    }
-                }
-            }
-            ScanState::LineComment => {
-                if bytes[index] == b'\n' {
-                    state = ScanState::Normal;
-                }
-            }
-            ScanState::BlockComment(depth) => {
-                if bytes[index] == b'/' && bytes.get(index + 1) == Some(&b'*') {
-                    *depth += 1;
-                    index += 1;
-                } else if bytes[index] == b'*' && bytes.get(index + 1) == Some(&b'/') {
-                    *depth -= 1;
-                    index += 1;
-                    if *depth == 0 {
-                        state = ScanState::Normal;
-                    }
-                }
-            }
-            ScanState::DollarQuote(tag) => {
-                if sql[index..].starts_with(tag.as_str()) {
-                    index += tag.len() - 1;
-                    state = ScanState::Normal;
-                }
-            }
-        }
-        index += 1;
-    }
-    let statement = sql[start..].trim();
-    if !statement.is_empty() && !first_words(statement, 1, dialect).is_empty() {
-        statements.push(statement.to_string());
-    }
-    statements
+    split_sql_statements(sql, dialect)
+        .into_iter()
+        .map(|statement| statement.sql)
+        .collect()
 }
 
 #[tauri::command]
