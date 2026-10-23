@@ -1,4 +1,5 @@
 pub mod connection;
+pub mod dump;
 pub mod editor;
 pub mod foreign_keys;
 pub mod indexes;
