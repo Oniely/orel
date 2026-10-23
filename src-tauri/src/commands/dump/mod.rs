@@ -456,3 +456,7 @@ fn count_tables(statements: &[String]) -> u32 {
     }
     names.len() as u32
 }
+
+#[cfg(test)]
+#[path = "../test/dump.test.rs"]
+mod tests;
