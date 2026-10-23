@@ -90,11 +90,19 @@ export default function ConnectionRow({
           </span>
 
           <div
-            className="grid grid-cols-[0fr] group-hover:grid-cols-[1fr] transition-[grid-template-columns] duration-200 ease-out"
+            className={`grid transition-[grid-template-columns] duration-200 ease-out ${
+              isConnecting ? "grid-cols-[1fr]" : "grid-cols-[0fr] group-hover:grid-cols-[1fr]"
+            }`}
             onClick={(e) => e.stopPropagation()}
           >
             <div className="overflow-hidden">
-              <div className="flex items-center space-x-0.5 opacity-0 -translate-x-1 group-hover:opacity-100 group-hover:translate-x-0 transition-[opacity,transform] duration-200 ease-out">
+              <div
+                className={`flex items-center space-x-0.5 transition-[opacity,transform] duration-200 ease-out ${
+                  isConnecting
+                    ? "opacity-100 translate-x-0"
+                    : "opacity-0 -translate-x-1 group-hover:opacity-100 group-hover:translate-x-0"
+                }`}
+              >
                 <Button
                   size="sm"
                   variant="ghost"
