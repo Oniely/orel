@@ -1,7 +1,11 @@
+import { useState } from "react";
 import { Button, Dropdown, Label, Separator, Spinner, toast, ToggleButton } from "@heroui/react";
+import { open } from "@tauri-apps/plugin-dialog";
 import type { SavedConnection } from "../../../types/connection";
+import type { ImportError } from "../../../types/dump";
 import {
   ArrowClockwiseIcon,
+  ArrowLineDownIcon,
   ArrowLineUpIcon,
   CaretDownIcon,
   DatabaseIcon,
@@ -20,6 +24,9 @@ import { useDashboardStore } from "../../../stores/dashboard.store";
 import { useDashboardContext } from "../../../hooks/dashboard/useDashboardContext";
 import { useDashboardCommands } from "../../../hooks/dashboard/useDashboardCommands";
 import { useActiveTable } from "../../../hooks/dashboard/useActiveTable";
+import { useImportDump } from "../../../hooks/useDump";
+import { ExportDumpModal } from "./ExportDumpModal";
+import { ImportErrorModal } from "./ImportErrorModal";
 
 export function Header() {
   const latency = null; // TODO: track latency after connect
@@ -34,6 +41,9 @@ export function Header() {
   const { savedConnections, activeConnections, setFocusedConnection, closeConnection } = useConnectionStore();
   const connect = useConnect();
   const isConnecting = Object.values(activeConnections).some((c) => c.status === "connecting");
+  const importDump = useImportDump();
+  const [exportModalOpen, setExportModalOpen] = useState(false);
+  const [importError, setImportError] = useState<ImportError | null>(null);
   if (!connection) return null;
 
   const hasFixedDatabase = connection.config.type === "sqlite" || connection.databases?.length === 1;
@@ -53,6 +63,28 @@ export function Header() {
         toast.danger(`Failed to connect: ${conn.name}`);
       },
     });
+  };
+
+  const handleImport = async () => {
+    const filePath = await open({
+      multiple: false,
+      filters: [{ name: "SQL", extensions: ["sql"] }],
+    });
+    if (!filePath) return;
+    importDump.mutate(
+      { connectionId: connection.config.id, filePath },
+      {
+        onSuccess: (summary) => {
+          toast.success(`Import complete — ${summary.statementsExecuted.toLocaleString()} statements executed`);
+          commands.refresh();
+        },
+        onError: (error) => {
+          setImportError(error);
+          // A failed MySQL import can still leave tables behind (DDL auto-commits)
+          commands.refresh();
+        },
+      },
+    );
   };
 
   return (
@@ -168,9 +200,25 @@ export function Header() {
         <div className="flex-1" />
 
         {/* Action buttons */}
-        <Button size="sm" variant="outline" className="flex items-center gap-1.5 text-xs">
+        <Button
+          size="sm"
+          variant="outline"
+          className="flex items-center gap-1.5 text-xs"
+          onClick={() => setExportModalOpen(true)}
+        >
           <ArrowLineUpIcon className="size-3" weight="bold" />
           Export
+        </Button>
+
+        <Button
+          size="sm"
+          variant="outline"
+          className="flex items-center gap-1.5 text-xs"
+          isDisabled={importDump.isPending}
+          onClick={handleImport}
+        >
+          {importDump.isPending ? <Spinner size="sm" /> : <ArrowLineDownIcon className="size-3" weight="bold" />}
+          Import
         </Button>
 
         <Button
@@ -199,6 +247,13 @@ export function Header() {
 
         <SettingsButton />
       </div>
+
+      <ExportDumpModal isOpen={exportModalOpen} onClose={() => setExportModalOpen(false)} />
+      <ImportErrorModal
+        error={importError}
+        isMySql={connection.config.type === "mysql"}
+        onClose={() => setImportError(null)}
+      />
     </div>
   );
 }
