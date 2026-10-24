@@ -250,6 +250,39 @@ async fn postgres_round_trip_with_circular_foreign_keys() {
 
 #[tokio::test]
 #[ignore = "requires Docker"]
+async fn postgres_round_trip_with_enum_type() {
+    let (_container, admin, base) = start_pg().await;
+    let (source, source_pool) = pg_database(&admin, &base, "enum_source_db").await;
+    run_all(&source, &[
+        "CREATE TYPE account_status AS ENUM ('active', 'archived', 'needs attention')",
+        "CREATE TABLE accounts (id SERIAL PRIMARY KEY, name text NOT NULL, \
+         status account_status DEFAULT 'active'::account_status NOT NULL)",
+        "INSERT INTO accounts (name, status) VALUES ('Checking', 'active'), ('Old savings', 'archived')",
+    ]).await;
+
+    let path = dump_path("postgres-enum-round-trip");
+    export_dump(&source, &path).await.unwrap();
+    let dump = std::fs::read_to_string(&path).unwrap();
+    assert!(
+        dump.contains("CREATE TYPE \"account_status\" AS ENUM ('active', 'archived', 'needs attention')"),
+        "dump should declare the enum type before using it:\n{dump}"
+    );
+    assert!(dump.find("CREATE TYPE").unwrap() < dump.find("CREATE TABLE").unwrap());
+
+    let (target, target_pool) = pg_database(&admin, &base, "enum_target_db").await;
+    import_dump(&target, &path).await.unwrap();
+
+    let rows: Vec<(String, String)> =
+        sqlx::query_as("SELECT name, status::text FROM accounts ORDER BY id").fetch_all(&target_pool).await.unwrap();
+    let source_rows: Vec<(String, String)> =
+        sqlx::query_as("SELECT name, status::text FROM accounts ORDER BY id").fetch_all(&source_pool).await.unwrap();
+    assert_eq!(rows, source_rows);
+    assert_eq!(rows, vec![("Checking".to_string(), "active".to_string()), ("Old savings".to_string(), "archived".to_string())]);
+    std::fs::remove_file(&path).unwrap();
+}
+
+#[tokio::test]
+#[ignore = "requires Docker"]
 async fn postgres_import_of_mysql_dump_rolls_back_and_explains() {
     let (_container, admin, _base) = start_pg().await;
     let path = dump_path("mysql-into-postgres");

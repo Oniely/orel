@@ -13,14 +13,43 @@ pub(super) async fn current_database(pool: &sqlx::PgPool) -> Result<String, Stri
         .map_err(|e| e.to_string())
 }
 
+/// `CREATE TYPE ... AS ENUM (...)` for every enum type in the `public`
+/// schema, so columns typed with a custom enum (e.g. a Drizzle `pgEnum`)
+/// round-trip. Must run before any CREATE TABLE that references one.
+/// Other user-defined types (domains, composite, range) still aren't
+/// exported — a known limitation.
+pub(super) async fn enum_type_statements(pool: &sqlx::PgPool) -> Result<Vec<String>, String> {
+    let rows: Vec<(String, Vec<String>)> = sqlx::query_as(
+        "SELECT t.typname, array_agg(e.enumlabel ORDER BY e.enumsortorder) \
+         FROM pg_catalog.pg_type t \
+         JOIN pg_catalog.pg_enum e ON e.enumtypid = t.oid \
+         JOIN pg_catalog.pg_namespace n ON n.oid = t.typnamespace \
+         WHERE n.nspname = 'public' \
+         GROUP BY t.typname \
+         ORDER BY t.typname",
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    Ok(rows
+        .into_iter()
+        .map(|(name, labels)| {
+            let labels = labels.iter().map(|l| string_literal(l)).collect::<Vec<_>>().join(", ");
+            format!("CREATE TYPE {} AS ENUM ({labels})", pg_quote(&name))
+        })
+        .collect())
+}
+
 fn string_literal(value: &str) -> String {
     format!("'{}'", value.replace('\'', "''"))
 }
 
 /// Foreign keys are left out of CREATE TABLE; the dump adds them at the end.
 /// serial / identity columns get their sequence moved past the loaded ids.
-/// Known limitation: generated columns, and columns of user-defined types,
-/// don't round-trip (types aren't exported).
+/// Known limitation: generated columns, and non-enum user-defined types
+/// (domains, composite, range), don't round-trip. Enum types are exported
+/// separately via `enum_type_statements`.
 pub(super) async fn table_dump(pool: &sqlx::PgPool, table: &str) -> Result<TableDump, String> {
     let (columns, constraints) = tokio::try_join!(
         fetch_pg_column_ddl(pool, table),
