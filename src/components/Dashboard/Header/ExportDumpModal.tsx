@@ -12,6 +12,15 @@ interface ExportDumpModalProps {
   onClose: () => void;
 }
 
+// Characters illegal (or awkward) in Windows/macOS filenames
+export function sanitizeFilenamePart(part: string): string {
+  return part.replace(/[\\/:*?"<>|]/g, "_").trim();
+}
+
+function isoDate(): string {
+  return new Date().toISOString().slice(0, 10); // YYYY-MM-DD, sorts correctly too
+}
+
 export function ExportDumpModal({ isOpen, onClose }: ExportDumpModalProps) {
   const { connection, connectionId, activeDatabase } = useDashboardContext();
   const exportDump = useExportDump();
@@ -27,8 +36,15 @@ export function ExportDumpModal({ isOpen, onClose }: ExportDumpModalProps) {
 
   const handleConfirm = async () => {
     if (!connectionId) return;
+    const connectionName = connection?.config.name ?? "connection";
+    // SQLite has no separate database name — avoid "name - name - date"
+    const parts =
+      activeDatabase && activeDatabase !== connectionName
+        ? [connectionName, activeDatabase, isoDate()]
+        : [connectionName, isoDate()];
+    const defaultFileName = `${parts.map(sanitizeFilenamePart).join(" - ")}.sql`;
     const filePath = await save({
-      defaultPath: `${name}.sql`,
+      defaultPath: defaultFileName,
       filters: [{ name: "SQL", extensions: ["sql"] }],
     });
     // Cancelled the native dialog — stay on the confirmation screen
