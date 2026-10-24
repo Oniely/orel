@@ -40,7 +40,7 @@ export function ImportErrorModal({ error, isMySql, onClose }: ImportErrorModalPr
                 <Modal.CloseTrigger />
               </Modal.Header>
 
-              <Modal.Body className="flex flex-col gap-3 py-4 px-1 text-sm overflow-y-auto scrollbar-hide">
+              <Modal.Body className="flex flex-col gap-3 pt-4 pb-1 px-1 text-sm overflow-y-auto scrollbar-hide">
                 <p role="alert" className="flex items-start gap-2.5 text-danger">
                   <WarningCircleIcon size={18} className="shrink-0" />
                   <span className="min-w-0 break-words">{error?.message}</span>
