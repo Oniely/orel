@@ -144,6 +144,19 @@ export function useDisconnect() {
   });
 }
 
+// Create a new database on an active connection
+export function useCreateDatabase() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (input: { connectionId: string; name: string }) =>
+      invoke("create_database", { connectionId: input.connectionId, name: input.name }),
+    onSuccess: (_, { connectionId }) => {
+      queryClient.invalidateQueries({ queryKey: databaseQueryKeys.databases(connectionId) });
+    },
+  });
+}
+
 export function useSwitchDatabase() {
   const updateActiveConnection = useConnectionStore((s) => s.updateActiveConnection);
 

@@ -27,6 +27,7 @@ import { useActiveTable } from "../../../hooks/dashboard/useActiveTable";
 import { useImportDump } from "../../../hooks/useDump";
 import { ExportDumpModal } from "./ExportDumpModal";
 import { ImportErrorModal } from "./ImportErrorModal";
+import { CreateDatabaseModal } from "./CreateDatabaseModal";
 
 export function Header() {
   const latency = null; // TODO: track latency after connect
@@ -44,6 +45,7 @@ export function Header() {
   const importDump = useImportDump();
   const [exportModalOpen, setExportModalOpen] = useState(false);
   const [importError, setImportError] = useState<ImportError | null>(null);
+  const [createDatabaseModalOpen, setCreateDatabaseModalOpen] = useState(false);
   if (!connection) return null;
 
   const hasFixedDatabase = connection.config.type === "sqlite" || connection.databases?.length === 1;
@@ -179,7 +181,12 @@ export function Header() {
               <CaretDownIcon />
             </Button>
             <Dropdown.Popover className="w-[225px] p-1">
-              <Dropdown.Menu onAction={(key) => commands.selectDatabase(String(key))}>
+              <Dropdown.Menu
+                onAction={(key) => {
+                  if (key === "new-database") setCreateDatabaseModalOpen(true);
+                  else commands.selectDatabase(String(key));
+                }}
+              >
                 {connection.databases.length === 0 ? (
                   <Dropdown.Item id="no-databases" textValue="No databases" isDisabled>
                     <Label>No databases</Label>
@@ -191,6 +198,11 @@ export function Header() {
                     </Dropdown.Item>
                   ))
                 )}
+                <Separator className="my-1" />
+                <Dropdown.Item id="new-database" textValue="New database">
+                  <PlusIcon className="size-4" />
+                  <Label>New database…</Label>
+                </Dropdown.Item>
               </Dropdown.Menu>
             </Dropdown.Popover>
           </Dropdown>
@@ -249,6 +261,7 @@ export function Header() {
       </div>
 
       <ExportDumpModal isOpen={exportModalOpen} onClose={() => setExportModalOpen(false)} />
+      <CreateDatabaseModal isOpen={createDatabaseModalOpen} onClose={() => setCreateDatabaseModalOpen(false)} />
       <ImportErrorModal
         error={importError}
         isMySql={connection.config.type === "mysql"}
