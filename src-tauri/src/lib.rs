@@ -9,8 +9,8 @@ use std::sync::{
 };
 
 use commands::connection::{
-    connect, delete_connection, disconnect, list_databases, load_connections, save_connection,
-    switch_database, test_connection, update_connection, AppState,
+    connect, create_database, delete_connection, disconnect, list_databases, load_connections,
+    save_connection, switch_database, test_connection, update_connection, AppState,
 };
 use commands::dump::{export_database_dump, import_sql_dump};
 use commands::editor::{
@@ -161,6 +161,7 @@ pub fn run() {
             connect,
             disconnect,
             list_databases,
+            create_database,
             switch_database,
             list_tables,
             fetch_rows,
