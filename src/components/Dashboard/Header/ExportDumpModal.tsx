@@ -72,11 +72,12 @@ export function ExportDumpModal({ isOpen, onClose }: ExportDumpModalProps) {
                 {!exporting && <Modal.CloseTrigger />}
               </Modal.Header>
 
-              <Modal.Body className="flex flex-col gap-3 py-4 px-1 text-sm">
+              <Modal.Body className="flex flex-col gap-3 pt-4 pb-1 px-1 text-sm">
                 {exportDump.status === "idle" && (
                   <p>
-                    Export <span className="font-mono">{name}</span> on{" "}
-                    <span className="font-medium">{connection?.config.name}</span> to a SQL file?
+                    Export <span className="font-mono font-medium" style={{ color: "var(--accent)" }}>{name}</span> on{" "}
+                    <span className="font-medium" style={{ color: "var(--accent)" }}>{connection?.config.name}</span> to a
+                    SQL file?
                   </p>
                 )}
 
