@@ -390,12 +390,16 @@ pub(crate) async fn import_dump(pool: &DbPool, file_path: &str) -> Result<Import
     }
 
     pool.execute_in_transaction(&statements).await.map_err(|e| match e.index {
-        Some(i) => ImportError {
-            message: e.to_string(),
-            line: Some(lines[i]),
-            snippet: Some(snippet(&statements[i])),
-            hint: dialect_mismatch_hint(dialect, &statements[i]),
-        },
+        Some(i) => {
+            let raw_message = e.to_string();
+            ImportError {
+                message: strip_misleading_source_line(&raw_message).to_string(),
+                line: Some(lines[i]),
+                snippet: Some(snippet(&statements[i])),
+                hint: dialect_mismatch_hint(dialect, &statements[i])
+                    .or_else(|| undefined_type_hint(&raw_message)),
+            }
+        }
         None => ImportError::from(e.to_string()),
     })?;
 
@@ -403,6 +407,42 @@ pub(crate) async fn import_dump(pool: &DbPool, file_path: &str) -> Result<Import
         statements_executed: statements.len() as u32,
         tables_affected: count_tables(&statements),
     })
+}
+
+/// sqlx's Postgres driver appends `at line N` to a database error's Display,
+/// but that "line" is where Postgres's own C source raised the error (a
+/// backend debugging detail), not any line in the submitted SQL or the dump
+/// file. Shown next to our own (correct) file line number, it looks like a
+/// contradiction, so strip it rather than confuse users with it.
+fn strip_misleading_source_line(message: &str) -> &str {
+    const MARKER: &str = " at line ";
+    match message.rfind(MARKER) {
+        Some(idx) => {
+            let suffix = &message[idx + MARKER.len()..];
+            if !suffix.is_empty() && suffix.chars().all(|c| c.is_ascii_digit()) {
+                &message[..idx]
+            } else {
+                message
+            }
+        }
+        None => message,
+    }
+}
+
+/// Points at the likely cause when Postgres reports a missing type: Orel
+/// doesn't export custom types/enums (a documented limitation), so a dump
+/// that uses one (e.g. a `status` column typed as a custom enum) fails on
+/// import unless that type already exists in the target database.
+fn undefined_type_hint(message: &str) -> Option<String> {
+    if !message.contains("does not exist") {
+        return None;
+    }
+    let start = message.find("type \"")? + 6;
+    let end = start + message[start..].find('"')?;
+    let type_name = &message[start..end];
+    Some(format!(
+        "The type \"{type_name}\" doesn't exist in the target database. Orel doesn't export custom Postgres types/enums yet — create \"{type_name}\" in the target database (or add its CREATE TYPE statement to the file) before importing."
+    ))
 }
 
 fn snippet(statement: &str) -> String {
@@ -460,3 +500,45 @@ fn count_tables(statements: &[String]) -> u32 {
 #[cfg(test)]
 #[path = "../test/dump.test.rs"]
 mod tests;
+
+#[cfg(test)]
+mod error_message_tests {
+    use super::{strip_misleading_source_line, undefined_type_hint};
+
+    #[test]
+    fn strips_postgres_internal_source_line() {
+        let msg = "error returned from database: type \"account_status\" does not exist at line 270";
+        assert_eq!(
+            strip_misleading_source_line(msg),
+            "error returned from database: type \"account_status\" does not exist"
+        );
+    }
+
+    #[test]
+    fn leaves_messages_without_the_suffix_alone() {
+        let msg = "error returned from database: relation \"accounts\" already exists";
+        assert_eq!(strip_misleading_source_line(msg), msg);
+    }
+
+    #[test]
+    fn leaves_a_trailing_non_numeric_at_line_alone() {
+        // Only strip when what follows "at line" is purely digits — anything
+        // else is presumably part of the real message, not sqlx's suffix.
+        let msg = "something went wrong at line of business logic";
+        assert_eq!(strip_misleading_source_line(msg), msg);
+    }
+
+    #[test]
+    fn undefined_type_hint_names_the_missing_type() {
+        let msg = "error returned from database: type \"account_status\" does not exist";
+        let hint = undefined_type_hint(msg).unwrap();
+        assert!(hint.contains("\"account_status\""));
+        assert!(hint.contains("custom Postgres types/enums"));
+    }
+
+    #[test]
+    fn no_undefined_type_hint_for_unrelated_errors() {
+        let msg = "error returned from database: relation \"accounts\" already exists";
+        assert!(undefined_type_hint(msg).is_none());
+    }
+}
