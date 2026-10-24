@@ -106,12 +106,14 @@ pub async fn export_database_dump(
     export_dump(&pool, &file_path).await
 }
 
-/// Writes CREATE TABLE statements, then the data, then (Postgres / MySQL)
-/// every foreign key as ALTER TABLE, then views. Deferring foreign keys means
-/// table order never matters and circular references just work. SQLite can't
-/// add a foreign key after CREATE TABLE, so there tables are ordered parents
-/// first instead, and a cycle fails the export before the file is created.
-/// Triggers, routines, and Postgres types/extensions are not exported.
+/// Writes CREATE TYPE statements for Postgres enums, then CREATE TABLE
+/// statements, then the data, then (Postgres / MySQL) every foreign key as
+/// ALTER TABLE, then views. Deferring foreign keys means table order never
+/// matters and circular references just work. SQLite can't add a foreign
+/// key after CREATE TABLE, so there tables are ordered parents first
+/// instead, and a cycle fails the export before the file is created.
+/// Triggers, routines, and non-enum Postgres types/extensions are not
+/// exported.
 pub(crate) async fn export_dump(pool: &DbPool, file_path: &str) -> Result<ExportSummary, String> {
     let dialect = pool.dialect();
     let (tables, views): (Vec<_>, Vec<_>) = fetch_tables(pool)
@@ -119,6 +121,11 @@ pub(crate) async fn export_dump(pool: &DbPool, file_path: &str) -> Result<Export
         .into_iter()
         .partition(|t| t.table_type == "table");
     let tables: Vec<String> = tables.into_iter().map(|t| t.name).collect();
+
+    let type_statements = match pool {
+        DbPool::Postgres(pg) => postgres::enum_type_statements(pg).await?,
+        DbPool::MySql(_) | DbPool::Sqlite(_) => vec![],
+    };
 
     let mut foreign_keys = Vec::with_capacity(tables.len());
     let mut dumps = Vec::with_capacity(tables.len());
@@ -144,7 +151,7 @@ pub(crate) async fn export_dump(pool: &DbPool, file_path: &str) -> Result<Export
         .map_err(|e| format!("Couldn't create {file_path}: {e}"))?;
     let mut out = BufWriter::new(file);
     let ordered: Vec<&TableDump> = order.iter().map(|&i| &dumps[i]).collect();
-    let written = write_dump(pool, &mut out, &ordered, &fk_statements, &view_statements).await;
+    let written = write_dump(pool, &mut out, &type_statements, &ordered, &fk_statements, &view_statements).await;
     drop(out);
 
     match written {
@@ -182,10 +189,14 @@ async fn view_statement(pool: &DbPool, view: &str) -> Result<String, String> {
 async fn write_dump<W: AsyncWrite + Unpin>(
     pool: &DbPool,
     out: &mut W,
+    type_statements: &[String],
     tables: &[&TableDump],
     fk_statements: &[String],
     view_statements: &[String],
 ) -> Result<u64, String> {
+    for stmt in type_statements {
+        write_statement(out, stmt).await?;
+    }
     for stmt in tables.iter().flat_map(|t| &t.schema) {
         write_statement(out, stmt).await?;
     }
