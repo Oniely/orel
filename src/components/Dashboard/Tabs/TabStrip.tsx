@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Button } from "@heroui/react";
 import { BracketsCurlyIcon, PicnicTableIcon, PlusIcon, XIcon } from "@phosphor-icons/react";
 import { useDashboardStore } from "../../../stores/dashboard.store";
@@ -10,6 +10,15 @@ export function TabStrip() {
   const showInspector = useDashboardStore((state) => state.showInspector);
   const commands = useDashboardCommands();
   const stripRef = useRef<HTMLDivElement>(null);
+  // Tab being dragged; it swaps places with whichever tab the pointer enters until release.
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!draggingId) return;
+    const stopDragging = () => setDraggingId(null);
+    document.addEventListener("pointerup", stopDragging);
+    return () => document.removeEventListener("pointerup", stopDragging);
+  }, [draggingId]);
 
   useLayoutEffect(() => {
     const strip = stripRef.current;
@@ -47,7 +56,13 @@ export function TabStrip() {
             key={tab.id}
             data-active-tab={isActive}
             onClick={() => commands.activateTab(tab.id)}
-            className="flex items-center gap-2 px-3 h-7 rounded-lg cursor-pointer text-xs font-mono transition-colors shrink-0"
+            onPointerDown={(event) => {
+              if (event.button === 0) setDraggingId(tab.id);
+            }}
+            onPointerEnter={() => {
+              if (draggingId && draggingId !== tab.id) commands.moveTab(draggingId, tab.id);
+            }}
+            className="flex items-center gap-2 px-3 h-7 rounded-lg cursor-pointer select-none text-xs font-mono transition-colors shrink-0"
             style={{
               background: isActive ? "var(--surface-secondary)" : "transparent",
               border: isActive
