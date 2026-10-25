@@ -14,7 +14,8 @@ import {
   SidebarIcon,
   SidebarSimpleIcon,
 } from "@phosphor-icons/react";
-import { INNER_W, SIDEBAR_PAD, SIDEBAR_WIDTH } from "../shared/constants";
+import { SIDEBAR_PAD } from "../shared/constants";
+import { useLayoutStore } from "../../../stores/layout.store";
 import { useNavigate } from "@tanstack/react-router";
 import { useConnectionStore } from "../../../stores/connection.store";
 import { useConnect } from "../../../hooks/useConnections";
@@ -34,6 +35,7 @@ export function Header() {
   const { connection, activeDatabase } = useDashboardContext();
   const showInspector = useDashboardStore((state) => state.showInspector);
   const sidebarOpen = useDashboardStore((state) => state.sidebarOpen);
+  const sidebarWidth = useLayoutStore((state) => state.sidebarWidth);
   const toggleInspector = useDashboardStore((state) => state.toggleInspector);
   const toggleSidebar = useDashboardStore((state) => state.toggleSidebar);
   const commands = useDashboardCommands();
@@ -93,14 +95,14 @@ export function Header() {
       <div
         className="flex items-center border-r border-separator h-full shrink-0"
         style={{
-          width: sidebarOpen ? SIDEBAR_WIDTH : "auto",
+          width: sidebarOpen ? sidebarWidth : "auto",
           padding: `0 ${SIDEBAR_PAD}px`,
           display: sidebarOpen ? "flex" : "none",
         }}
       >
         {/* Connection switcher */}
         <Dropdown>
-          <Button size="sm" variant="tertiary" style={{ width: INNER_W }} className="flex items-center gap-2.5 px-3.5">
+          <Button size="sm" variant="tertiary" style={{ width: "100%" }} className="flex items-center gap-2.5 px-3.5">
             {/* Connection status dot with glow / loading spinner */}
             {isConnecting ? (
               <Spinner size="sm" />

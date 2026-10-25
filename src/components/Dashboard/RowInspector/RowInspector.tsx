@@ -16,8 +16,12 @@ import { useActiveTable } from "../../../hooks/dashboard/useActiveTable";
 import { useDashboardContext } from "../../../hooks/dashboard/useDashboardContext";
 import { HoldToDeleteButton } from "./HoldToDeleteButton";
 import { InspectorEditableField } from "./InspectorEditableField";
+import { ResizeHandle } from "../shared/ResizeHandle";
+import { useLayoutStore } from "../../../stores/layout.store";
 
 export function RowInspector() {
+  const inspectorWidth = useLayoutStore((state) => state.inspectorWidth);
+  const setInspectorWidth = useLayoutStore((state) => state.setInspectorWidth);
   const selectedRowIndex = useDashboardStore((state) => state.selectedRowIndex);
   const setSelectedRowIndex = useDashboardStore((state) => state.setSelectedRowIndex);
   const setShowInspector = useDashboardStore((state) => state.setShowInspector);
@@ -75,7 +79,11 @@ export function RowInspector() {
   };
 
   return (
-    <div className="w-[340px] flex flex-col shrink-0 border-l border-separator bg-surface">
+    <div
+      className="relative flex flex-col shrink-0 border-l border-separator bg-surface"
+      style={{ width: inspectorWidth }}
+    >
+      <ResizeHandle side="left" width={inspectorWidth} onResize={setInspectorWidth} />
       {/* Header */}
       <div className="flex items-center gap-2 px-4.5 h-13 border-b border-separator">
         <BracketsCurlyIcon size={13} className="text-muted" />
