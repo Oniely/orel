@@ -1,5 +1,7 @@
 import { useState } from "react";
-import { INNER_W, SIDEBAR_PAD, SIDEBAR_WIDTH } from "../shared/constants";
+import { SIDEBAR_PAD } from "../shared/constants";
+import { ResizeHandle } from "../shared/ResizeHandle";
+import { useLayoutStore } from "../../../stores/layout.store";
 import { EyeIcon, MeteorIcon, PicnicTableIcon, PlusIcon } from "@phosphor-icons/react";
 import { Button, SearchField } from "@heroui/react";
 import { formatNum } from "../../../lib/format";
@@ -14,6 +16,8 @@ export function Sidebar() {
   const [search, setSearch] = useState("");
   const { connectionId, activeDatabase, activeTableName } = useDashboardContext();
   const sidebarOpen = useDashboardStore((state) => state.sidebarOpen);
+  const sidebarWidth = useLayoutStore((state) => state.sidebarWidth);
+  const setSidebarWidth = useLayoutStore((state) => state.setSidebarWidth);
   const commands = useDashboardCommands();
   const { data: tables = [], isLoading, error: tablesError } = useListTables(connectionId, activeDatabase);
   const error = tablesError ? getErrorMessage(tablesError, "Failed to load tables") : null;
@@ -25,16 +29,17 @@ export function Sidebar() {
 
   return (
     <div
-      className="flex flex-col shrink-0 border-r border-separator bg-surface text-surface-foreground"
-      style={{ width: sidebarOpen ? SIDEBAR_WIDTH : "auto", display: sidebarOpen ? "flex" : "none" }}
+      className="relative flex flex-col shrink-0 border-r border-separator bg-surface text-surface-foreground"
+      style={{ width: sidebarOpen ? sidebarWidth : "auto", display: sidebarOpen ? "flex" : "none" }}
     >
+      <ResizeHandle side="right" width={sidebarWidth} onResize={setSidebarWidth} />
       {/* Search */}
       <div style={{ padding: `12px ${SIDEBAR_PAD}px 8px` }}>
         <SearchField
           aria-label="Search tables"
           value={search}
           onChange={setSearch}
-          style={{ width: INNER_W }}
+          style={{ width: "100%" }}
           variant="secondary"
         >
           <SearchField.Group>
