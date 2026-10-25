@@ -147,6 +147,12 @@ export function useDashboardCommands() {
     [blockPendingEditorNavigation, databaseKey, store],
   );
 
+  // Reorders tabs by moving `id` into `targetId`'s position. No guard needed: the active tab doesn't change.
+  const moveTab = useCallback(
+    (id: string, targetId: string) => store.getState().moveTab(databaseKey, id, targetId),
+    [databaseKey, store],
+  );
+
   // Moves focus to the next or previous tab, wrapping around. Use 1 for next, -1 for previous.
   const cycleTab = useCallback(
     (direction: 1 | -1) => {
@@ -213,6 +219,7 @@ export function useDashboardCommands() {
     activateTab,
     cycleTab,
     closeTab,
+    moveTab,
     openQuery,
     openTable,
     performIntent,

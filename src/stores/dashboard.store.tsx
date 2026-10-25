@@ -45,6 +45,7 @@ export interface DashboardState {
   openQuery: (databaseKey: string) => void;
   activateTab: (databaseKey: string, id: string) => void;
   closeTab: (databaseKey: string, id: string) => void;
+  moveTab: (databaseKey: string, id: string, targetId: string) => void;
   updateSql: (databaseKey: string, id: string, sql: string) => void;
   updateEditorState: (databaseKey: string, id: string, editorState: SqlEditorState) => void;
   markEditorTransactionInactive: (editorId: string) => void;
@@ -150,6 +151,18 @@ export function createDashboardStore(): StoreApi<DashboardState> {
         }),
         selectedRowIndex: state.tabState[databaseKey]?.activeTabId === id ? null : state.selectedRowIndex,
       })),
+    // Moves tab `id` into the position currently held by `targetId`.
+    moveTab: (databaseKey, id, targetId) =>
+      set((state) =>
+        updateTabs(state, databaseKey, (current) => {
+          const from = current.tabs.findIndex((tab) => tab.id === id);
+          const to = current.tabs.findIndex((tab) => tab.id === targetId);
+          if (from === -1 || to === -1 || from === to) return current;
+          const tabs = [...current.tabs];
+          tabs.splice(to, 0, ...tabs.splice(from, 1));
+          return { ...current, tabs };
+        }),
+      ),
     updateSql: (databaseKey, id, sql) =>
       set((state) =>
         updateTabs(state, databaseKey, (current) => ({

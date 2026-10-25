@@ -73,6 +73,25 @@ describe("dashboard store", () => {
     expect(store.getState().selectedRowIndex).toBeNull();
   });
 
+  it("moves a tab to another tab's position without changing the active tab", () => {
+    const store = createDashboardStore();
+    const databaseKey = "connection::main";
+    store.getState().openTable(databaseKey, "a");
+    store.getState().openTable(databaseKey, "b");
+    store.getState().openTable(databaseKey, "c");
+    const ids = () => store.getState().tabState[databaseKey].tabs.map((tab) => tab.id);
+
+    store.getState().moveTab(databaseKey, "t-c", "t-a");
+    expect(ids()).toEqual(["t-c", "t-a", "t-b"]);
+
+    store.getState().moveTab(databaseKey, "t-c", "t-b");
+    expect(ids()).toEqual(["t-a", "t-b", "t-c"]);
+
+    store.getState().moveTab(databaseKey, "t-a", "missing");
+    expect(ids()).toEqual(["t-a", "t-b", "t-c"]);
+    expect(store.getState().tabState[databaseKey].activeTabId).toBe("t-c");
+  });
+
   it("marks guarded editor transactions inactive across database scopes", () => {
     vi.spyOn(Date, "now").mockReturnValueOnce(1).mockReturnValueOnce(2);
     const store = createDashboardStore();
