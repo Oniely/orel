@@ -164,8 +164,9 @@ export function useDropDatabase() {
   return useMutation({
     mutationFn: (input: { connectionId: string; name: string }) =>
       invoke("drop_database", { connectionId: input.connectionId, name: input.name }),
-    onSuccess: (_, { connectionId }) => {
+    onSuccess: (_, { connectionId, name }) => {
       queryClient.invalidateQueries({ queryKey: databaseQueryKeys.databases(connectionId) });
+      toast.success(`Database "${name}" deleted`);
     },
   });
 }
