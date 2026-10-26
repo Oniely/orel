@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Button, Dropdown, Label, Separator, Spinner, toast, ToggleButton } from "@heroui/react";
 import { open } from "@tauri-apps/plugin-dialog";
 import type { SavedConnection } from "../../../types/connection";
@@ -49,6 +49,10 @@ export function Header() {
   const [importError, setImportError] = useState<ImportError | null>(null);
   const [createDatabaseModalOpen, setCreateDatabaseModalOpen] = useState(false);
   const [deleteDatabaseTarget, setDeleteDatabaseTarget] = useState<string | null>(null);
+  // Pointerdown on the per-row delete icon sets this before react-aria's Menu
+  // fires onAction (on pointer release), so onAction can skip selecting the
+  // database that was actually a delete click.
+  const suppressDatabaseSelectRef = useRef(false);
   if (!connection) return null;
 
   const hasFixedDatabase = connection.config.type === "sqlite" || connection.databases?.length === 1;
@@ -186,8 +190,15 @@ export function Header() {
             <Dropdown.Popover className="w-[225px] p-1">
               <Dropdown.Menu
                 onAction={(key) => {
-                  if (key === "new-database") setCreateDatabaseModalOpen(true);
-                  else commands.selectDatabase(String(key));
+                  if (key === "new-database") {
+                    setCreateDatabaseModalOpen(true);
+                    return;
+                  }
+                  if (suppressDatabaseSelectRef.current) {
+                    suppressDatabaseSelectRef.current = false;
+                    return;
+                  }
+                  commands.selectDatabase(String(key));
                 }}
               >
                 {connection.databases.length === 0 ? (
@@ -203,9 +214,10 @@ export function Header() {
                           type="button"
                           aria-label={`Delete database ${db}`}
                           title="Delete database"
-                          onPointerDown={(e) => e.stopPropagation()}
+                          onPointerDown={() => {
+                            suppressDatabaseSelectRef.current = true;
+                          }}
                           onClick={(e) => {
-                            e.stopPropagation();
                             e.preventDefault();
                             setDeleteDatabaseTarget(db);
                           }}
