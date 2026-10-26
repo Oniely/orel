@@ -1,6 +1,7 @@
-import { Alert, Button, Spinner, Tooltip } from "@heroui/react";
+import { Button, Spinner, Tooltip } from "@heroui/react";
 import { LuPlus, LuUndo2, LuX } from "react-icons/lu";
 import { getErrorMessage } from "../../../lib/error";
+import { StatusAlert } from "../../StatusAlert";
 
 // Pieces shared by the Columns, Indexes, and Foreign Keys tabs, built on HeroUI controls.
 
@@ -42,28 +43,9 @@ export function LoadErrorState({ error, fallback }: { error: unknown; fallback: 
   );
 }
 
-// ── Status alert (save / validation / load errors) ───────────────────────────
+// ── Status alert re-export (kept so existing imports from this module keep working) ──
 
-interface StatusAlertProps {
-  status: "danger" | "warning";
-  /** Full-width strip under a toolbar instead of a centered box */
-  banner?: boolean;
-  children: React.ReactNode;
-}
-
-// HeroUI's Alert is top-aligned for title + description; a one-line message
-// needs to be centered on the (24px) indicator instead.
-export function StatusAlert({ status, banner, children }: StatusAlertProps) {
-  const layout = banner ? "rounded-none border-b border-separator px-4.5 py-2 shrink-0" : "max-w-md";
-  return (
-    <Alert status={status} className={`items-center gap-2.5 ${layout}`}>
-      <Alert.Indicator />
-      <Alert.Content className="justify-center">
-        <Alert.Description className="text-xs">{children}</Alert.Description>
-      </Alert.Content>
-    </Alert>
-  );
-}
+export { StatusAlert };
 
 /** Banner under a tab's toolbar: a failed save, otherwise why Save is disabled */
 export function SaveStatusBanner({ saveError, validationError }: { saveError: string | null; validationError: string | null }) {
