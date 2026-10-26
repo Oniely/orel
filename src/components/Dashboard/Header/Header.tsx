@@ -13,6 +13,7 @@ import {
   SignOutIcon,
   SidebarIcon,
   SidebarSimpleIcon,
+  TrashIcon,
 } from "@phosphor-icons/react";
 import { INNER_W, SIDEBAR_PAD, SIDEBAR_WIDTH } from "../shared/constants";
 import { useNavigate } from "@tanstack/react-router";
@@ -28,6 +29,7 @@ import { useImportDump } from "../../../hooks/useDump";
 import { ExportDumpModal } from "./ExportDumpModal";
 import { ImportErrorModal } from "./ImportErrorModal";
 import { CreateDatabaseModal } from "./CreateDatabaseModal";
+import { DeleteDatabaseModal } from "./DeleteDatabaseModal";
 
 export function Header() {
   const latency = null; // TODO: track latency after connect
@@ -46,6 +48,7 @@ export function Header() {
   const [exportModalOpen, setExportModalOpen] = useState(false);
   const [importError, setImportError] = useState<ImportError | null>(null);
   const [createDatabaseModalOpen, setCreateDatabaseModalOpen] = useState(false);
+  const [deleteDatabaseTarget, setDeleteDatabaseTarget] = useState<string | null>(null);
   if (!connection) return null;
 
   const hasFixedDatabase = connection.config.type === "sqlite" || connection.databases?.length === 1;
@@ -193,8 +196,24 @@ export function Header() {
                   </Dropdown.Item>
                 ) : (
                   connection.databases.map((db) => (
-                    <Dropdown.Item key={db} id={db} textValue={db}>
-                      <Label>{db}</Label>
+                    <Dropdown.Item key={db} id={db} textValue={db} className="group">
+                      <Label className="flex-1">{db}</Label>
+                      {db !== activeDatabase && (
+                        <button
+                          type="button"
+                          aria-label={`Delete database ${db}`}
+                          title="Delete database"
+                          onPointerDown={(e) => e.stopPropagation()}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            e.preventDefault();
+                            setDeleteDatabaseTarget(db);
+                          }}
+                          className="opacity-0 group-hover:opacity-100 shrink-0 grid place-items-center size-5 rounded text-muted hover:text-danger hover:bg-danger/10 transition-colors"
+                        >
+                          <TrashIcon size={12} />
+                        </button>
+                      )}
                     </Dropdown.Item>
                   ))
                 )}
@@ -262,6 +281,12 @@ export function Header() {
 
       <ExportDumpModal isOpen={exportModalOpen} onClose={() => setExportModalOpen(false)} />
       <CreateDatabaseModal isOpen={createDatabaseModalOpen} onClose={() => setCreateDatabaseModalOpen(false)} />
+      <DeleteDatabaseModal
+        isOpen={deleteDatabaseTarget !== null}
+        connectionId={connection.config.id}
+        databaseName={deleteDatabaseTarget}
+        onClose={() => setDeleteDatabaseTarget(null)}
+      />
       <ImportErrorModal
         error={importError}
         isMySql={connection.config.type === "mysql"}

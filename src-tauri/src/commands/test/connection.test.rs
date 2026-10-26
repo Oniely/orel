@@ -1,4 +1,7 @@
-use super::{create_database_on_pool, mysql_user_databases, sqlite_opts, sqlite_pool_max_connections, DbPool};
+use super::{
+    create_database_on_pool, drop_database_on_pool, mysql_user_databases, sqlite_opts,
+    sqlite_pool_max_connections, DbPool,
+};
 use sqlx::sqlite::SqlitePoolOptions;
 use std::time::Duration;
 
@@ -133,5 +136,71 @@ mod create_database {
 
         let duplicate = create_database_on_pool(&db_pool, "fresh_orel_db").await;
         assert!(duplicate.is_err());
+    }
+}
+
+mod drop_database {
+    use super::*;
+
+    #[tokio::test]
+    #[ignore = "requires Docker"]
+    async fn mysql_drops_and_rejects_missing() {
+        use sqlx::mysql::{MySqlConnectOptions, MySqlPoolOptions};
+        use testcontainers_modules::{mysql::Mysql, testcontainers::runners::AsyncRunner};
+
+        let container = Mysql::default().start().await.unwrap();
+        let port = container.get_host_port_ipv4(3306).await.unwrap();
+        let host = container.get_host().await.unwrap().to_string();
+        let opts = MySqlConnectOptions::new().host(&host).port(port).username("root").database("test");
+        let pool = MySqlPoolOptions::new().max_connections(1).connect_with(opts).await.unwrap();
+        let db_pool = DbPool::MySql(pool.clone());
+
+        create_database_on_pool(&db_pool, "doomed_orel_db").await.unwrap();
+        drop_database_on_pool(&db_pool, "doomed_orel_db").await.unwrap();
+
+        let names: Vec<String> = sqlx::query_scalar(
+            "SELECT CAST(SCHEMA_NAME AS CHAR) FROM information_schema.SCHEMATA WHERE SCHEMA_NAME = ?",
+        )
+        .bind("doomed_orel_db")
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        assert!(names.is_empty());
+
+        // Dropping a database that no longer exists should surface the driver's error.
+        let missing = drop_database_on_pool(&db_pool, "doomed_orel_db").await;
+        assert!(missing.is_err());
+    }
+
+    #[tokio::test]
+    #[ignore = "requires Docker"]
+    async fn postgres_drops_and_rejects_missing() {
+        use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
+        use testcontainers_modules::{postgres::Postgres, testcontainers::runners::AsyncRunner};
+
+        let container = Postgres::default().start().await.unwrap();
+        let port = container.get_host_port_ipv4(5432).await.unwrap();
+        let host = container.get_host().await.unwrap().to_string();
+        let opts = PgConnectOptions::new()
+            .host(&host)
+            .port(port)
+            .username("postgres")
+            .password("postgres")
+            .database("postgres");
+        let pool = PgPoolOptions::new().max_connections(1).connect_with(opts).await.unwrap();
+        let db_pool = DbPool::Postgres(pool.clone());
+
+        create_database_on_pool(&db_pool, "doomed_orel_db").await.unwrap();
+        drop_database_on_pool(&db_pool, "doomed_orel_db").await.unwrap();
+
+        let names: Vec<String> = sqlx::query_scalar("SELECT datname FROM pg_database WHERE datname = $1")
+            .bind("doomed_orel_db")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+        assert!(names.is_empty());
+
+        let missing = drop_database_on_pool(&db_pool, "doomed_orel_db").await;
+        assert!(missing.is_err());
     }
 }
