@@ -82,7 +82,10 @@ export function CreateDatabaseModal({ isOpen, onClose }: CreateDatabaseModalProp
               <Modal.Body className="flex flex-col gap-3 pt-4 pb-1 px-1 text-sm">
                 <TextField autoFocus value={name} onChange={setName} isDisabled={creating}>
                   <Label className="text-xs text-muted">Database name</Label>
-                  <Input placeholder="my_new_database" className="font-mono text-[13px]" />
+                  <Input
+                    placeholder="my_new_database"
+                    className="mt-1 border border-separator font-mono text-[13px]"
+                  />
                 </TextField>
 
                 {createDatabase.isError && (
