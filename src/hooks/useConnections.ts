@@ -157,6 +157,19 @@ export function useCreateDatabase() {
   });
 }
 
+// Drop a database from an active connection
+export function useDropDatabase() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (input: { connectionId: string; name: string }) =>
+      invoke("drop_database", { connectionId: input.connectionId, name: input.name }),
+    onSuccess: (_, { connectionId }) => {
+      queryClient.invalidateQueries({ queryKey: databaseQueryKeys.databases(connectionId) });
+    },
+  });
+}
+
 export function useSwitchDatabase() {
   const updateActiveConnection = useConnectionStore((s) => s.updateActiveConnection);
 

@@ -665,6 +665,51 @@ pub async fn create_database(
     create_database_on_pool(&pool, &name).await
 }
 
+async fn drop_database_on_pool(pool: &DbPool, name: &str) -> Result<(), String> {
+    let quoted = pool.dialect().quote(name);
+    pool.execute(&format!("DROP DATABASE {}", quoted))
+        .await
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn drop_database(
+    connection_id: String,
+    name: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let name = name.trim().to_string();
+    if name.is_empty() {
+        return Err("Database name is required".to_string());
+    }
+
+    let db_type = {
+        let configs = state.configs.lock().unwrap();
+        configs
+            .get(&connection_id)
+            .ok_or_else(|| "Connection not found".to_string())?
+            .db_type
+            .clone()
+    };
+
+    if db_type == "sqlite" {
+        return Err("SQLite does not support dropping databases".to_string());
+    }
+
+    // The frontend disables dropping the currently active database (switching
+    // pools mid-drop is messy); this is a defense-in-depth check only.
+    let pool = {
+        let pools = state.pools.lock().unwrap();
+        pools
+            .get(&connection_id)
+            .ok_or_else(|| "Connection not found".to_string())?
+            .clone()
+    };
+
+    drop_database_on_pool(&pool, &name).await
+}
+
 #[tauri::command]
 pub async fn switch_database(
     connection_id: String,
