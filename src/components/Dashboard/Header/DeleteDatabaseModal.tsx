@@ -1,8 +1,8 @@
 import { useEffect } from "react";
 import { Button, Modal, Spinner } from "@heroui/react";
+import { WarningCircleIcon } from "@phosphor-icons/react";
 import { useDropDatabase } from "../../../hooks/useConnections";
 import { getErrorMessage } from "../../../lib/error";
-import { StatusAlert } from "../../StatusAlert";
 
 // ── Confirm dropping a database on the active connection ────────────────────
 
@@ -71,13 +71,16 @@ export function DeleteDatabaseModal({ isOpen, connectionId, databaseName, onClos
                   <span className="font-mono text-[13px] text-foreground">{databaseName}</span> and everything in it.
                   This action cannot be undone.
                 </p>
-              </Modal.Body>
 
-              {dropDatabase.isError && (
-                <StatusAlert status="danger" banner>
-                  {getErrorMessage(dropDatabase.error, "Failed to delete database")}
-                </StatusAlert>
-              )}
+                {dropDatabase.isError && (
+                  <p role="alert" className="flex items-start gap-2.5 text-danger">
+                    <WarningCircleIcon size={18} className="shrink-0" />
+                    <span className="min-w-0 break-words">
+                      {getErrorMessage(dropDatabase.error, "Failed to delete database")}
+                    </span>
+                  </p>
+                )}
+              </Modal.Body>
 
               <Modal.Footer className="border-t border-separator pt-3 flex justify-end gap-2 shrink-0">
                 <Button size="sm" variant="outline" className="text-[13px] h-8" onPress={handleClose} isDisabled={deleting}>
