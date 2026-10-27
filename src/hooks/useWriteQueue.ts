@@ -18,17 +18,18 @@ interface DatabaseTarget {
   database: string;
 }
 
+/** Resolves once the visible rows have been refetched */
 function invalidateRows(queryClient: QueryClient, target: DatabaseTarget) {
-  queryClient.invalidateQueries({
+  return queryClient.invalidateQueries({
     queryKey: databaseQueryKeys.rowsForDatabase(target.connectionId, target.database),
   });
 }
 
 function invalidateDatabaseData(queryClient: QueryClient, target: DatabaseTarget) {
-  invalidateRows(queryClient, target);
   queryClient.invalidateQueries({
     queryKey: databaseQueryKeys.tables(target.connectionId, target.database),
   });
+  return invalidateRows(queryClient, target);
 }
 
 export function useApplyWriteQueue(scopeKey: string | null) {
@@ -81,9 +82,9 @@ export function useApplyRowChanges(scopeKey: string | null) {
         table: input.table,
         changes: input.changes,
       }),
-    onSuccess: (_result, input) => {
-      invalidateDatabaseData(queryClient, input);
-    },
+    // Returning the refetch makes mutateAsync wait for fresh rows, so the caller
+    // doesn't unstage the edit while the stale value is still on screen
+    onSuccess: (_result, input) => invalidateDatabaseData(queryClient, input),
     onError: (error) => {
       toast.danger(error instanceof Error ? error.message : "Failed to apply row changes");
     },
