@@ -1,5 +1,5 @@
-import { useMemo } from "react";
-import { Button, toast } from "@heroui/react";
+import { useMemo, useState } from "react";
+import { Button, SearchField, toast } from "@heroui/react";
 import type { ColumnInfo } from "../../../types/database";
 import {
   BracketsCurlyIcon,
@@ -29,6 +29,9 @@ export function RowInspector() {
   const onPrev = () => setSelectedRowIndex(Math.max(0, rowIndex - 1));
   const onNext = () => setSelectedRowIndex(Math.min(totalRows - 1, rowIndex + 1));
   const onClose = () => setShowInspector(false);
+  const [columnSearch, setColumnSearch] = useState("");
+  const searchTerm = columnSearch.trim().toLowerCase();
+  const visibleColumns = searchTerm ? columns.filter((c) => c.name.toLowerCase().includes(searchTerm)) : columns;
 
   const handleCopy = () => {
     if (row) navigator.clipboard.writeText(JSON.stringify(row, null, 2));
@@ -112,8 +115,22 @@ export function RowInspector() {
         >
           <CaretRightIcon className="size-3" />
         </Button>
-        <div className="flex-1" />
-        <span className="text-muted text-[11px] font-mono">{columns.length} columns</span>
+        <SearchField
+          aria-label="Search columns"
+          value={columnSearch}
+          onChange={setColumnSearch}
+          className="flex-1 min-w-0 mx-1"
+          variant="secondary"
+        >
+          <SearchField.Group>
+            <SearchField.SearchIcon />
+            <SearchField.Input placeholder="Search columns…" className="text-xs font-medium" />
+            <SearchField.ClearButton className="-ml-4" />
+          </SearchField.Group>
+        </SearchField>
+        <span className="text-muted text-[11px] font-mono shrink-0">
+          {searchTerm ? `${visibleColumns.length}/${columns.length}` : columns.length} columns
+        </span>
       </div>
 
       {/* JSON body */}
@@ -121,7 +138,7 @@ export function RowInspector() {
         {row ? (
           <div className="font-mono text-xs leading-[1.8]">
             <span className="text-muted">{"{"}</span>
-            {columns.map((col, i) => {
+            {visibleColumns.map((col, i) => {
               const { isDirty, value: dirtyValue } = getDirtyValue(col.name);
               const editable = wq.hasPrimaryKey;
               const isSaved = !isDirty && savedColumns?.includes(col.name);
@@ -139,7 +156,7 @@ export function RowInspector() {
                     editable={editable}
                     onCommit={(newValue) => handleFieldCommit(col, newValue)}
                   />
-                  {i < columns.length - 1 && <span className="text-muted shrink-0">,</span>}
+                  {i < visibleColumns.length - 1 && <span className="text-muted shrink-0">,</span>}
                 </div>
               );
             })}
