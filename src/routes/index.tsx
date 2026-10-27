@@ -176,8 +176,8 @@ function ConnectionManager() {
               </AlertDialog.Header>
               <AlertDialog.Body>
                 <p>
-                  Are you sure you want to <span className="text-danger">delete</span>{" "}
-                  <strong className="text-accent">
+                  Are you sure you want to <span className="text-danger">delete</span>:{" "}
+                  <strong className="text-foreground">
                     <u>{deletingConnection?.name}</u>
                   </strong>
                   ? This cannot be undone.
