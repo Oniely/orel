@@ -135,4 +135,41 @@ describe("staged drafts after a save", () => {
     expect(perCall).not.toHaveBeenCalled();
     await vi.waitFor(() => expect("scope" in useStructureDraftsStore.getState().drafts[tab]).toBe(false));
   });
+
+  const refetchCases = [
+    { ...cases[0], key: databaseQueryKeys.tableStructure("conn", "app", "orders") },
+    { ...cases[1], key: databaseQueryKeys.tableIndexes("conn", "app", "orders") },
+    { ...cases[2], key: databaseQueryKeys.tableForeignKeys("conn", "app", "orders") },
+  ];
+
+  it.each(refetchCases)("keeps the $name draft until the refetch lands, so the old list doesn't flash", async ({ tab, hook, changes, key }) => {
+    useStructureDraftsStore.getState().updateDraft(tab, "scope", (draft) => ({ ...draft, drops: ["x"] }));
+    let resolveRefetch: (value: unknown[]) => void = () => {};
+    // The visible tab's query: active, so the save's invalidation refetches it
+    client.setQueryData(key, []);
+    const observer = new QueryObserver(client, {
+      queryKey: key,
+      queryFn: () => new Promise<unknown[]>((resolve) => (resolveRefetch = resolve)),
+      staleTime: Infinity,
+    });
+    const unsubscribe = observer.subscribe(() => {});
+
+    const { result } = renderHook(() => hook(), { wrapper });
+    let saved = false;
+    act(() => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      void (result.current as any)
+        .mutateAsync({ connectionId: "conn", database: "app", table: "orders", scopeKey: "scope", changes })
+        .then(() => (saved = true));
+    });
+    await vi.waitFor(() => expect(client.getQueryState(key)?.fetchStatus).toBe("fetching"));
+
+    expect("scope" in useStructureDraftsStore.getState().drafts[tab]).toBe(true);
+    expect(saved).toBe(false);
+
+    await act(async () => resolveRefetch([]));
+    await vi.waitFor(() => expect(saved).toBe(true));
+    expect("scope" in useStructureDraftsStore.getState().drafts[tab]).toBe(false);
+    unsubscribe();
+  });
 });
