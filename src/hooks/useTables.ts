@@ -105,9 +105,8 @@ export function useApplyStructureChanges() {
   return useMutation({
     mutationFn: ({ connectionId, table, changes }: ApplyStructureInput) =>
       invoke<string[]>("apply_structure_changes", { connectionId, table, changes }),
-    onSuccess: (_stmts, { connectionId, database, table, scopeKey }) => {
-      useStructureDraftsStore.getState().clearDraft("columns", scopeKey);
-      void queryClient.invalidateQueries({
+    onSuccess: async (_stmts, { connectionId, database, table, scopeKey }) => {
+      const structure = queryClient.invalidateQueries({
         queryKey: databaseQueryKeys.tableStructure(connectionId, database, table),
       });
       void queryClient.invalidateQueries({
@@ -127,6 +126,10 @@ export function useApplyStructureChanges() {
       void queryClient.invalidateQueries({
         queryKey: databaseQueryKeys.rowsForTable(connectionId, database, table),
       });
+      // Keep the draft on screen until the fresh columns arrive; clearing it
+      // first briefly shows the old structure (and the save pending) instead
+      await structure;
+      useStructureDraftsStore.getState().clearDraft("columns", scopeKey);
     },
   });
 }
@@ -163,9 +166,8 @@ export function useApplyIndexChanges() {
   return useMutation({
     mutationFn: ({ connectionId, table, changes }: ApplyIndexInput) =>
       invoke<string[]>("apply_index_changes", { connectionId, table, changes }),
-    onSuccess: (_stmts, { connectionId, database, table, scopeKey }) => {
-      useStructureDraftsStore.getState().clearDraft("indexes", scopeKey);
-      void queryClient.invalidateQueries({
+    onSuccess: async (_stmts, { connectionId, database, table, scopeKey }) => {
+      const indexes = queryClient.invalidateQueries({
         queryKey: databaseQueryKeys.tableIndexes(connectionId, database, table),
       });
       // Key glyphs on the Columns tab come from the structure query. Mark it stale
@@ -178,6 +180,9 @@ export function useApplyIndexChanges() {
       void queryClient.invalidateQueries({
         queryKey: databaseQueryKeys.tableDdl(connectionId, database, table),
       });
+      // Keep the draft until the fresh indexes arrive; see useApplyStructureChanges
+      await indexes;
+      useStructureDraftsStore.getState().clearDraft("indexes", scopeKey);
     },
   });
 }
@@ -214,9 +219,8 @@ export function useApplyForeignKeyChanges() {
   return useMutation({
     mutationFn: ({ connectionId, table, changes }: ApplyForeignKeyInput) =>
       invoke<string[]>("apply_foreign_key_changes", { connectionId, table, changes }),
-    onSuccess: (_stmts, { connectionId, database, table, scopeKey }) => {
-      useStructureDraftsStore.getState().clearDraft("foreignKeys", scopeKey);
-      void queryClient.invalidateQueries({
+    onSuccess: async (_stmts, { connectionId, database, table, scopeKey }) => {
+      const foreignKeys = queryClient.invalidateQueries({
         queryKey: databaseQueryKeys.tableForeignKeys(connectionId, database, table),
       });
       // FK glyphs on the Columns tab come from the structure query; see useApplyIndexChanges
@@ -231,6 +235,9 @@ export function useApplyForeignKeyChanges() {
       void queryClient.invalidateQueries({
         queryKey: databaseQueryKeys.tableIndexes(connectionId, database, table),
       });
+      // Keep the draft until the fresh foreign keys arrive; see useApplyStructureChanges
+      await foreignKeys;
+      useStructureDraftsStore.getState().clearDraft("foreignKeys", scopeKey);
     },
   });
 }
