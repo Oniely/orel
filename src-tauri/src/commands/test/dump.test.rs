@@ -367,3 +367,30 @@ async fn mysql_round_trip_with_circular_foreign_keys() {
     assert_eq!(id, 3);
     std::fs::remove_file(&path).unwrap();
 }
+
+#[tokio::test]
+#[ignore = "requires Docker"]
+async fn mysql_imports_dumps_with_statements_the_prepared_protocol_rejects() {
+    let container = Mysql::default().start().await.unwrap();
+    let port = container.get_host_port_ipv4(3306).await.unwrap();
+    let host = container.get_host().await.unwrap().to_string();
+    let (target, target_pool) = mysql_database(&host, port, "test").await;
+
+    // Shaped like dumps from mysqldump / TablePlus: START TRANSACTION and
+    // LOCK/UNLOCK TABLES fail with error 1295 as prepared statements.
+    let path = dump_path("mysql-foreign-dump");
+    std::fs::write(&path, "/*!40101 SET NAMES utf8mb4 */;\n\
+        SET FOREIGN_KEY_CHECKS=0;\n\
+        START TRANSACTION;\n\
+        CREATE TABLE `pets` (`id` int NOT NULL, `name` varchar(20), PRIMARY KEY (`id`));\n\
+        LOCK TABLES `pets` WRITE;\n\
+        INSERT INTO `pets` VALUES (1,'Rex'),(2,'Tom');\n\
+        UNLOCK TABLES;\n\
+        COMMIT;\n\
+        SET FOREIGN_KEY_CHECKS=1;\n").unwrap();
+
+    import_dump(&target, &path).await.unwrap();
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM pets").fetch_one(&target_pool).await.unwrap();
+    assert_eq!(count, 2);
+    std::fs::remove_file(&path).unwrap();
+}

@@ -56,10 +56,13 @@ impl DbPool {
     /// statement, so MySQL callers should send a single statement.
     pub async fn execute_in_transaction(&self, stmts: &[String]) -> Result<(), TransactionError> {
         macro_rules! run_tx {
-            ($pool:expr) => {{
+            ($pool:expr) => {
+                run_tx!($pool, sqlx::query)
+            };
+            ($pool:expr, $query:path) => {{
                 let mut tx = $pool.begin().await?;
                 for (index, stmt) in stmts.iter().enumerate() {
-                    sqlx::query(sqlx::AssertSqlSafe(stmt.as_str()))
+                    $query(sqlx::AssertSqlSafe(stmt.as_str()))
                         .execute(&mut *tx)
                         .await
                         .map_err(|source| TransactionError { index: Some(index), source })?;
@@ -70,7 +73,10 @@ impl DbPool {
 
         match self {
             Self::Postgres(pg) => run_tx!(pg),
-            Self::MySql(mysql) => run_tx!(mysql),
+            // MySQL rejects START TRANSACTION, LOCK TABLES, UNLOCK TABLES, etc.
+            // through the prepared-statement protocol (error 1295), and dumps
+            // from other tools contain them. raw_sql uses COM_QUERY instead.
+            Self::MySql(mysql) => run_tx!(mysql, sqlx::raw_sql),
             Self::Sqlite(sqlite) => run_tx!(sqlite),
         }
         Ok(())
