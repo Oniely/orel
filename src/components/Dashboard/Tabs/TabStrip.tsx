@@ -12,12 +12,31 @@ export function TabStrip() {
   const stripRef = useRef<HTMLDivElement>(null);
   // Tab being dragged; it swaps places with whichever tab the pointer enters until release.
   const [draggingId, setDraggingId] = useState<string | null>(null);
+  // Horizontal offset (px) the dragged tab is currently displaced from its resting slot.
+  const [dragOffsetX, setDragOffsetX] = useState(0);
+  const dragStartXRef = useRef(0);
+  // Positions of each tab from the previous render, used to FLIP-animate reorders.
+  const prevRectsRef = useRef<Map<string, DOMRect>>(new Map());
 
   useEffect(() => {
     if (!draggingId) return;
-    const stopDragging = () => setDraggingId(null);
+
+    const handlePointerMove = (event: PointerEvent) => {
+      setDragOffsetX(event.clientX - dragStartXRef.current);
+    };
+    const stopDragging = () => {
+      setDraggingId(null);
+      setDragOffsetX(0);
+    };
+
+    document.addEventListener("pointermove", handlePointerMove);
     document.addEventListener("pointerup", stopDragging);
-    return () => document.removeEventListener("pointerup", stopDragging);
+    document.addEventListener("pointercancel", stopDragging);
+    return () => {
+      document.removeEventListener("pointermove", handlePointerMove);
+      document.removeEventListener("pointerup", stopDragging);
+      document.removeEventListener("pointercancel", stopDragging);
+    };
   }, [draggingId]);
 
   useLayoutEffect(() => {
@@ -44,6 +63,38 @@ export function TabStrip() {
     }
   }, [activeTabId, showInspector]);
 
+  // FLIP animation: when tabs reorder, slide each one from its old slot into its new
+  // one instead of popping, like a browser tab strip.
+  useLayoutEffect(() => {
+    const strip = stripRef.current;
+    if (!strip) return;
+    const elements = Array.from(strip.querySelectorAll<HTMLElement>("[data-tab-id]"));
+    const nextRects = new Map<string, DOMRect>();
+
+    elements.forEach((el) => {
+      const id = el.dataset.tabId!;
+      nextRects.set(id, el.getBoundingClientRect());
+    });
+
+    elements.forEach((el) => {
+      const id = el.dataset.tabId!;
+      if (id === draggingId) return;
+      const prev = prevRectsRef.current.get(id);
+      const next = nextRects.get(id);
+      if (!prev || !next) return;
+      const dx = prev.left - next.left;
+      if (!dx) return;
+      el.style.transition = "none";
+      el.style.transform = `translateX(${dx}px)`;
+      requestAnimationFrame(() => {
+        el.style.transition = "transform 150ms ease";
+        el.style.transform = "";
+      });
+    });
+
+    prevRectsRef.current = nextRects;
+  }, [openTabs, draggingId]);
+
   return (
     <div
       ref={stripRef}
@@ -51,24 +102,40 @@ export function TabStrip() {
     >
       {openTabs.map((tab) => {
         const isActive = activeTabId === tab.id;
+        const isDragging = draggingId === tab.id;
         return (
           <div
             key={tab.id}
+            data-tab-id={tab.id}
             data-active-tab={isActive}
             onClick={() => commands.activateTab(tab.id)}
             onPointerDown={(event) => {
-              if (event.button === 0) setDraggingId(tab.id);
+              if (event.button === 0) {
+                dragStartXRef.current = event.clientX;
+                setDraggingId(tab.id);
+                setDragOffsetX(0);
+              }
             }}
             onPointerEnter={() => {
               if (draggingId && draggingId !== tab.id) commands.moveTab(draggingId, tab.id);
             }}
-            className="flex items-center gap-2 px-3 h-7 rounded-lg cursor-pointer select-none text-xs font-mono transition-colors shrink-0"
+            className="flex items-center gap-2 px-3 h-7 rounded-lg select-none text-xs font-mono shrink-0"
             style={{
               background: isActive ? "var(--surface-secondary)" : "transparent",
               border: isActive
                 ? "1px solid color-mix(in oklch, var(--separator) 60%, transparent)"
                 : "1px solid transparent",
               color: isActive ? "var(--foreground)" : "var(--muted)",
+              cursor: isDragging ? "grabbing" : "grab",
+              transform: isDragging ? `translateX(${dragOffsetX}px) scale(1.03)` : undefined,
+              transition: isDragging ? "none" : "background-color 150ms ease, border-color 150ms ease",
+              zIndex: isDragging ? 10 : undefined,
+              position: isDragging ? "relative" : undefined,
+              boxShadow: isDragging ? "0 6px 16px color-mix(in oklch, black 35%, transparent)" : undefined,
+              opacity: isDragging ? 0.95 : undefined,
+              // Let pointer events pass through to the tab underneath so swap detection
+              // (onPointerEnter) keeps working while this one is visually displaced.
+              pointerEvents: isDragging ? "none" : undefined,
             }}
           >
             {tab.type === "query" ? (
