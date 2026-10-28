@@ -2,25 +2,7 @@ import type { ReactNode } from "react";
 import { AlertDialog, Button, Spinner } from "@heroui/react";
 import { WarningCircleIcon } from "@phosphor-icons/react";
 
-// ── Reusable "delete this thing?" confirmation ───────────────────────────────
-//
-// Wraps the AlertDialog primitive so every destructive confirmation in the
-// app (connections, databases, rows, ...) looks and behaves the same way:
-// same header/body/footer layout, same disabled-while-pending behavior, same
-// optional inline error banner, same styling for the highlighted item name.
-//
-// Usage:
-//   <ConfirmDeleteDialog
-//     isOpen={!!target}
-//     title="Delete connection?"
-//     isPending={deleteConnection.isPending}
-//     errorMessage={deleteConnection.isError ? getErrorMessage(deleteConnection.error) : null}
-//     onCancel={() => setTarget(null)}
-//     onConfirm={() => deleteConnection.mutate(target.id)}
-//   >
-//     Are you sure you want to delete <ConfirmDeleteDialog.Name>{target?.name}</ConfirmDeleteDialog.Name>?
-//     This cannot be undone.
-//   </ConfirmDeleteDialog>
+// Reusable destructive-confirmation dialog built on AlertDialog.
 
 interface ConfirmDeleteDialogProps {
   isOpen: boolean;
