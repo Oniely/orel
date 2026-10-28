@@ -44,11 +44,14 @@ export function useApplyWriteQueue(scopeKey: string | null) {
         table: input.table,
         changes: input.changes,
       }),
-    onSuccess: (result, input) => {
+    // Same ordering issue as useApplyRowChanges below: clearTable() wipes the
+    // pending-edit overlay immediately, so it must not run until the fresh
+    // rows are already in the cache, or the grid flashes the stale value.
+    onSuccess: async (result, input) => {
       const total = result.applied.length + (result.failed ? 1 : 0) + result.notAttempted.length;
       if (!result.failed) {
+        await invalidateDatabaseData(queryClient, input);
         clearTable(input.scopeKey);
-        invalidateDatabaseData(queryClient, input);
         toast.success(`Applied ${result.applied.length} change(s)`);
       } else {
         const [failIdx, error] = result.failed;
