@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { AlertDialog, Button, Spinner } from "@heroui/react";
+import { Button, Spinner } from "@heroui/react";
+import { ConfirmDeleteDialog } from "../components/shared/ConfirmDeleteDialog";
 import { ConnectionModal } from "../components/ConnectionModal";
 import { useDeleteConnection, useLoadConnections } from "../hooks/useConnections";
 import { useConnectionStore } from "../stores/connection.store";
@@ -160,54 +161,21 @@ function ConnectionManager() {
         />
       )}
 
-      <AlertDialog>
-        <AlertDialog.Backdrop
-          isOpen={!!deletingConnection}
-          isDismissable={!deleteConnection.isPending}
-          isKeyboardDismissDisabled={deleteConnection.isPending}
-          onOpenChange={(open) => {
-            if (!open && !deleteConnection.isPending) setDeletingConnection(null);
-          }}
-        >
-          <AlertDialog.Container size="sm">
-            <AlertDialog.Dialog>
-              <AlertDialog.Header>
-                <AlertDialog.Heading>Delete connection?</AlertDialog.Heading>
-              </AlertDialog.Header>
-              <AlertDialog.Body>
-                <p>
-                  Are you sure you want to <span className="text-danger">delete</span>:{" "}
-                  <strong className="text-foreground">
-                    <u>{deletingConnection?.name}</u>
-                  </strong>
-                  ? This cannot be undone.
-                </p>
-              </AlertDialog.Body>
-              <AlertDialog.Footer>
-                <Button
-                  variant="outline"
-                  isDisabled={deleteConnection.isPending}
-                  onPress={() => setDeletingConnection(null)}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  className="bg-danger text-white"
-                  isDisabled={deleteConnection.isPending}
-                  onPress={() => {
-                    if (!deletingConnection) return;
-                    deleteConnection.mutate(deletingConnection.id, {
-                      onSuccess: () => setDeletingConnection(null),
-                    });
-                  }}
-                >
-                  {deleteConnection.isPending ? <Spinner size="sm" /> : "Delete"}
-                </Button>
-              </AlertDialog.Footer>
-            </AlertDialog.Dialog>
-          </AlertDialog.Container>
-        </AlertDialog.Backdrop>
-      </AlertDialog>
+      <ConfirmDeleteDialog
+        isOpen={!!deletingConnection}
+        title="Delete connection?"
+        isPending={deleteConnection.isPending}
+        onCancel={() => setDeletingConnection(null)}
+        onConfirm={() => {
+          if (!deletingConnection) return;
+          deleteConnection.mutate(deletingConnection.id, {
+            onSuccess: () => setDeletingConnection(null),
+          });
+        }}
+      >
+        Are you sure you want to delete{" "}
+        <ConfirmDeleteDialog.Name>{deletingConnection?.name}</ConfirmDeleteDialog.Name>? This cannot be undone.
+      </ConfirmDeleteDialog>
     </div>
   );
 }
