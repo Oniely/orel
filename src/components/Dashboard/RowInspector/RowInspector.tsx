@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Button, SearchField, toast } from "@heroui/react";
 import type { ColumnInfo } from "../../../types/database";
 import {
@@ -6,6 +6,7 @@ import {
   CaretLeftIcon,
   CaretRightIcon,
   CopyIcon,
+  MagnifyingGlassIcon,
   XIcon,
 } from "@phosphor-icons/react";
 import { getTypeColor } from "../../../lib/typeColors";
@@ -29,9 +30,18 @@ export function RowInspector() {
   const onPrev = () => setSelectedRowIndex(Math.max(0, rowIndex - 1));
   const onNext = () => setSelectedRowIndex(Math.min(totalRows - 1, rowIndex + 1));
   const onClose = () => setShowInspector(false);
+  const [searchOpen, setSearchOpen] = useState(false);
   const [columnSearch, setColumnSearch] = useState("");
-  const searchTerm = columnSearch.trim().toLowerCase();
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const searchTerm = searchOpen ? columnSearch.trim().toLowerCase() : "";
   const visibleColumns = searchTerm ? columns.filter((c) => c.name.toLowerCase().includes(searchTerm)) : columns;
+
+  const toggleSearch = () => setSearchOpen((open) => !open);
+
+  // Focus the input as soon as the search row mounts
+  useEffect(() => {
+    if (searchOpen) searchInputRef.current?.focus();
+  }, [searchOpen]);
 
   const handleCopy = () => {
     if (row) navigator.clipboard.writeText(JSON.stringify(row, null, 2));
@@ -87,6 +97,16 @@ export function RowInspector() {
           · {rowIndex + 1}/{totalRows}
         </span>
         <div className="flex-1" />
+        <Button
+          variant="ghost"
+          className="size-6.5 grid place-items-center p-[0.5]"
+          style={searchOpen ? { color: "var(--accent)" } : undefined}
+          isIconOnly
+          aria-label="Toggle column search"
+          onClick={toggleSearch}
+        >
+          <MagnifyingGlassIcon className="size-3" />
+        </Button>
         <Button variant="ghost" className="size-6.5 grid place-items-center p-[0.5]" isIconOnly onClick={handleCopy}>
           <CopyIcon className="size-3" />
         </Button>
@@ -115,23 +135,34 @@ export function RowInspector() {
         >
           <CaretRightIcon className="size-3" />
         </Button>
-        <SearchField
-          aria-label="Search columns"
-          value={columnSearch}
-          onChange={setColumnSearch}
-          className="flex-1 min-w-0 mx-1"
-          variant="secondary"
-        >
-          <SearchField.Group>
-            <SearchField.SearchIcon />
-            <SearchField.Input placeholder="Search columns…" className="text-xs font-medium" />
-            <SearchField.ClearButton className="-ml-4" />
-          </SearchField.Group>
-        </SearchField>
+        <div className="flex-1" />
         <span className="text-muted text-[11px] font-mono shrink-0">
           {searchTerm ? `${visibleColumns.length}/${columns.length}` : columns.length} columns
         </span>
       </div>
+
+      {/* Column search — hidden by default, toggled from the header */}
+      {searchOpen && (
+        <div className="px-4.5 py-2 border-b border-separator">
+          <SearchField aria-label="Search columns" value={columnSearch} onChange={setColumnSearch} variant="secondary">
+            <SearchField.Group>
+              <SearchField.SearchIcon />
+              <SearchField.Input
+                ref={searchInputRef}
+                placeholder="Search columns…"
+                className="text-xs font-medium"
+                onKeyDown={(e) => {
+                  if (e.key !== "Escape") return;
+                  e.stopPropagation();
+                  if (columnSearch) setColumnSearch("");
+                  else setSearchOpen(false);
+                }}
+              />
+              <SearchField.ClearButton className="-ml-4" />
+            </SearchField.Group>
+          </SearchField>
+        </div>
+      )}
 
       {/* JSON body */}
       <div className="flex-1 overflow-y-auto px-4.5 py-3.5 scrollbar-hide">
