@@ -1,6 +1,5 @@
 import { useEffect } from "react";
-import { Button, Modal, Spinner } from "@heroui/react";
-import { WarningCircleIcon } from "@phosphor-icons/react";
+import { ConfirmDeleteDialog } from "../../shared/ConfirmDeleteDialog";
 import { useDropDatabase } from "../../../hooks/useConnections";
 import { getErrorMessage } from "../../../lib/error";
 
@@ -39,67 +38,16 @@ export function DeleteDatabaseModal({ isOpen, connectionId, databaseName, onClos
   };
 
   return (
-    <Modal>
-      <Modal.Backdrop
-        isOpen={isOpen}
-        isDismissable={!deleting}
-        isKeyboardDismissDisabled
-        onOpenChange={(open) => {
-          if (!open) handleClose();
-        }}
-      >
-        <Modal.Container>
-          <Modal.Dialog className="max-w-md w-full flex flex-col">
-            <div
-              className="flex flex-col"
-              onKeyDown={(e) => {
-                if (e.key !== "Tab") e.stopPropagation();
-                if (e.key === "Escape") {
-                  e.preventDefault();
-                  handleClose();
-                }
-              }}
-            >
-              <Modal.Header className="border-b border-separator shrink-0 pb-3 px-1">
-                <Modal.Heading className="text-base font-medium">Delete database</Modal.Heading>
-                {!deleting && <Modal.CloseTrigger />}
-              </Modal.Header>
-
-              <Modal.Body className="flex flex-col gap-3 pt-4 pb-1 px-1 text-sm">
-                <p>
-                  This permanently deletes{" "}
-                  <span className="font-mono text-[13px] text-foreground">{databaseName}</span> and everything in it.
-                  This action cannot be undone.
-                </p>
-
-                {dropDatabase.isError && (
-                  <p role="alert" className="flex items-start gap-2.5 text-danger">
-                    <WarningCircleIcon size={18} className="shrink-0" />
-                    <span className="min-w-0 break-words">
-                      {getErrorMessage(dropDatabase.error, "Failed to delete database")}
-                    </span>
-                  </p>
-                )}
-              </Modal.Body>
-
-              <Modal.Footer className="border-t border-separator pt-3 flex justify-end gap-2 shrink-0">
-                <Button size="sm" variant="outline" className="text-[13px] h-8" onPress={handleClose} isDisabled={deleting}>
-                  Cancel
-                </Button>
-                <Button
-                  size="sm"
-                  variant="danger"
-                  className="text-[13px] h-8"
-                  onPress={handleDelete}
-                  isDisabled={deleting || !databaseName}
-                >
-                  {deleting ? <Spinner size="sm" /> : "Delete"}
-                </Button>
-              </Modal.Footer>
-            </div>
-          </Modal.Dialog>
-        </Modal.Container>
-      </Modal.Backdrop>
-    </Modal>
+    <ConfirmDeleteDialog
+      isOpen={isOpen}
+      title="Delete database?"
+      isPending={deleting}
+      errorMessage={dropDatabase.isError ? getErrorMessage(dropDatabase.error, "Failed to delete database") : null}
+      onCancel={handleClose}
+      onConfirm={handleDelete}
+    >
+      This permanently deletes <ConfirmDeleteDialog.Name>{databaseName}</ConfirmDeleteDialog.Name> and everything in
+      it. This action cannot be undone.
+    </ConfirmDeleteDialog>
   );
 }
