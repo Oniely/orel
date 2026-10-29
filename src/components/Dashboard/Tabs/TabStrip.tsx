@@ -5,16 +5,27 @@ import { useDashboardStore } from "../../../stores/dashboard.store";
 import { useDashboardCommands } from "../../../hooks/dashboard/useDashboardCommands";
 import { useDashboardContext } from "../../../hooks/dashboard/useDashboardContext";
 
+interface DragState {
+  id: string;
+  // Pointer X at drag start, adjusted whenever a reorder happens so the tab
+  // doesn't jump relative to the cursor (see handlePointerMove).
+  anchorX: number;
+}
+
 export function TabStrip() {
   const { openTabs, activeTabId } = useDashboardContext();
   const showInspector = useDashboardStore((state) => state.showInspector);
   const commands = useDashboardCommands();
   const stripRef = useRef<HTMLDivElement>(null);
-  // Tab being dragged; it swaps places with whichever tab the pointer enters until release.
+  // Tab being dragged; it reorders based on pure pointer X position, not hover targets,
+  // so it keeps working even once the cursor leaves the tab strip.
   const [draggingId, setDraggingId] = useState<string | null>(null);
   // Horizontal offset (px) the dragged tab is currently displaced from its resting slot.
   const [dragOffsetX, setDragOffsetX] = useState(0);
-  const dragStartXRef = useRef(0);
+  const dragRef = useRef<DragState | null>(null);
+  // Whether the pointer has actually moved since mousedown; a drag-and-release
+  // shouldn't also fire the subsequent click as a tab activation.
+  const draggedPastThresholdRef = useRef(false);
   // Positions of each tab from the previous render, used to FLIP-animate reorders.
   const prevRectsRef = useRef<Map<string, DOMRect>>(new Map());
 
@@ -22,11 +33,52 @@ export function TabStrip() {
     if (!draggingId) return;
 
     const handlePointerMove = (event: PointerEvent) => {
-      setDragOffsetX(event.clientX - dragStartXRef.current);
+      const drag = dragRef.current;
+      const strip = stripRef.current;
+      if (!drag || !strip) return;
+
+      const tabEls = Array.from(strip.querySelectorAll<HTMLElement>("[data-tab-id]"));
+      const draggedIndex = tabEls.findIndex((el) => el.dataset.tabId === drag.id);
+      const draggedEl = tabEls[draggedIndex];
+      if (!draggedEl) return;
+
+      const offset = event.clientX - drag.anchorX;
+      if (Math.abs(offset) > 3) draggedPastThresholdRef.current = true;
+      const draggedRect = draggedEl.getBoundingClientRect();
+      // Current visual center of the dragged tab, independent of the cursor's Y position
+      // so dragging still works once the pointer strays above/below the strip.
+      const draggedCenter = draggedRect.left + draggedRect.width / 2;
+
+      let targetIndex = tabEls.length - 1;
+      for (let i = 0; i < tabEls.length; i++) {
+        if (i === draggedIndex) continue;
+        const rect = tabEls[i].getBoundingClientRect();
+        const slotCenter = rect.left + rect.width / 2;
+        if (draggedCenter < slotCenter) {
+          targetIndex = i;
+          break;
+        }
+      }
+
+      if (targetIndex !== draggedIndex) {
+        const targetEl = tabEls[targetIndex];
+        const targetRect = targetEl.getBoundingClientRect();
+        // The dragged tab is about to land roughly where the target tab currently sits.
+        // Shift the anchor by that same delta so the next offset calculation keeps the
+        // tab under the cursor instead of jumping by the width of every tab it passes.
+        const dx = targetRect.left - draggedRect.left;
+        drag.anchorX += dx;
+        commands.moveTab(drag.id, targetEl.dataset.tabId!);
+      }
+
+      setDragOffsetX(event.clientX - drag.anchorX);
     };
+
     const stopDragging = () => {
+      dragRef.current = null;
       setDraggingId(null);
       setDragOffsetX(0);
+      document.body.style.userSelect = "";
     };
 
     document.addEventListener("pointermove", handlePointerMove);
@@ -37,7 +89,7 @@ export function TabStrip() {
       document.removeEventListener("pointerup", stopDragging);
       document.removeEventListener("pointercancel", stopDragging);
     };
-  }, [draggingId]);
+  }, [draggingId, commands]);
 
   useLayoutEffect(() => {
     const strip = stripRef.current;
@@ -108,17 +160,27 @@ export function TabStrip() {
             key={tab.id}
             data-tab-id={tab.id}
             data-active-tab={isActive}
-            onClick={() => commands.activateTab(tab.id)}
-            onPointerDown={(event) => {
-              if (event.button === 0) {
-                dragStartXRef.current = event.clientX;
-                setDraggingId(tab.id);
-                setDragOffsetX(0);
+            onClick={() => {
+              // A drag that moved the pointer still fires a click on release; don't
+              // let that re-activate a tab the drag may have already moved away.
+              if (draggedPastThresholdRef.current) {
+                draggedPastThresholdRef.current = false;
+                return;
               }
+              commands.activateTab(tab.id);
             }}
-            onPointerEnter={() => {
-              if (draggingId && draggingId !== tab.id) commands.moveTab(draggingId, tab.id);
+            onPointerDown={(event) => {
+              if (event.button !== 0) return;
+              // Stop the browser's native text/content drag-select — without this,
+              // dragging a tab selects and drags a ghost image of the whole page.
+              event.preventDefault();
+              document.body.style.userSelect = "none";
+              draggedPastThresholdRef.current = false;
+              dragRef.current = { id: tab.id, anchorX: event.clientX };
+              setDraggingId(tab.id);
+              setDragOffsetX(0);
             }}
+            draggable={false}
             className="flex items-center gap-2 px-3 h-7 rounded-lg select-none text-xs font-mono shrink-0"
             style={{
               background: isActive ? "var(--surface-secondary)" : "transparent",
@@ -133,9 +195,6 @@ export function TabStrip() {
               position: isDragging ? "relative" : undefined,
               boxShadow: isDragging ? "0 6px 16px color-mix(in oklch, black 35%, transparent)" : undefined,
               opacity: isDragging ? 0.95 : undefined,
-              // Let pointer events pass through to the tab underneath so swap detection
-              // (onPointerEnter) keeps working while this one is visually displaced.
-              pointerEvents: isDragging ? "none" : undefined,
             }}
           >
             {tab.type === "query" ? (
