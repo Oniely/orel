@@ -311,7 +311,7 @@ export function SqlEditor({
           onClick={handleRun}
           isDisabled={!sql.trim() || isBusy}
         >
-          {executeSql.isPending ? <Spinner size="sm" /> : <PlayIcon className="size-2" weight="fill" />}
+          {executeSql.isPending ? <Spinner size="sm" color="current" /> : <PlayIcon className="size-2" weight="fill" />}
           {hasSelection ? "Run Selection" : "Run All"}
           <Kbd className="scale-80">
             <Kbd.Abbr keyValue={os === "macos" ? "command" : "ctrl"} />

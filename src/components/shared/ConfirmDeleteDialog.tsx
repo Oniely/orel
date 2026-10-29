@@ -60,7 +60,7 @@ export function ConfirmDeleteDialog({
                 Cancel
               </Button>
               <Button variant="danger" isDisabled={isPending} onPress={onConfirm}>
-                {isPending ? <Spinner size="sm" /> : confirmLabel}
+                {isPending ? <Spinner size="sm" color="current" /> : confirmLabel}
               </Button>
             </AlertDialog.Footer>
           </AlertDialog.Dialog>

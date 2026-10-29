@@ -109,7 +109,7 @@ export function CreateDatabaseModal({ isOpen, onClose }: CreateDatabaseModalProp
                   onPress={handleCreate}
                   isDisabled={creating || !name.trim()}
                 >
-                  {creating ? <Spinner size="sm" /> : "Create"}
+                  {creating ? <Spinner size="sm" color="current" /> : "Create"}
                 </Button>
               </Modal.Footer>
             </div>

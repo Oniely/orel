@@ -472,7 +472,7 @@ export function ConnectionModal({ isOpen, onClose, connection }: ConnectionModal
                   onPress={handleTest}
                   isDisabled={isSubmitting || saveConnection.isPending || updateConnection.isPending}
                 >
-                  {testConnection.isPending ? <Spinner size="sm" /> : "Test connection"}
+                  {testConnection.isPending ? <Spinner size="sm" color="current" /> : "Test connection"}
                 </Button>
                 <Button
                   size="sm"
@@ -481,7 +481,7 @@ export function ConnectionModal({ isOpen, onClose, connection }: ConnectionModal
                   isDisabled={testConnection.isPending || saveConnection.isPending || updateConnection.isPending}
                 >
                   {saveConnection.isPending || updateConnection.isPending ? (
-                    <Spinner size="sm" />
+                    <Spinner size="sm" color="current" />
                   ) : isEditing ? (
                     "Update connection"
                   ) : (
