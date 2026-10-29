@@ -81,3 +81,12 @@ describe("RowInspector column search", () => {
     expect(shownColumns()).toEqual(["email"]);
   });
 });
+
+describe("RowInspector column labels", () => {
+  it("uses the foreground color, not the type color, so labels stand apart from values", () => {
+    render(<RowInspector />);
+    const label = screen.getByText("email:");
+    expect(label.className).toContain("text-foreground");
+    expect(label.style.color).toBe("");
+  });
+});
