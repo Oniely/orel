@@ -9,7 +9,6 @@ import {
   MagnifyingGlassIcon,
   XIcon,
 } from "@phosphor-icons/react";
-import { getTypeColor } from "../../../lib/typeColors";
 import { buildRowIdentity, identityKey } from "../../../types/write-queue";
 import { useHotkeys } from "react-hotkeys-hook";
 import { useDashboardStore } from "../../../stores/dashboard.store";
@@ -184,7 +183,7 @@ export function RowInspector() {
 
               return (
                 <div key={col.name} className="flex gap-2 pl-4 min-w-0">
-                  <span style={{ color: getTypeColor(col.dataType), flexShrink: 0, opacity: 0.8 }}>{col.name}:</span>
+                  <span className="shrink-0 text-foreground">{col.name}:</span>
                   <InspectorEditableField
                     table={activeTableName}
                     column={col}
