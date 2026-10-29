@@ -81,14 +81,14 @@ export function TransactionGuardDialog() {
                         isDisabled={pending}
                         onClick={() => resolveTransaction(editorId, "rollback")}
                       >
-                        {rollbackTransaction.isPending ? <Spinner size="sm" /> : "Rollback"}
+                        {rollbackTransaction.isPending ? <Spinner size="sm" color="current" /> : "Rollback"}
                       </Button>
                       <Button
                         size="sm"
                         isDisabled={pending || failed}
                         onClick={() => resolveTransaction(editorId, "commit")}
                       >
-                        {commitTransaction.isPending ? <Spinner size="sm" /> : "Commit"}
+                        {commitTransaction.isPending ? <Spinner size="sm" color="current" /> : "Commit"}
                       </Button>
                     </div>
                   );

@@ -179,7 +179,7 @@ export function SettingsModal() {
                               onPress={() => updateQuery.refetch()}
                             >
                               {updateQuery.isFetching ? (
-                                <Spinner size="sm" />
+                                <Spinner size="sm" color="current" />
                               ) : (
                                 <ArrowClockwiseIcon className="size-3.5" />
                               )}
@@ -306,7 +306,7 @@ export function SettingsModal() {
                   Cancel
                 </Button>
                 <Button isDisabled={install.isPending} onPress={startInstall}>
-                  {install.isPending ? <Spinner size="sm" /> : "Download, install, and restart"}
+                  {install.isPending ? <Spinner size="sm" color="current" /> : "Download, install, and restart"}
                 </Button>
               </AlertDialog.Footer>
             </AlertDialog.Dialog>

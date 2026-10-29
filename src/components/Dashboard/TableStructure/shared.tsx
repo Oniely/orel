@@ -277,7 +277,7 @@ export function SaveBar({ pendingCount, saving, saveDisabled, onCancel, onSave }
         isDisabled={pendingCount === 0 || saving || saveDisabled}
         onPress={onSave}
       >
-        {saving ? <Spinner size="sm" /> : `Save changes${pendingCount > 0 ? ` (${pendingCount})` : ""}`}
+        {saving ? <Spinner size="sm" color="current" /> : `Save changes${pendingCount > 0 ? ` (${pendingCount})` : ""}`}
       </Button>
     </div>
   );

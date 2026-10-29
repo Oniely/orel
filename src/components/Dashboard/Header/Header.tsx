@@ -262,7 +262,7 @@ export function Header() {
           isDisabled={importDump.isPending}
           onClick={handleImport}
         >
-          {importDump.isPending ? <Spinner size="sm" /> : <ArrowLineDownIcon className="size-3" weight="bold" />}
+          {importDump.isPending ? <Spinner size="sm" color="current" /> : <ArrowLineDownIcon className="size-3" weight="bold" />}
           Import
         </Button>
 
