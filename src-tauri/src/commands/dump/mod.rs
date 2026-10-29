@@ -40,7 +40,9 @@ pub struct ExportSummary {
 #[serde(rename_all = "camelCase")]
 pub struct ImportSummary {
     pub statements_executed: u32,
+    pub statements_failed: u32,
     pub tables_affected: u32,
+    pub errors: Vec<ImportError>,
 }
 
 #[derive(Debug, Serialize)]
@@ -52,12 +54,6 @@ pub struct ImportError {
     pub snippet: Option<String>,
     /// Plain-language hint when the dump looks like it's for another database.
     pub hint: Option<String>,
-}
-
-impl From<String> for ImportError {
-    fn from(message: String) -> Self {
-        Self { message, line: None, snippet: None, hint: None }
-    }
 }
 
 /// One base table, as each dialect module describes it for the export.
@@ -369,7 +365,7 @@ pub async fn import_sql_dump(
     connection_id: String,
     file_path: String,
     state: tauri::State<'_, AppState>,
-) -> Result<ImportSummary, ImportError> {
+) -> Result<ImportSummary, String> {
     let pool = {
         let pools = state.pools.lock().unwrap();
         pools
@@ -381,13 +377,15 @@ pub async fn import_sql_dump(
     import_dump(&pool, &file_path).await
 }
 
-/// Runs every statement in the file in one transaction; the first failure
-/// rolls everything back. No DROP TABLE is added, so importing over existing
-/// tables fails with the database's own "already exists" error, by design.
-/// MySQL commits DDL implicitly, so there a failed import can leave tables
-/// created before the failing statement behind.
+/// Runs every statement in the file, continuing past failures so one bad
+/// statement doesn't block the rest; every failure is collected and reported
+/// together. No DROP TABLE is added, so importing over existing tables fails
+/// with the database's own "already exists" error, by design.
+/// MySQL commits DDL implicitly, so there a failed statement can leave
+/// tables created around it behind either way; the other dialects behave the
+/// same way now since statements run outside a shared transaction too.
 /// The file is read into memory whole; multi-GB dumps are a known v1 limitation.
-pub(crate) async fn import_dump(pool: &DbPool, file_path: &str) -> Result<ImportSummary, ImportError> {
+pub(crate) async fn import_dump(pool: &DbPool, file_path: &str) -> Result<ImportSummary, String> {
     let sql = tokio::fs::read_to_string(file_path)
         .await
         .map_err(|e| format!("Couldn't read {file_path}: {e}"))?;
@@ -397,26 +395,32 @@ pub(crate) async fn import_dump(pool: &DbPool, file_path: &str) -> Result<Import
         .map(|s| (s.sql, s.line))
         .unzip();
     if statements.is_empty() {
-        return Err("The file doesn't contain any SQL statements.".to_string().into());
+        return Err("The file doesn't contain any SQL statements.".to_string());
     }
 
-    pool.execute_in_transaction(&statements).await.map_err(|e| match e.index {
-        Some(i) => {
-            let raw_message = e.to_string();
+    let failures = pool.execute_continue_on_error(&statements).await;
+    let failed: HashSet<usize> = failures.iter().map(|(index, _)| *index).collect();
+    let errors: Vec<ImportError> = failures
+        .into_iter()
+        .map(|(index, source)| {
+            let raw_message = source.to_string();
             ImportError {
                 message: strip_misleading_source_line(&raw_message).to_string(),
-                line: Some(lines[i]),
-                snippet: Some(snippet(&statements[i])),
-                hint: dialect_mismatch_hint(dialect, &statements[i])
-                    .or_else(|| undefined_type_hint(&raw_message)),
+                line: Some(lines[index]),
+                snippet: Some(snippet(&statements[index])),
+                hint: dialect_mismatch_hint(dialect, &statements[index]).or_else(|| undefined_type_hint(&raw_message)),
             }
-        }
-        None => ImportError::from(e.to_string()),
-    })?;
+        })
+        .collect();
+
+    let succeeded: Vec<&str> =
+        statements.iter().enumerate().filter(|(i, _)| !failed.contains(i)).map(|(_, s)| s.as_str()).collect();
 
     Ok(ImportSummary {
-        statements_executed: statements.len() as u32,
-        tables_affected: count_tables(&statements),
+        statements_executed: succeeded.len() as u32,
+        statements_failed: errors.len() as u32,
+        tables_affected: count_tables(&succeeded),
+        errors,
     })
 }
 
@@ -488,9 +492,10 @@ fn dialect_mismatch_hint(dialect: Dialect, statement: &str) -> Option<String> {
 
 /// Best-effort count of distinct tables named by CREATE TABLE, INSERT INTO,
 /// and ALTER TABLE statements.
-fn count_tables(statements: &[String]) -> u32 {
+fn count_tables<S: AsRef<str>>(statements: &[S]) -> u32 {
     let mut names = HashSet::new();
     for stmt in statements {
+        let stmt = stmt.as_ref();
         let words: Vec<&str> = stmt.split_whitespace().take(6).collect();
         let upper: Vec<String> = words.iter().map(|w| w.to_ascii_uppercase()).collect();
         let upper: Vec<&str> = upper.iter().map(String::as_str).collect();

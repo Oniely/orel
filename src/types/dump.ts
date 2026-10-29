@@ -5,11 +5,6 @@ export interface ExportSummary {
   filePath: string;
 }
 
-export interface ImportSummary {
-  statementsExecuted: number;
-  tablesAffected: number;
-}
-
 /** What import_sql_dump rejects with — an object, not a plain string */
 export interface ImportError {
   message: string;
@@ -19,4 +14,12 @@ export interface ImportError {
   snippet: string | null;
   /** Plain-language hint when the dump looks like it's for another database */
   hint: string | null;
+}
+
+export interface ImportSummary {
+  statementsExecuted: number;
+  statementsFailed: number;
+  tablesAffected: number;
+  /** Every statement that failed; import keeps going past failures */
+  errors: ImportError[];
 }

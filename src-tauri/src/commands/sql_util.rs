@@ -81,12 +81,48 @@ impl DbPool {
         }
         Ok(())
     }
+
+    /// Runs every statement independently and keeps going past failures,
+    /// instead of rolling everything back like `execute_in_transaction`.
+    /// Every statement runs on the same connection (not just the same pool) so
+    /// a dump's own LOCK TABLES / START TRANSACTION / COMMIT still apply to
+    /// each other instead of landing on whichever connection the pool hands
+    /// out next. Returns the (index, error) of every statement that failed.
+    pub async fn execute_continue_on_error(&self, stmts: &[String]) -> Vec<(usize, sqlx::Error)> {
+        macro_rules! run_all {
+            ($pool:expr) => {
+                run_all!($pool, sqlx::query)
+            };
+            ($pool:expr, $query:path) => {{
+                let mut conn = match $pool.acquire().await {
+                    Ok(conn) => conn,
+                    Err(source) => return vec![(0, source)],
+                };
+                let mut errors = Vec::new();
+                for (index, stmt) in stmts.iter().enumerate() {
+                    if let Err(source) = $query(sqlx::AssertSqlSafe(stmt.as_str())).execute(&mut *conn).await {
+                        errors.push((index, source));
+                    }
+                }
+                errors
+            }};
+        }
+
+        match self {
+            Self::Postgres(pg) => run_all!(pg),
+            // Same COM_QUERY rationale as execute_in_transaction above.
+            Self::MySql(mysql) => run_all!(mysql, sqlx::raw_sql),
+            Self::Sqlite(sqlite) => run_all!(sqlite),
+        }
+    }
 }
 
 /// A failed `execute_in_transaction`; displays as the database error.
 #[derive(Debug)]
 pub struct TransactionError {
-    /// The statement that failed, or None when BEGIN or COMMIT did.
+    /// The statement that failed, or None when BEGIN or COMMIT did. Kept for
+    /// callers that want to point at the failing statement; none do today.
+    #[allow(dead_code)]
     pub index: Option<usize>,
     pub source: sqlx::Error,
 }

@@ -166,13 +166,40 @@ async fn sqlite_circular_foreign_keys_fail_without_writing_a_file() {
 async fn import_reports_missing_and_empty_files() {
     let (db, _pool) = sqlite_memory().await;
     let err = import_dump(&db, &dump_path("does-not-exist")).await.unwrap_err();
-    assert!(err.message.starts_with("Couldn't read"));
-    assert_eq!(err.line, None);
+    assert!(err.starts_with("Couldn't read"));
 
     let path = dump_path("comments-only");
     std::fs::write(&path, "-- nothing to run;\n/* ; */\n").unwrap();
     let err = import_dump(&db, &path).await.unwrap_err();
-    assert!(err.message.contains("doesn't contain any SQL statements"));
+    assert!(err.contains("doesn't contain any SQL statements"));
+    std::fs::remove_file(&path).unwrap();
+}
+
+#[tokio::test]
+async fn import_continues_past_failures_and_reports_every_one() {
+    let (db, pool) = sqlite_memory().await;
+    let path = dump_path("sqlite-partial-failure");
+    std::fs::write(
+        &path,
+        "CREATE TABLE users (id INTEGER PRIMARY KEY);\n\
+         INSERT INTO missing_table (id) VALUES (1);\n\
+         INSERT INTO users (id) VALUES (1);\n\
+         INSERT INTO users (id) VALUES (1);\n\
+         INSERT INTO users (id) VALUES (2);\n",
+    )
+    .unwrap();
+
+    let summary = import_dump(&db, &path).await.unwrap();
+    assert_eq!(summary.statements_executed, 3);
+    assert_eq!(summary.statements_failed, 2);
+    assert_eq!(summary.errors.len(), 2);
+    // Both failures reported, not just the first
+    assert_eq!(summary.errors[0].line, Some(2));
+    assert_eq!(summary.errors[1].line, Some(4));
+    assert!(summary.errors[1].message.to_lowercase().contains("unique"));
+
+    let ids: Vec<i64> = sqlx::query_scalar("SELECT id FROM users ORDER BY id").fetch_all(&pool).await.unwrap();
+    assert_eq!(ids, vec![1, 2]);
     std::fs::remove_file(&path).unwrap();
 }
 
@@ -283,7 +310,7 @@ async fn postgres_round_trip_with_enum_type() {
 
 #[tokio::test]
 #[ignore = "requires Docker"]
-async fn postgres_import_of_mysql_dump_rolls_back_and_explains() {
+async fn postgres_import_continues_past_a_mysql_statement_and_reports_it() {
     let (_container, admin, _base) = start_pg().await;
     let path = dump_path("mysql-into-postgres");
     std::fs::write(
@@ -292,7 +319,10 @@ async fn postgres_import_of_mysql_dump_rolls_back_and_explains() {
     )
     .unwrap();
 
-    let err = import_dump(&admin, &path).await.unwrap_err();
+    let summary = import_dump(&admin, &path).await.unwrap();
+    assert_eq!(summary.statements_executed, 1);
+    assert_eq!(summary.statements_failed, 1);
+    let err = &summary.errors[0];
     assert_eq!(err.line, Some(4));
     assert!(err.snippet.as_deref().unwrap().starts_with("CREATE TABLE `users` ("));
     assert!(err.message.contains("syntax error"), "{}", err.message);
@@ -300,7 +330,7 @@ async fn postgres_import_of_mysql_dump_rolls_back_and_explains() {
 
     let DbPool::Postgres(pg) = &admin else { unreachable!() };
     let created: Option<String> = sqlx::query_scalar("SELECT to_regclass('public.plain')::text").fetch_one(pg).await.unwrap();
-    assert_eq!(created, None, "the first statement must be rolled back");
+    assert_eq!(created, Some("plain".to_string()), "the statement before the failing one should still have run");
     std::fs::remove_file(&path).unwrap();
 }
 
