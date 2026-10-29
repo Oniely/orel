@@ -4,6 +4,7 @@ import { BracketsCurlyIcon, PicnicTableIcon, PlusIcon, XIcon } from "@phosphor-i
 import { useDashboardStore } from "../../../stores/dashboard.store";
 import { useDashboardCommands } from "../../../hooks/dashboard/useDashboardCommands";
 import { useDashboardContext } from "../../../hooks/dashboard/useDashboardContext";
+import { computeDragReorderTarget, type TabSlot } from "./tabDragReorder";
 
 interface DragState {
   id: string;
@@ -38,37 +39,33 @@ export function TabStrip() {
       if (!drag || !strip) return;
 
       const tabEls = Array.from(strip.querySelectorAll<HTMLElement>("[data-tab-id]"));
-      const draggedIndex = tabEls.findIndex((el) => el.dataset.tabId === drag.id);
-      const draggedEl = tabEls[draggedIndex];
+      const draggedEl = tabEls.find((el) => el.dataset.tabId === drag.id);
       if (!draggedEl) return;
 
       const offset = event.clientX - drag.anchorX;
       if (Math.abs(offset) > 3) draggedPastThresholdRef.current = true;
-      const draggedRect = draggedEl.getBoundingClientRect();
-      // Current visual center of the dragged tab, independent of the cursor's Y position
-      // so dragging still works once the pointer strays above/below the strip.
-      const draggedCenter = draggedRect.left + draggedRect.width / 2;
 
-      let targetIndex = tabEls.length - 1;
-      for (let i = 0; i < tabEls.length; i++) {
-        if (i === draggedIndex) continue;
-        const rect = tabEls[i].getBoundingClientRect();
-        const slotCenter = rect.left + rect.width / 2;
-        if (draggedCenter < slotCenter) {
-          targetIndex = i;
-          break;
-        }
-      }
+      // Layout-only measurements (offsetLeft/offsetWidth), never getBoundingClientRect:
+      // the dragged tab has a scale/translate transform and siblings mid-FLIP-animation
+      // have a transient transform too, both of which would corrupt getBoundingClientRect
+      // and feed a moving target back into the reorder calculation.
+      const slots: TabSlot[] = tabEls.map((el) => ({
+        id: el.dataset.tabId!,
+        left: el.offsetLeft,
+        width: el.offsetWidth,
+      }));
+      const draggedSlot = slots.find((slot) => slot.id === drag.id)!;
+      const draggedCenter = draggedSlot.left + draggedSlot.width / 2 + offset;
 
-      if (targetIndex !== draggedIndex) {
-        const targetEl = tabEls[targetIndex];
-        const targetRect = targetEl.getBoundingClientRect();
+      const targetId = computeDragReorderTarget(slots, drag.id, draggedCenter);
+      if (targetId) {
+        const targetSlot = slots.find((slot) => slot.id === targetId)!;
         // The dragged tab is about to land roughly where the target tab currently sits.
         // Shift the anchor by that same delta so the next offset calculation keeps the
         // tab under the cursor instead of jumping by the width of every tab it passes.
-        const dx = targetRect.left - draggedRect.left;
+        const dx = targetSlot.left - draggedSlot.left;
         drag.anchorX += dx;
-        commands.moveTab(drag.id, targetEl.dataset.tabId!);
+        commands.moveTab(drag.id, targetId);
       }
 
       setDragOffsetX(event.clientX - drag.anchorX);
