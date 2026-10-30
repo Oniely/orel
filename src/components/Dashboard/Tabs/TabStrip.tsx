@@ -29,6 +29,11 @@ export function TabStrip() {
   const draggedPastThresholdRef = useRef(false);
   // Positions of each tab from the previous render, used to FLIP-animate reorders.
   const prevRectsRef = useRef<Map<string, DOMRect>>(new Map());
+  // `commands` is a new object every render; read it through a ref so the drag
+  // effect below doesn't tear down and resubscribe its document listeners on every
+  // single pointermove (which re-renders via setDragOffsetX).
+  const commandsRef = useRef(commands);
+  commandsRef.current = commands;
 
   useEffect(() => {
     if (!draggingId) return;
@@ -65,7 +70,7 @@ export function TabStrip() {
         // tab under the cursor instead of jumping by the width of every tab it passes.
         const dx = targetSlot.left - draggedSlot.left;
         drag.anchorX += dx;
-        commands.moveTab(drag.id, targetId);
+        commandsRef.current.moveTab(drag.id, targetId);
       }
 
       setDragOffsetX(event.clientX - drag.anchorX);
@@ -81,12 +86,16 @@ export function TabStrip() {
     document.addEventListener("pointermove", handlePointerMove);
     document.addEventListener("pointerup", stopDragging);
     document.addEventListener("pointercancel", stopDragging);
+    // Safety net: if the window loses focus mid-drag (alt-tab, devtools, an OS dialog)
+    // we may never see pointerup/pointercancel. Don't leave a tab stuck lifted forever.
+    window.addEventListener("blur", stopDragging);
     return () => {
       document.removeEventListener("pointermove", handlePointerMove);
       document.removeEventListener("pointerup", stopDragging);
       document.removeEventListener("pointercancel", stopDragging);
+      window.removeEventListener("blur", stopDragging);
     };
-  }, [draggingId, commands]);
+  }, [draggingId]);
 
   useLayoutEffect(() => {
     const strip = stripRef.current;
