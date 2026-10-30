@@ -5,7 +5,7 @@ export interface ExportSummary {
   filePath: string;
 }
 
-/** What import_sql_dump rejects with — an object, not a plain string */
+/** One failed statement from an import; collected in ImportSummary.errors. */
 export interface ImportError {
   message: string;
   /** 1-indexed line of the failing statement */
