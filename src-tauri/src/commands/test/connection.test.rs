@@ -1,6 +1,6 @@
 use super::{
-    create_database_on_pool, drop_database_on_pool, mysql_user_databases, sqlite_opts,
-    sqlite_pool_max_connections, DbPool,
+    create_database_on_pool, drop_database_on_pool, load_connections_from, mysql_user_databases,
+    reorder_connections_in, sqlite_opts, sqlite_pool_max_connections, DbPool,
 };
 use sqlx::sqlite::SqlitePoolOptions;
 use std::time::Duration;
@@ -202,5 +202,52 @@ mod drop_database {
 
         let missing = drop_database_on_pool(&db_pool, "doomed_orel_db").await;
         assert!(missing.is_err());
+    }
+}
+
+mod connection_ordering {
+    use super::*;
+
+    async fn app_db() -> sqlx::SqlitePool {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+        for (id, created_at) in [("a", "2026-01-01"), ("b", "2026-01-02"), ("c", "2026-01-03")] {
+            sqlx::query("INSERT INTO connections (id, name, type, host, port, username, password, created_at, updated_at) VALUES (?, ?, 'sqlite', 'x', 0, '', '', ?, ?)")
+                .bind(id)
+                .bind(id)
+                .bind(created_at)
+                .bind(created_at)
+                .execute(&pool)
+                .await
+                .unwrap();
+        }
+        pool
+    }
+
+    async fn ids(pool: &sqlx::SqlitePool) -> Vec<String> {
+        load_connections_from(pool)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|c| c.id)
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn unordered_connections_keep_newest_first() {
+        let pool = app_db().await;
+        assert_eq!(ids(&pool).await, vec!["c", "b", "a"]);
+    }
+
+    #[tokio::test]
+    async fn reorder_persists_the_given_order() {
+        let pool = app_db().await;
+        let order = vec!["b".to_string(), "a".to_string(), "c".to_string()];
+        reorder_connections_in(&pool, &order).await.unwrap();
+        assert_eq!(ids(&pool).await, order);
     }
 }
