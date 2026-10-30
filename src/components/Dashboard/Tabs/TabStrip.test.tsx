@@ -70,24 +70,37 @@ vi.mock("../../../hooks/dashboard/useDashboardCommands", () => ({
   }),
 }));
 
-// Stand in for the real flex layout: every tab is TAB_WIDTH wide, laid out left-to-right
-// in current DOM order, so offsetLeft reflects whatever order the strip is in right now
-// (jsdom itself never computes real layout).
+// Stand in for the real flex layout: tabs are laid out left-to-right in current DOM
+// order with each tab's width coming from `tabWidths` (defaulting to TAB_WIDTH), so
+// offsetLeft reflects whatever order/sizes the strip currently has (jsdom itself never
+// computes real layout).
+let tabWidths: Record<string, number> = {};
+
 beforeEach(() => {
   harness.reset();
+  tabWidths = {};
   Element.prototype.scrollTo = vi.fn();
+  Object.defineProperty(HTMLElement.prototype, "offsetWidth", {
+    configurable: true,
+    get(this: HTMLElement) {
+      const id = this.dataset.tabId;
+      return id ? (tabWidths[id] ?? TAB_WIDTH) : 0;
+    },
+  });
   Object.defineProperty(HTMLElement.prototype, "offsetLeft", {
     configurable: true,
     get(this: HTMLElement) {
       if (!this.dataset.tabId) return 0;
-      const siblings = Array.from(this.parentElement?.querySelectorAll("[data-tab-id]") ?? []);
-      return siblings.indexOf(this) * TAB_WIDTH;
-    },
-  });
-  Object.defineProperty(HTMLElement.prototype, "offsetWidth", {
-    configurable: true,
-    get(this: HTMLElement) {
-      return this.dataset.tabId ? TAB_WIDTH : 0;
+      const siblings = Array.from(
+        this.parentElement?.querySelectorAll<HTMLElement>("[data-tab-id]") ?? [],
+      );
+      const index = siblings.indexOf(this);
+      let left = 0;
+      for (let i = 0; i < index; i++) {
+        const id = siblings[i].dataset.tabId!;
+        left += tabWidths[id] ?? TAB_WIDTH;
+      }
+      return left;
     },
   });
 });
@@ -169,5 +182,44 @@ describe("TabStrip drag reorder (DOM)", () => {
     const el = document.querySelector('[data-tab-id="a"]')!;
     fireEvent.click(el);
     expect(harness.activateTab).not.toHaveBeenCalled();
+  });
+
+  it("keeps the dragged tab glued to the cursor across uneven-width swaps (no drift)", () => {
+    // Reproduces the reported bug: with a wide tab ('a') and narrow neighbors, the
+    // dragged tab's real resting position after a swap is NOT "wherever the tab it
+    // swapped with used to be" (that's only true when every tab is the same width).
+    // A fix that assumes otherwise accumulates error on every swap, so the tab drifts
+    // further from the cursor the longer and farther the drag goes.
+    tabWidths = { a: 220, b: 60, c: 60, d: 100 };
+    render(<TabStrip />);
+
+    const grabClientX = 50; // grabbed 50px into 'a', which starts at offsetLeft 0
+    const grabOffsetWithinTab = grabClientX - 0;
+    const translateXOf = (style: string) => {
+      const match = /translateX\(([-\d.]+)px\)/.exec(style);
+      return match ? Number.parseFloat(match[1]) : 0;
+    };
+    const draggedScreenLeft = () => {
+      const el = document.querySelector<HTMLElement>('[data-tab-id="a"]')!;
+      return el.offsetLeft + translateXOf(el.style.transform);
+    };
+    // Invariant that must hold at every point during the drag: the cursor stays
+    // exactly `grabOffsetWithinTab` px from the dragged tab's left edge, no matter how
+    // many swaps against differently-sized neighbors have happened in between.
+    const expectGlued = (clientX: number) => {
+      fireEvent.pointerMove(document, { clientX });
+      expect(draggedScreenLeft()).toBeCloseTo(clientX - grabOffsetWithinTab, 5);
+    };
+
+    const el = document.querySelector('[data-tab-id="a"]')!;
+    fireEvent.pointerDown(el, { button: 0, clientX: grabClientX });
+
+    expectGlued(290); // past the wide 'a' and narrow 'b', nearing 'c'
+    expectGlued(400); // past 'c' and 'd' too — several uneven-width swaps by now
+    expectGlued(150); // back left again, re-crossing the same uneven neighbors
+
+    fireEvent.pointerUp(document);
+    // Sanity: real reordering did happen, this isn't a no-op.
+    expect(harness.moveTab.mock.calls.length).toBeGreaterThan(1);
   });
 });
