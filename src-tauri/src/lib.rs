@@ -10,7 +10,8 @@ use std::sync::{
 
 use commands::connection::{
     connect, create_database, delete_connection, disconnect, drop_database, list_databases,
-    load_connections, save_connection, switch_database, test_connection, update_connection, AppState,
+    load_connections, reorder_connections, save_connection, switch_database, test_connection,
+    update_connection, AppState,
 };
 use commands::dump::{export_database_dump, import_sql_dump};
 use commands::editor::{
@@ -154,6 +155,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             load_connections,
+            reorder_connections,
             save_connection,
             update_connection,
             delete_connection,

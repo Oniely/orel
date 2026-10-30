@@ -278,17 +278,41 @@ fn configured_default_database(config: &SavedConnection) -> Option<&str> {
 
 // ── Commands ──────────────────────────────────────────────────────────────────
 
+async fn load_connections_from(db: &SqlitePool) -> Result<Vec<SavedConnection>, String> {
+    sqlx::query_as::<_, SavedConnection>(
+        "SELECT * FROM connections ORDER BY sort_order ASC, created_at DESC",
+    )
+    .fetch_all(db)
+    .await
+    .map_err(|e| e.to_string())
+}
+
+async fn reorder_connections_in(db: &SqlitePool, ids: &[String]) -> Result<(), String> {
+    let mut tx = db.begin().await.map_err(|e| e.to_string())?;
+    for (index, id) in ids.iter().enumerate() {
+        sqlx::query("UPDATE connections SET sort_order = ? WHERE id = ?")
+            .bind(index as i64)
+            .bind(id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| e.to_string())?;
+    }
+    tx.commit().await.map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub async fn load_connections(
     state: tauri::State<'_, AppState>,
 ) -> Result<Vec<SavedConnection>, String> {
-    let connections =
-        sqlx::query_as::<_, SavedConnection>("SELECT * FROM connections ORDER BY created_at DESC")
-            .fetch_all(&state.db)
-            .await
-            .map_err(|e| e.to_string())?;
+    load_connections_from(&state.db).await
+}
 
-    Ok(connections)
+#[tauri::command]
+pub async fn reorder_connections(
+    state: tauri::State<'_, AppState>,
+    ids: Vec<String>,
+) -> Result<(), String> {
+    reorder_connections_in(&state.db, &ids).await
 }
 
 #[tauri::command]
@@ -296,7 +320,8 @@ pub async fn save_connection(
     state: tauri::State<'_, AppState>,
     config: SavedConnection,
 ) -> Result<(), String> {
-    sqlx::query("INSERT INTO connections (id, name, type, host, port, username, password, ssl, default_database, color, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+    // New connections go to the top of the list, matching the old created_at DESC order.
+    sqlx::query("INSERT INTO connections (id, name, type, host, port, username, password, ssl, default_database, color, created_at, updated_at, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MIN(sort_order), 0) - 1 FROM connections))")
         .bind(config.id)
         .bind(config.name)
         .bind(config.db_type)

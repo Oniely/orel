@@ -74,6 +74,19 @@ export function useDeleteConnection() {
   });
 }
 
+// Persist the saved-connection order (the list is already reordered in the store)
+export function useReorderConnections() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (ids: string[]) => invoke("reorder_connections", { ids }),
+    onError: (error) => {
+      queryClient.invalidateQueries({ queryKey: ["connections"] });
+      toast.danger(getErrorMessage(error, "Failed to reorder connections"));
+    },
+  });
+}
+
 // Test a connection without saving
 export function useTestConnection() {
   return useMutation({

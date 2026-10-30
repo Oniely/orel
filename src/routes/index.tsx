@@ -6,7 +6,7 @@ import { ConnectionModal } from "../components/ConnectionModal";
 import { useDeleteConnection, useLoadConnections } from "../hooks/useConnections";
 import { useConnectionStore } from "../stores/connection.store";
 import type { SavedConnection } from "../types/connection";
-import ConnectionRow from "../components/ConnectionManager/ConnectionRow";
+import { ConnectionList } from "../components/ConnectionManager/ConnectionList";
 import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
 import { SettingsButton } from "../components/SettingsButton";
 import { GrMysql } from "react-icons/gr";
@@ -145,9 +145,7 @@ function ConnectionManager() {
         {!isLoading && savedConnections.length > 0 && (
           <div className="flex flex-col gap-2">
             <p className="text-xs font-medium text-muted uppercase tracking-wide mb-2">Saved connections</p>
-            {savedConnections.map((conn) => (
-              <ConnectionRow key={conn.id} connection={conn} onEdit={handleEdit} onDelete={setDeletingConnection} />
-            ))}
+            <ConnectionList onEdit={handleEdit} onDelete={setDeletingConnection} />
           </div>
         )}
       </div>
