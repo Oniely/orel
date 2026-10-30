@@ -2,7 +2,7 @@ import { useRef, useState } from "react";
 import { Button, Dropdown, Label, Separator, Spinner, toast, ToggleButton } from "@heroui/react";
 import { open } from "@tauri-apps/plugin-dialog";
 import type { SavedConnection } from "../../../types/connection";
-import type { ImportError } from "../../../types/dump";
+import type { ImportSummary } from "../../../types/dump";
 import {
   ArrowClockwiseIcon,
   ArrowLineDownIcon,
@@ -28,7 +28,7 @@ import { useDashboardCommands } from "../../../hooks/dashboard/useDashboardComma
 import { useActiveTable } from "../../../hooks/dashboard/useActiveTable";
 import { useImportDump } from "../../../hooks/useDump";
 import { ExportDumpModal } from "./ExportDumpModal";
-import { ImportErrorModal } from "./ImportErrorModal";
+import { ImportResultModal } from "./ImportResultModal";
 import { CreateDatabaseModal } from "./CreateDatabaseModal";
 import { DeleteDatabaseModal } from "./DeleteDatabaseModal";
 
@@ -48,7 +48,7 @@ export function Header() {
   const isConnecting = Object.values(activeConnections).some((c) => c.status === "connecting");
   const importDump = useImportDump();
   const [exportModalOpen, setExportModalOpen] = useState(false);
-  const [importError, setImportError] = useState<ImportError | null>(null);
+  const [importSummary, setImportSummary] = useState<ImportSummary | null>(null);
   const [createDatabaseModalOpen, setCreateDatabaseModalOpen] = useState(false);
   const [deleteDatabaseTarget, setDeleteDatabaseTarget] = useState<string | null>(null);
   // Pointerdown on the per-row delete icon sets this before react-aria's Menu
@@ -86,13 +86,16 @@ export function Header() {
       { connectionId: connection.config.id, filePath },
       {
         onSuccess: (summary) => {
+          commands.refresh();
+          if (summary.statementsFailed > 0) {
+            // A failed MySQL import can still leave tables behind (DDL auto-commits)
+            setImportSummary(summary);
+            return;
+          }
           toast.success(`Import complete — ${summary.statementsExecuted.toLocaleString()} statements executed`);
-          commands.refresh();
         },
-        onError: (error) => {
-          setImportError(error);
-          // A failed MySQL import can still leave tables behind (DDL auto-commits)
-          commands.refresh();
+        onError: (message) => {
+          toast.danger(message);
         },
       },
     );
@@ -301,10 +304,10 @@ export function Header() {
         databaseName={deleteDatabaseTarget}
         onClose={() => setDeleteDatabaseTarget(null)}
       />
-      <ImportErrorModal
-        error={importError}
+      <ImportResultModal
+        summary={importSummary}
         isMySql={connection.config.type === "mysql"}
-        onClose={() => setImportError(null)}
+        onClose={() => setImportSummary(null)}
       />
     </div>
   );
