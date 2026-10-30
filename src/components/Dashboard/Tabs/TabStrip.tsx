@@ -27,8 +27,10 @@ export function TabStrip() {
   // Whether the pointer has actually moved since mousedown; a drag-and-release
   // shouldn't also fire the subsequent click as a tab activation.
   const draggedPastThresholdRef = useRef(false);
-  // Positions of each tab from the previous render, used to FLIP-animate reorders.
-  const prevRectsRef = useRef<Map<string, DOMRect>>(new Map());
+  // Layout-only left positions (offsetLeft) from the previous render, used both to
+  // FLIP-animate sibling reorders and to correct the dragged tab's own cursor anchor
+  // once a reorder actually lands (see the layout effect below).
+  const prevLeftsRef = useRef<Map<string, number>>(new Map());
   // `commands` is a new object every render; read it through a ref so the drag
   // effect below doesn't tear down and resubscribe its document listeners on every
   // single pointermove (which re-renders via setDragOffsetX).
@@ -64,12 +66,12 @@ export function TabStrip() {
 
       const targetId = computeDragReorderTarget(slots, drag.id, draggedCenter);
       if (targetId) {
-        const targetSlot = slots.find((slot) => slot.id === targetId)!;
-        // The dragged tab is about to land roughly where the target tab currently sits.
-        // Shift the anchor by that same delta so the next offset calculation keeps the
-        // tab under the cursor instead of jumping by the width of every tab it passes.
-        const dx = targetSlot.left - draggedSlot.left;
-        drag.anchorX += dx;
+        // Don't try to predict the dragged tab's new resting position here (e.g. "it'll
+        // land where the target used to be") — with tabs of different widths that's
+        // only ever a guess, and the error compounds with every swap during a long
+        // drag, dragging the tab progressively farther from the cursor. The anchor
+        // gets corrected for real once the reorder lands, in the FLIP effect below,
+        // using the dragged tab's actual measured position.
         commandsRef.current.moveTab(drag.id, targetId);
       }
 
@@ -122,26 +124,35 @@ export function TabStrip() {
   }, [activeTabId, showInspector]);
 
   // FLIP animation: when tabs reorder, slide each one from its old slot into its new
-  // one instead of popping, like a browser tab strip.
+  // one instead of popping, like a browser tab strip. Also corrects the dragged tab's
+  // own cursor anchor by the *real* measured shift, instead of guessing it up front —
+  // with unevenly-sized tabs a guess drifts further from the cursor with every swap.
   useLayoutEffect(() => {
     const strip = stripRef.current;
     if (!strip) return;
     const elements = Array.from(strip.querySelectorAll<HTMLElement>("[data-tab-id]"));
-    const nextRects = new Map<string, DOMRect>();
+    const nextLefts = new Map<string, number>();
 
     elements.forEach((el) => {
-      const id = el.dataset.tabId!;
-      nextRects.set(id, el.getBoundingClientRect());
+      nextLefts.set(el.dataset.tabId!, el.offsetLeft);
     });
 
     elements.forEach((el) => {
       const id = el.dataset.tabId!;
-      if (id === draggingId) return;
-      const prev = prevRectsRef.current.get(id);
-      const next = nextRects.get(id);
-      if (!prev || !next) return;
-      const dx = prev.left - next.left;
+      const prev = prevLeftsRef.current.get(id);
+      const next = nextLefts.get(id);
+      if (prev === undefined || next === undefined) return;
+      const dx = prev - next;
       if (!dx) return;
+
+      if (id === draggingId) {
+        const drag = dragRef.current;
+        if (!drag) return;
+        drag.anchorX -= dx;
+        setDragOffsetX((current) => current + dx);
+        return;
+      }
+
       el.style.transition = "none";
       el.style.transform = `translateX(${dx}px)`;
       requestAnimationFrame(() => {
@@ -150,7 +161,7 @@ export function TabStrip() {
       });
     });
 
-    prevRectsRef.current = nextRects;
+    prevLeftsRef.current = nextLefts;
   }, [openTabs, draggingId]);
 
   return (
