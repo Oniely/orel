@@ -4,7 +4,7 @@ import { useDashboardCommands } from "../../../hooks/dashboard/useDashboardComma
 import { useDashboardContext } from "../../../hooks/dashboard/useDashboardContext";
 
 export function SqlWorkspace() {
-  const { connectionId, databaseKey, openTabs, activeTab } = useDashboardContext();
+  const { connectionId, databaseKey, activeDatabase, openTabs, activeTab } = useDashboardContext();
   const commands = useDashboardCommands();
   const updateSql = useDashboardStore((state) => state.updateSql);
   const updateEditorState = useDashboardStore((state) => state.updateEditorState);
@@ -27,6 +27,7 @@ export function SqlWorkspace() {
       key={activeTab.id}
       editorId={activeTab.id}
       connectionId={connectionId ?? ""}
+      database={activeDatabase}
       sql={activeTab.sql}
       state={activeTab.editorState}
       onSqlChange={(sql) => updateSql(databaseKey, activeTab.id, sql)}
