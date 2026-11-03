@@ -36,7 +36,8 @@ export function useActiveTable() {
     page: pagination.page,
     limit: pagination.limit,
     setPage: (p: number) => setPage(scopeKey, p),
-    isLoading: rowsQuery.isLoading || rowsQuery.isFetching,
+    // Only blank the grid on first load; background refetches (save, refresh) swap rows in place
+    isLoading: rowsQuery.isLoading,
     error: rowsQuery.error ? getErrorMessage(rowsQuery.error, "Failed to load rows") : null,
     writeQueue,
   };
