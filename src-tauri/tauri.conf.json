@@ -25,7 +25,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["deb", "appimage", "dmg", "app", "msi"],
     "createUpdaterArtifacts": true,
     "macOS": {
       "signingIdentity": "-"
