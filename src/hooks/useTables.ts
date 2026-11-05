@@ -60,6 +60,22 @@ export function useListTables(connectionId: string | null, database: string | nu
   });
 }
 
+export function useDropTables() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ connectionId, tables }: { connectionId: string; database: string; tables: string[] }) =>
+      invoke("drop_tables", { connectionId, tables }),
+    onSuccess: (_, { connectionId, database }) => {
+      void queryClient.invalidateQueries({ queryKey: databaseQueryKeys.tables(connectionId, database) });
+      // Other tables' foreign keys may have pointed at the dropped ones
+      void queryClient.invalidateQueries({
+        queryKey: databaseQueryKeys.tableForeignKeysForDatabase(connectionId, database),
+      });
+    },
+  });
+}
+
 export function useFetchTableDdl(connectionId: string | null, database: string | null, table: string | null) {
   return useQuery({
     queryKey: databaseQueryKeys.tableDdl(connectionId, database, table),

@@ -18,7 +18,7 @@ use commands::editor::{
     begin_editor_transaction, commit_editor_transaction, discard_editor_session,
     execute_editor_sql, rollback_editor_transaction,
 };
-use commands::query::{fetch_rows, list_tables};
+use commands::query::{drop_tables, fetch_rows, list_tables};
 use commands::foreign_keys::{apply_foreign_key_changes, fetch_table_foreign_keys};
 use commands::indexes::{apply_index_changes, fetch_table_indexes};
 use commands::structure::{apply_structure_changes, fetch_table_ddl, fetch_table_structure};
@@ -167,6 +167,7 @@ pub fn run() {
             drop_database,
             switch_database,
             list_tables,
+            drop_tables,
             fetch_rows,
             fetch_table_ddl,
             fetch_table_structure,
