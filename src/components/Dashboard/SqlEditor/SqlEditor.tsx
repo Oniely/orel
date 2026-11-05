@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Editor, { type OnMount, type Monaco } from "@monaco-editor/react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Button, Kbd, Spinner, toast } from "@heroui/react";
 import {
   CaretDownIcon,
@@ -24,6 +25,7 @@ import {
 import type { SqlEditorState } from "../../../types/editor";
 import { EditorResultGrid } from "./EditorResultGrid";
 import { usePlatform } from "../../../hooks/dashboard/useDashboardHotkeys";
+import { ensureSqlCompletionProvider, setSqlCompletionContext } from "../../../lib/sqlCompletions";
 
 export interface SqlEditorCommands {
   closeTab: () => void;
@@ -36,6 +38,7 @@ export interface SqlEditorCommands {
 interface SqlEditorProps {
   editorId: string;
   connectionId: string;
+  database: string | null;
   sql: string;
   state: SqlEditorState;
   onSqlChange: (sql: string) => void;
@@ -50,6 +53,7 @@ const DEFAULT_RESULT_HEIGHT = 360;
 export function SqlEditor({
   editorId,
   connectionId,
+  database,
   sql,
   state,
   onSqlChange,
@@ -76,6 +80,11 @@ export function SqlEditor({
   const [resultCollapsed, setResultCollapsed] = useState(false);
 
   const os = usePlatform();
+  const queryClient = useQueryClient();
+
+  useEffect(() => {
+    setSqlCompletionContext({ queryClient, connectionId, database });
+  }, [queryClient, connectionId, database]);
 
   const executeSql = useExecuteEditorSql();
   const beginTransaction = useBeginEditorTransaction();
@@ -194,6 +203,7 @@ export function SqlEditor({
   const handleMount: OnMount = (editorInstance, monaco) => {
     editorRef.current = editorInstance;
     monacoRef.current = monaco;
+    ensureSqlCompletionProvider(monaco);
     setEditorTheme(buildOrelTheme(monaco, currentTheme.colors, currentTheme.isDark));
     const captureViewState = () => {
       const selection = editorInstance.getSelection();
