@@ -189,6 +189,46 @@ pub async fn list_tables(
     fetch_tables(&pool).await
 }
 
+#[tauri::command]
+pub async fn drop_tables(
+    connection_id: String,
+    tables: Vec<String>,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let pool = {
+        let pools = state.pools.lock().unwrap();
+        pools
+            .get(&connection_id)
+            .ok_or_else(|| "Connection not found".to_string())?
+            .clone()
+    };
+
+    drop_tables_on_pool(&pool, &tables).await
+}
+
+// One statement on Postgres/MySQL so foreign keys between the dropped tables don't block it.
+pub(crate) async fn drop_tables_on_pool(pool: &DbPool, tables: &[String]) -> Result<(), String> {
+    if tables.is_empty() {
+        return Err("No tables selected".to_string());
+    }
+    let dialect = pool.dialect();
+    let quoted: Vec<String> = tables.iter().map(|t| dialect.quote(t)).collect();
+
+    match pool {
+        DbPool::Postgres(_) | DbPool::MySql(_) => pool
+            .execute(&format!("DROP TABLE {}", quoted.join(", ")))
+            .await
+            .map(|_| ())
+            .map_err(|e| e.to_string()),
+        // SQLite drops one table per statement; defer FK checks to commit so order doesn't matter.
+        DbPool::Sqlite(_) => {
+            let mut stmts = vec!["PRAGMA defer_foreign_keys = ON".to_string()];
+            stmts.extend(quoted.iter().map(|q| format!("DROP TABLE {q}")));
+            pool.execute_in_transaction(&stmts).await.map_err(|e| e.to_string())
+        }
+    }
+}
+
 pub(crate) async fn fetch_tables(pool: &DbPool) -> Result<Vec<TableInfo>, String> {
     match pool {
         DbPool::Postgres(pg) => {
@@ -478,7 +518,7 @@ pub async fn fetch_rows(
 #[cfg(test)]
 mod tests {
     use super::super::sql_util::mysql_utf8_literal;
-    use super::parse_json_rows;
+    use super::{drop_tables_on_pool, fetch_tables, parse_json_rows};
     use serde_json::json;
 
     #[test]
@@ -494,6 +534,54 @@ mod tests {
         let rows = parse_json_rows(vec!["{\"id\":1}".to_string(), "{\"id\":2}".to_string()]);
 
         assert_eq!(rows.unwrap(), vec![json!({ "id": 1 }), json!({ "id": 2 })]);
+    }
+
+    async fn sqlite_with_fk_tables() -> crate::commands::connection::DbPool {
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        for sql in [
+            "PRAGMA foreign_keys = ON",
+            "CREATE TABLE parent (id INTEGER PRIMARY KEY)",
+            "CREATE TABLE child (id INTEGER PRIMARY KEY, parent_id INTEGER REFERENCES parent(id))",
+            "CREATE TABLE other (id INTEGER PRIMARY KEY)",
+            "INSERT INTO parent VALUES (1)",
+            "INSERT INTO child VALUES (1, 1)",
+        ] {
+            sqlx::query(sql).execute(&pool).await.unwrap();
+        }
+        crate::commands::connection::DbPool::Sqlite(pool)
+    }
+
+    #[tokio::test]
+    async fn sqlite_drops_tables_linked_by_foreign_keys_in_any_order() {
+        let pool = sqlite_with_fk_tables().await;
+
+        drop_tables_on_pool(&pool, &["parent".to_string(), "child".to_string()])
+            .await
+            .unwrap();
+
+        let names: Vec<String> =
+            fetch_tables(&pool).await.unwrap().into_iter().map(|t| t.name).collect();
+        assert_eq!(names, vec!["other"]);
+    }
+
+    #[tokio::test]
+    async fn sqlite_rolls_back_when_a_drop_breaks_a_foreign_key() {
+        let pool = sqlite_with_fk_tables().await;
+
+        let result = drop_tables_on_pool(&pool, &["other".to_string(), "parent".to_string()]).await;
+
+        assert!(result.is_err());
+        assert_eq!(fetch_tables(&pool).await.unwrap().len(), 3);
+    }
+
+    #[tokio::test]
+    async fn rejects_empty_table_list() {
+        let pool = sqlite_with_fk_tables().await;
+        assert!(drop_tables_on_pool(&pool, &[]).await.is_err());
     }
 
     #[test]
