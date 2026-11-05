@@ -43,7 +43,7 @@ export function TableContextMenu({ x, y, count, isStaged, onStageDelete, onUndoD
           onClick={onUndoDelete}
           className="w-full flex items-center gap-2.5 px-3 py-[7px] text-xs text-foreground hover:bg-surface-secondary transition-colors"
         >
-          <ArrowCounterClockwiseIcon size={13} weight="fill" className="text-muted shrink-0" />
+          <ArrowCounterClockwiseIcon size={12} weight="bold" className="text-muted shrink-0" />
           Undo delete
         </button>
       ) : (
@@ -51,7 +51,7 @@ export function TableContextMenu({ x, y, count, isStaged, onStageDelete, onUndoD
           onClick={onStageDelete}
           className="w-full flex items-center gap-2.5 px-3 py-[7px] text-xs text-danger hover:bg-surface-secondary transition-colors"
         >
-          <TrashIcon size={13} weight="fill" className="shrink-0" />
+          <TrashIcon size={12} weight="bold" className="shrink-0" />
           Delete {label}
         </button>
       )}
