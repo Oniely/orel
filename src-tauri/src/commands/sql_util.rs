@@ -88,7 +88,12 @@ impl DbPool {
     /// a dump's own LOCK TABLES / START TRANSACTION / COMMIT still apply to
     /// each other instead of landing on whichever connection the pool hands
     /// out next. Returns the (index, error) of every statement that failed.
-    pub async fn execute_continue_on_error(&self, stmts: &[String]) -> Vec<(usize, sqlx::Error)> {
+    /// `on_statement` runs after each statement with its index and error, if any.
+    pub async fn execute_continue_on_error(
+        &self,
+        stmts: &[String],
+        mut on_statement: impl FnMut(usize, Option<&sqlx::Error>),
+    ) -> Vec<(usize, sqlx::Error)> {
         macro_rules! run_all {
             ($pool:expr) => {
                 run_all!($pool, sqlx::query)
@@ -100,8 +105,12 @@ impl DbPool {
                 };
                 let mut errors = Vec::new();
                 for (index, stmt) in stmts.iter().enumerate() {
-                    if let Err(source) = $query(sqlx::AssertSqlSafe(stmt.as_str())).execute(&mut *conn).await {
-                        errors.push((index, source));
+                    match $query(sqlx::AssertSqlSafe(stmt.as_str())).execute(&mut *conn).await {
+                        Ok(_) => on_statement(index, None),
+                        Err(source) => {
+                            on_statement(index, Some(&source));
+                            errors.push((index, source));
+                        }
                     }
                 }
                 errors

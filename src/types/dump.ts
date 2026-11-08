@@ -23,3 +23,11 @@ export interface ImportSummary {
   /** Every statement that failed; import keeps going past failures */
   errors: ImportError[];
 }
+
+/** Sent over a Channel while an import runs; mirrors the Rust ImportProgress */
+export interface ImportProgress {
+  done: number;
+  total: number;
+  /** Set when the statement that just ran failed */
+  error: ImportError | null;
+}

@@ -123,7 +123,7 @@ async fn sqlite_round_trip_keeps_schema_data_and_views() {
     assert!(dump.find("CREATE TABLE users").unwrap() < dump.find("CREATE TABLE orders").unwrap());
 
     let (target, target_pool) = sqlite_memory().await;
-    let imported = import_dump(&target, &path).await.unwrap();
+    let imported = import_dump(&target, &path, |_| {}).await.unwrap();
     assert_eq!(imported.tables_affected, 2);
 
     let rows = |pool: sqlx::SqlitePool| async move {
@@ -165,12 +165,12 @@ async fn sqlite_circular_foreign_keys_fail_without_writing_a_file() {
 #[tokio::test]
 async fn import_reports_missing_and_empty_files() {
     let (db, _pool) = sqlite_memory().await;
-    let err = import_dump(&db, &dump_path("does-not-exist")).await.unwrap_err();
+    let err = import_dump(&db, &dump_path("does-not-exist"), |_| {}).await.unwrap_err();
     assert!(err.starts_with("Couldn't read"));
 
     let path = dump_path("comments-only");
     std::fs::write(&path, "-- nothing to run;\n/* ; */\n").unwrap();
-    let err = import_dump(&db, &path).await.unwrap_err();
+    let err = import_dump(&db, &path, |_| {}).await.unwrap_err();
     assert!(err.contains("doesn't contain any SQL statements"));
     std::fs::remove_file(&path).unwrap();
 }
@@ -189,7 +189,7 @@ async fn import_continues_past_failures_and_reports_every_one() {
     )
     .unwrap();
 
-    let summary = import_dump(&db, &path).await.unwrap();
+    let summary = import_dump(&db, &path, |_| {}).await.unwrap();
     assert_eq!(summary.statements_executed, 3);
     assert_eq!(summary.statements_failed, 2);
     assert_eq!(summary.errors.len(), 2);
@@ -200,6 +200,29 @@ async fn import_continues_past_failures_and_reports_every_one() {
 
     let ids: Vec<i64> = sqlx::query_scalar("SELECT id FROM users ORDER BY id").fetch_all(&pool).await.unwrap();
     assert_eq!(ids, vec![1, 2]);
+    std::fs::remove_file(&path).unwrap();
+}
+
+#[tokio::test]
+async fn import_reports_progress_per_statement_with_failures() {
+    let (db, _pool) = sqlite_memory().await;
+    let path = dump_path("sqlite-progress");
+    std::fs::write(
+        &path,
+        "CREATE TABLE users (id INTEGER PRIMARY KEY);\n\
+         INSERT INTO missing_table (id) VALUES (1);\n\
+         INSERT INTO users (id) VALUES (1);\n",
+    )
+    .unwrap();
+
+    let mut events = Vec::new();
+    import_dump(&db, &path, |p| events.push(p)).await.unwrap();
+    let done: Vec<(u32, u32)> = events.iter().map(|p| (p.done, p.total)).collect();
+    assert_eq!(done, vec![(1, 3), (2, 3), (3, 3)]);
+    assert!(events[0].error.is_none() && events[2].error.is_none());
+    let error = events[1].error.as_ref().unwrap();
+    assert_eq!(error.line, Some(2));
+    assert!(error.message.contains("missing_table"), "{}", error.message);
     std::fs::remove_file(&path).unwrap();
 }
 
@@ -261,7 +284,7 @@ async fn postgres_round_trip_with_circular_foreign_keys() {
     assert_eq!((summary.tables_exported, summary.views_exported, summary.rows_exported), (2, 1, 4));
 
     let (target, target_pool) = pg_database(&admin, &base, "target_db").await;
-    import_dump(&target, &path).await.unwrap();
+    import_dump(&target, &path, |_| {}).await.unwrap();
     assert_eq!(pg_snapshot(&source_pool).await, pg_snapshot(&target_pool).await);
 
     // Sequences continue after the imported ids
@@ -297,7 +320,7 @@ async fn postgres_round_trip_with_enum_type() {
     assert!(dump.find("CREATE TYPE").unwrap() < dump.find("CREATE TABLE").unwrap());
 
     let (target, target_pool) = pg_database(&admin, &base, "enum_target_db").await;
-    import_dump(&target, &path).await.unwrap();
+    import_dump(&target, &path, |_| {}).await.unwrap();
 
     let rows: Vec<(String, String)> =
         sqlx::query_as("SELECT name, status::text FROM accounts ORDER BY id").fetch_all(&target_pool).await.unwrap();
@@ -319,7 +342,7 @@ async fn postgres_import_continues_past_a_mysql_statement_and_reports_it() {
     )
     .unwrap();
 
-    let summary = import_dump(&admin, &path).await.unwrap();
+    let summary = import_dump(&admin, &path, |_| {}).await.unwrap();
     assert_eq!(summary.statements_executed, 1);
     assert_eq!(summary.statements_failed, 1);
     let err = &summary.errors[0];
@@ -388,7 +411,7 @@ async fn mysql_round_trip_with_circular_foreign_keys() {
     assert_eq!((summary.tables_exported, summary.views_exported, summary.rows_exported), (2, 1, 4));
 
     let (target, target_pool) = mysql_database(&host, port, "restored").await;
-    import_dump(&target, &path).await.unwrap();
+    import_dump(&target, &path, |_| {}).await.unwrap();
     assert_eq!(mysql_snapshot(&source_pool).await, mysql_snapshot(&target_pool).await);
 
     // AUTO_INCREMENT continues after the imported ids
@@ -419,7 +442,7 @@ async fn mysql_imports_dumps_with_statements_the_prepared_protocol_rejects() {
         COMMIT;\n\
         SET FOREIGN_KEY_CHECKS=1;\n").unwrap();
 
-    import_dump(&target, &path).await.unwrap();
+    import_dump(&target, &path, |_| {}).await.unwrap();
     let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM pets").fetch_one(&target_pool).await.unwrap();
     assert_eq!(count, 2);
     std::fs::remove_file(&path).unwrap();
