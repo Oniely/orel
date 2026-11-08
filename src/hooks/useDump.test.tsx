@@ -1,11 +1,17 @@
-import { renderHook, waitFor } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
-import { invoke } from "@tauri-apps/api/core";
+import { type Channel, invoke } from "@tauri-apps/api/core";
 import type { ReactNode } from "react";
+import type { ImportProgress } from "../types/dump";
 import { useImportDump } from "./useDump";
 
-vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: vi.fn(),
+  Channel: class {
+    constructor(public onmessage: (message: unknown) => void) {}
+  },
+}));
 
 const invokeMock = vi.mocked(invoke);
 
@@ -46,5 +52,23 @@ describe("useImportDump", () => {
     result.current.mutate({ connectionId: "c1", filePath: "/tmp/x.sql" });
     await waitFor(() => expect(result.current.isError).toBe(true));
     expect(result.current.error).toBe("Import failed");
+  });
+
+  it("collects live progress and errors from the channel", async () => {
+    let resolve: (summary: unknown) => void = () => {};
+    invokeMock.mockImplementationOnce(() => new Promise((r) => (resolve = r)));
+    const { result } = renderHook(() => useImportDump(), { wrapper });
+
+    result.current.mutate({ connectionId: "c1", filePath: "/tmp/x.sql" });
+    await waitFor(() => expect(invokeMock).toHaveBeenCalled());
+    const { onProgress } = invokeMock.mock.lastCall![1] as { onProgress: Channel<ImportProgress> };
+    const error = { message: "boom", line: 2, snippet: "INSERT", hint: null };
+    act(() => {
+      onProgress.onmessage({ done: 1, total: 3, error: null });
+      onProgress.onmessage({ done: 2, total: 3, error });
+    });
+    expect(result.current.progress).toEqual({ done: 2, total: 3, errors: [error] });
+    resolve({ statementsExecuted: 2, statementsFailed: 1, tablesAffected: 0, errors: [error] });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
   });
 });

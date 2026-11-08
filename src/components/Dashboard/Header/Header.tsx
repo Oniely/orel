@@ -1,8 +1,6 @@
 import { useRef, useState } from "react";
 import { Button, Dropdown, Label, Separator, Spinner, toast, ToggleButton } from "@heroui/react";
-import { open } from "@tauri-apps/plugin-dialog";
 import type { SavedConnection } from "../../../types/connection";
-import type { ImportSummary } from "../../../types/dump";
 import {
   ArrowClockwiseIcon,
   ArrowLineDownIcon,
@@ -26,9 +24,8 @@ import { useDashboardStore } from "../../../stores/dashboard.store";
 import { useDashboardContext } from "../../../hooks/dashboard/useDashboardContext";
 import { useDashboardCommands } from "../../../hooks/dashboard/useDashboardCommands";
 import { useActiveTable } from "../../../hooks/dashboard/useActiveTable";
-import { useImportDump } from "../../../hooks/useDump";
 import { ExportDumpModal } from "./ExportDumpModal";
-import { ImportResultModal } from "./ImportResultModal";
+import { ImportDumpModal } from "./ImportDumpModal";
 import { CreateDatabaseModal } from "./CreateDatabaseModal";
 import { DeleteDatabaseModal } from "./DeleteDatabaseModal";
 
@@ -46,9 +43,8 @@ export function Header() {
   const { savedConnections, activeConnections, setFocusedConnection, closeConnection } = useConnectionStore();
   const connect = useConnect();
   const isConnecting = Object.values(activeConnections).some((c) => c.status === "connecting");
-  const importDump = useImportDump();
   const [exportModalOpen, setExportModalOpen] = useState(false);
-  const [importSummary, setImportSummary] = useState<ImportSummary | null>(null);
+  const [importModalOpen, setImportModalOpen] = useState(false);
   const [createDatabaseModalOpen, setCreateDatabaseModalOpen] = useState(false);
   const [deleteDatabaseTarget, setDeleteDatabaseTarget] = useState<string | null>(null);
   // Pointerdown on the per-row delete icon sets this before react-aria's Menu
@@ -74,31 +70,6 @@ export function Header() {
         toast.danger(`Failed to connect: ${conn.name}`);
       },
     });
-  };
-
-  const handleImport = async () => {
-    const filePath = await open({
-      multiple: false,
-      filters: [{ name: "SQL", extensions: ["sql"] }],
-    });
-    if (!filePath) return;
-    importDump.mutate(
-      { connectionId: connection.config.id, filePath },
-      {
-        onSuccess: (summary) => {
-          commands.refresh();
-          if (summary.statementsFailed > 0) {
-            // A failed MySQL import can still leave tables behind (DDL auto-commits)
-            setImportSummary(summary);
-            return;
-          }
-          toast.success(`Import complete — ${summary.statementsExecuted.toLocaleString()} statements executed`);
-        },
-        onError: (message) => {
-          toast.danger(message);
-        },
-      },
-    );
   };
 
   return (
@@ -262,10 +233,9 @@ export function Header() {
           size="sm"
           variant="outline"
           className="flex items-center gap-1.5 text-xs"
-          isDisabled={importDump.isPending}
-          onClick={handleImport}
+          onClick={() => setImportModalOpen(true)}
         >
-          {importDump.isPending ? <Spinner size="sm" color="current" /> : <ArrowLineDownIcon className="size-3" weight="bold" />}
+          <ArrowLineDownIcon className="size-3" weight="bold" />
           Import
         </Button>
 
@@ -304,10 +274,12 @@ export function Header() {
         databaseName={deleteDatabaseTarget}
         onClose={() => setDeleteDatabaseTarget(null)}
       />
-      <ImportResultModal
-        summary={importSummary}
+      <ImportDumpModal
+        isOpen={importModalOpen}
+        connectionId={connection.config.id}
         isMySql={connection.config.type === "mysql"}
-        onClose={() => setImportSummary(null)}
+        onImported={commands.refresh}
+        onClose={() => setImportModalOpen(false)}
       />
     </div>
   );

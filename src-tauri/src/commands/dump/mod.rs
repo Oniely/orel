@@ -56,6 +56,16 @@ pub struct ImportError {
     pub hint: Option<String>,
 }
 
+/// Sent to the frontend while an import runs.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportProgress {
+    pub done: u32,
+    pub total: u32,
+    /// The statement that just failed, so errors show up as they happen.
+    pub error: Option<ImportError>,
+}
+
 /// One base table, as each dialect module describes it for the export.
 struct TableDump {
     /// CREATE TABLE, then any CREATE INDEX statements.
@@ -364,6 +374,7 @@ fn order_views(mut pending: Vec<(String, String)>) -> Vec<String> {
 pub async fn import_sql_dump(
     connection_id: String,
     file_path: String,
+    on_progress: tauri::ipc::Channel<ImportProgress>,
     state: tauri::State<'_, AppState>,
 ) -> Result<ImportSummary, String> {
     let pool = {
@@ -374,7 +385,15 @@ pub async fn import_sql_dump(
             .clone()
     };
 
-    import_dump(&pool, &file_path).await
+    // Throttled so big dumps don't flood the IPC bridge; failures and the last statement always send
+    let mut last_sent = std::time::Instant::now();
+    import_dump(&pool, &file_path, |progress| {
+        if progress.error.is_some() || progress.done == progress.total || last_sent.elapsed().as_millis() >= 100 {
+            last_sent = std::time::Instant::now();
+            let _ = on_progress.send(progress);
+        }
+    })
+    .await
 }
 
 /// Runs every statement in the file, continuing past failures so one bad
@@ -385,7 +404,11 @@ pub async fn import_sql_dump(
 /// tables created around it behind either way; the other dialects behave the
 /// same way now since statements run outside a shared transaction too.
 /// The file is read into memory whole; multi-GB dumps are a known v1 limitation.
-pub(crate) async fn import_dump(pool: &DbPool, file_path: &str) -> Result<ImportSummary, String> {
+pub(crate) async fn import_dump(
+    pool: &DbPool,
+    file_path: &str,
+    mut on_progress: impl FnMut(ImportProgress),
+) -> Result<ImportSummary, String> {
     let sql = tokio::fs::read_to_string(file_path)
         .await
         .map_err(|e| format!("Couldn't read {file_path}: {e}"))?;
@@ -398,20 +421,28 @@ pub(crate) async fn import_dump(pool: &DbPool, file_path: &str) -> Result<Import
         return Err("The file doesn't contain any SQL statements.".to_string());
     }
 
-    let failures = pool.execute_continue_on_error(&statements).await;
-    let failed: HashSet<usize> = failures.iter().map(|(index, _)| *index).collect();
-    let errors: Vec<ImportError> = failures
-        .into_iter()
-        .map(|(index, source)| {
-            let raw_message = source.to_string();
-            ImportError {
-                message: strip_misleading_source_line(&raw_message).to_string(),
-                line: Some(lines[index]),
-                snippet: Some(snippet(&statements[index])),
-                hint: dialect_mismatch_hint(dialect, &statements[index]).or_else(|| undefined_type_hint(&raw_message)),
-            }
+    let to_import_error = |index: usize, source: &sqlx::Error| {
+        let raw_message = source.to_string();
+        ImportError {
+            message: strip_misleading_source_line(&raw_message).to_string(),
+            line: Some(lines[index]),
+            snippet: Some(snippet(&statements[index])),
+            hint: dialect_mismatch_hint(dialect, &statements[index]).or_else(|| undefined_type_hint(&raw_message)),
+        }
+    };
+    let total = statements.len() as u32;
+    let failures = pool
+        .execute_continue_on_error(&statements, |index, error| {
+            on_progress(ImportProgress {
+                done: index as u32 + 1,
+                total,
+                error: error.map(|source| to_import_error(index, source)),
+            })
         })
-        .collect();
+        .await;
+    let failed: HashSet<usize> = failures.iter().map(|(index, _)| *index).collect();
+    let errors: Vec<ImportError> =
+        failures.iter().map(|(index, source)| to_import_error(*index, source)).collect();
 
     let succeeded: Vec<&str> =
         statements.iter().enumerate().filter(|(i, _)| !failed.contains(i)).map(|(_, s)| s.as_str()).collect();
