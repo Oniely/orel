@@ -110,7 +110,7 @@ export function ImportDumpModal({ isOpen, connectionId, isMySql, onImported, onC
                     <Label className="text-xs font-medium text-muted">SQL file</Label>
                     <div className="flex gap-2 mt-1">
                       <Input placeholder="Choose a .sql file…" className="flex-1 border border-separator px-3 py-1.5" />
-                      <Button autoFocus size="sm" variant="outline" className="text-[13px] h-8" onPress={handleBrowse}>
+                      <Button autoFocus variant="outline" onPress={handleBrowse}>
                         Browse
                       </Button>
                     </div>
@@ -184,36 +184,30 @@ export function ImportDumpModal({ isOpen, connectionId, isMySql, onImported, onC
               <Modal.Footer style={{ marginTop: 0 }} className="flex justify-end gap-2 shrink-0">
                 {importDump.status === "idle" && (
                   <>
-                    <Button size="sm" variant="outline" className="text-[13px] h-8" onPress={handleClose}>
+                    <Button variant="outline" onPress={handleClose}>
                       Cancel
                     </Button>
-                    <Button
-                      size="sm"
-                      variant="primary"
-                      className="text-[13px] h-8"
-                      isDisabled={!filePath}
-                      onPress={handleImport}
-                    >
+                    <Button variant="primary" isDisabled={!filePath} onPress={handleImport}>
                       Import Now
                     </Button>
                   </>
                 )}
                 {importing && (
-                  <Button size="sm" variant="outline" className="text-[13px] h-8" isDisabled>
+                  <Button variant="outline" isDisabled>
                     Close
                   </Button>
                 )}
                 {importDump.status === "success" && (
-                  <Button size="sm" variant="primary" className="text-[13px] h-8" onPress={handleClose}>
+                  <Button variant="primary" onPress={handleClose}>
                     Close
                   </Button>
                 )}
                 {importDump.status === "error" && (
                   <>
-                    <Button size="sm" variant="outline" className="text-[13px] h-8" onPress={handleClose}>
+                    <Button variant="outline" onPress={handleClose}>
                       Close
                     </Button>
-                    <Button size="sm" variant="primary" className="text-[13px] h-8" onPress={() => importDump.reset()}>
+                    <Button variant="primary" onPress={() => importDump.reset()}>
                       Try again
                     </Button>
                   </>
