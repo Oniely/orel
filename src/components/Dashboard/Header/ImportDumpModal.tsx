@@ -90,7 +90,7 @@ export function ImportDumpModal({ isOpen, connectionId, isMySql, onImported, onC
                 }
               }}
             >
-              <Modal.Header className="shrink-0 pb-2 px-1">
+              <Modal.Header className="shrink-0 pb-5 px-1">
                 <Modal.Heading className="text-base font-medium">
                   {importDump.status === "success"
                     ? failed
@@ -101,7 +101,10 @@ export function ImportDumpModal({ isOpen, connectionId, isMySql, onImported, onC
                 {!importing && <Modal.CloseTrigger />}
               </Modal.Header>
 
-              <Modal.Body className="flex flex-col gap-2 pt-1 pb-1 px-1 text-sm overflow-y-auto scrollbar-hide">
+              <Modal.Body
+                style={{ marginTop: 0 }}
+                className="flex flex-col gap-2 pb-5 px-1 text-sm overflow-y-auto scrollbar-hide"
+              >
                 {importDump.status === "idle" && (
                   <TextField isReadOnly value={filePath ?? ""}>
                     <Label className="text-xs font-medium text-muted">SQL file</Label>
@@ -178,7 +181,7 @@ export function ImportDumpModal({ isOpen, connectionId, isMySql, onImported, onC
                 )}
               </Modal.Body>
 
-              <Modal.Footer className="pt-2 flex justify-end gap-2 shrink-0">
+              <Modal.Footer style={{ marginTop: 0 }} className="flex justify-end gap-2 shrink-0">
                 {importDump.status === "idle" && (
                   <>
                     <Button size="sm" variant="outline" className="text-[13px] h-8" onPress={handleClose}>
