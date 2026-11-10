@@ -83,12 +83,12 @@ export function ExportDumpModal({ isOpen, onClose }: ExportDumpModalProps) {
                 }
               }}
             >
-              <Modal.Header className="shrink-0 pb-3 px-1">
+              <Modal.Header className="shrink-0 pb-2 px-1">
                 <Modal.Heading className="text-base font-medium">Export database</Modal.Heading>
                 {!exporting && <Modal.CloseTrigger />}
               </Modal.Header>
 
-              <Modal.Body className="flex flex-col gap-3 pt-4 pb-1 px-1 text-sm">
+              <Modal.Body className="flex flex-col gap-2 pt-1 pb-1 px-1 text-sm">
                 {exportDump.status === "idle" && (
                   <p>
                     Export <span className="font-mono font-medium" style={{ color: "var(--accent)" }}>{name}</span> on{" "}
@@ -125,7 +125,7 @@ export function ExportDumpModal({ isOpen, onClose }: ExportDumpModalProps) {
                 )}
               </Modal.Body>
 
-              <Modal.Footer className="pt-3 flex justify-end gap-2 shrink-0">
+              <Modal.Footer className="pt-2 flex justify-end gap-2 shrink-0">
                 {exportDump.status === "idle" && (
                   <>
                     <Button autoFocus size="sm" variant="outline" className="text-[13px] h-8" onPress={handleClose}>
