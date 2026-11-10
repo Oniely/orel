@@ -128,30 +128,30 @@ export function ExportDumpModal({ isOpen, onClose }: ExportDumpModalProps) {
               <Modal.Footer style={{ marginTop: 0 }} className="flex justify-end gap-2 shrink-0">
                 {exportDump.status === "idle" && (
                   <>
-                    <Button autoFocus size="sm" variant="outline" className="text-[13px] h-8" onPress={handleClose}>
+                    <Button autoFocus variant="outline" onPress={handleClose}>
                       Cancel
                     </Button>
-                    <Button size="sm" variant="primary" className="text-[13px] h-8" onPress={handleConfirm}>
+                    <Button variant="primary" onPress={handleConfirm}>
                       Export
                     </Button>
                   </>
                 )}
                 {exportDump.status === "pending" && (
-                  <Button size="sm" variant="outline" className="text-[13px] h-8" isDisabled>
+                  <Button variant="outline" isDisabled>
                     Cancel
                   </Button>
                 )}
                 {exportDump.status === "success" && (
-                  <Button size="sm" variant="primary" className="text-[13px] h-8" onPress={handleClose}>
+                  <Button variant="primary" onPress={handleClose}>
                     Done
                   </Button>
                 )}
                 {exportDump.status === "error" && (
                   <>
-                    <Button size="sm" variant="outline" className="text-[13px] h-8" onPress={handleClose}>
+                    <Button variant="outline" onPress={handleClose}>
                       Close
                     </Button>
-                    <Button size="sm" variant="primary" className="text-[13px] h-8" onPress={() => exportDump.reset()}>
+                    <Button variant="primary" onPress={() => exportDump.reset()}>
                       Try again
                     </Button>
                   </>

@@ -74,12 +74,12 @@ export function CreateDatabaseModal({ isOpen, onClose }: CreateDatabaseModalProp
                 }
               }}
             >
-              <Modal.Header className="border-b border-separator shrink-0 pb-3 px-1">
+              <Modal.Header className="shrink-0 pb-5 px-1">
                 <Modal.Heading className="text-base font-medium">New database</Modal.Heading>
                 {!creating && <Modal.CloseTrigger />}
               </Modal.Header>
 
-              <Modal.Body className="flex flex-col gap-3 pt-4 pb-1 px-1 text-sm">
+              <Modal.Body style={{ marginTop: 0 }} className="flex flex-col gap-3 pb-7 px-1 text-sm">
                 <TextField autoFocus value={name} onChange={setName} isDisabled={creating}>
                   <Label className="text-xs text-muted">Database name</Label>
                   <Input
@@ -98,17 +98,11 @@ export function CreateDatabaseModal({ isOpen, onClose }: CreateDatabaseModalProp
                 )}
               </Modal.Body>
 
-              <Modal.Footer className="border-t border-separator pt-3 flex justify-end gap-2 shrink-0">
-                <Button size="sm" variant="outline" className="text-[13px] h-8" onPress={handleClose} isDisabled={creating}>
+              <Modal.Footer style={{ marginTop: 0 }} className="flex justify-end gap-2 shrink-0">
+                <Button variant="outline" onPress={handleClose} isDisabled={creating}>
                   Cancel
                 </Button>
-                <Button
-                  size="sm"
-                  variant="primary"
-                  className="text-[13px] h-8"
-                  onPress={handleCreate}
-                  isDisabled={creating || !name.trim()}
-                >
+                <Button variant="primary" onPress={handleCreate} isDisabled={creating || !name.trim()}>
                   {creating ? <Spinner size="sm" color="current" /> : "Create"}
                 </Button>
               </Modal.Footer>
