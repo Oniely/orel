@@ -17,16 +17,6 @@ export default function Cell({ value, type }: { value: unknown; type: string }) 
       </span>
     );
   }
-  if (typeof value === "string" && value.startsWith("http")) {
-    return (
-      <span className="inline-flex items-center gap-1.5">
-        <img src={value} className="w-4 h-4 rounded-full object-cover" alt="" />
-        <span className="font-mono text-xs truncate" style={{ color }}>
-          {value.slice(0, 32)}…
-        </span>
-      </span>
-    );
-  }
   const display = typeof value === "object" ? JSON.stringify(value) : String(value);
   return (
     <span className="font-mono text-xs" style={{ color }}>
