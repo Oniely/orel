@@ -47,6 +47,14 @@ describe("ImportDumpModal", () => {
     expect(mutate).toHaveBeenCalledWith({ connectionId: "c1", filePath: "/tmp/dump.sql" }, expect.anything());
   });
 
+  it("closes on Escape", async () => {
+    const onClose = vi.fn();
+    mockImport({});
+    render(<ImportDumpModal isOpen connectionId="c1" isMySql={false} onImported={vi.fn()} onClose={onClose} />);
+    await userEvent.keyboard("{Escape}");
+    expect(onClose).toHaveBeenCalled();
+  });
+
   it("shows progress and errors live while importing", () => {
     mockImport({ status: "pending", isPending: true, progress: { done: 3, total: 4, errors: [missingTable] } });
     renderModal();

@@ -83,7 +83,7 @@ export function ExportDumpModal({ isOpen, onClose }: ExportDumpModalProps) {
                 }
               }}
             >
-              <Modal.Header className="border-b border-separator shrink-0 pb-3 px-1">
+              <Modal.Header className="shrink-0 pb-3 px-1">
                 <Modal.Heading className="text-base font-medium">Export database</Modal.Heading>
                 {!exporting && <Modal.CloseTrigger />}
               </Modal.Header>
@@ -125,10 +125,10 @@ export function ExportDumpModal({ isOpen, onClose }: ExportDumpModalProps) {
                 )}
               </Modal.Body>
 
-              <Modal.Footer className="border-t border-separator pt-3 flex justify-end gap-2 shrink-0">
+              <Modal.Footer className="pt-3 flex justify-end gap-2 shrink-0">
                 {exportDump.status === "idle" && (
                   <>
-                    <Button size="sm" variant="outline" className="text-[13px] h-8" onPress={handleClose}>
+                    <Button autoFocus size="sm" variant="outline" className="text-[13px] h-8" onPress={handleClose}>
                       Cancel
                     </Button>
                     <Button size="sm" variant="primary" className="text-[13px] h-8" onPress={handleConfirm}>

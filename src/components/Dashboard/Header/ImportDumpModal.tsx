@@ -90,7 +90,7 @@ export function ImportDumpModal({ isOpen, connectionId, isMySql, onImported, onC
                 }
               }}
             >
-              <Modal.Header className="border-b border-separator shrink-0 pb-3 px-1">
+              <Modal.Header className="shrink-0 pb-3 px-1">
                 <Modal.Heading className="text-base font-medium">
                   {importDump.status === "success"
                     ? failed
@@ -107,7 +107,7 @@ export function ImportDumpModal({ isOpen, connectionId, isMySql, onImported, onC
                     <Label className="text-xs font-medium text-muted">SQL file</Label>
                     <div className="flex gap-2 mt-1">
                       <Input placeholder="Choose a .sql file…" className="flex-1 border border-separator px-3 py-1.5" />
-                      <Button size="sm" variant="outline" onPress={handleBrowse}>
+                      <Button autoFocus size="sm" variant="outline" onPress={handleBrowse}>
                         Browse
                       </Button>
                     </div>
@@ -178,7 +178,7 @@ export function ImportDumpModal({ isOpen, connectionId, isMySql, onImported, onC
                 )}
               </Modal.Body>
 
-              <Modal.Footer className="border-t border-separator pt-3 flex justify-end gap-2 shrink-0">
+              <Modal.Footer className="pt-3 flex justify-end gap-2 shrink-0">
                 {importDump.status === "idle" && (
                   <>
                     <Button size="sm" variant="outline" className="text-[13px] h-8" onPress={handleClose}>
