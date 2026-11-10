@@ -107,7 +107,13 @@ export function ImportDumpModal({ isOpen, connectionId, isMySql, onImported, onC
                     <Label className="text-xs font-medium text-muted">SQL file</Label>
                     <div className="flex gap-2 mt-1">
                       <Input placeholder="Choose a .sql file…" className="flex-1 border border-separator px-3 py-1.5" />
-                      <Button autoFocus size="sm" variant="outline" className="text-[13px] h-8" onPress={handleBrowse}>
+                      <Button
+                        autoFocus
+                        size="sm"
+                        variant="outline"
+                        className="text-[13px] h-8 w-[104px] justify-center"
+                        onPress={handleBrowse}
+                      >
                         Browse
                       </Button>
                     </div>
@@ -187,7 +193,7 @@ export function ImportDumpModal({ isOpen, connectionId, isMySql, onImported, onC
                     <Button
                       size="sm"
                       variant="primary"
-                      className="text-[13px] h-8"
+                      className="text-[13px] h-8 w-[104px] justify-center"
                       isDisabled={!filePath}
                       onPress={handleImport}
                     >
