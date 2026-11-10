@@ -103,7 +103,7 @@ export function ImportDumpModal({ isOpen, connectionId, isMySql, onImported, onC
 
               <Modal.Body
                 style={{ marginTop: 0 }}
-                className="flex flex-col gap-2 pb-5 px-1 text-sm overflow-y-auto scrollbar-hide"
+                className="flex flex-col gap-2 pb-7 px-1 text-sm overflow-y-auto scrollbar-hide"
               >
                 {importDump.status === "idle" && (
                   <TextField isReadOnly value={filePath ?? ""}>
