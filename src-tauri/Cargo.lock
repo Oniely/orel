@@ -3011,7 +3011,7 @@ dependencies = [
 
 [[package]]
 name = "orel"
-version = "0.6.2"
+version = "0.6.3"
 dependencies = [
  "bigdecimal",
  "chrono",
