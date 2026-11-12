@@ -8,6 +8,8 @@ interface CellEditorOverlayProps {
   initialValue: string;
   dataType?: string;
   isNullable?: boolean;
+  /** ENUM columns pick from these values instead of free text */
+  enumValues?: string[];
   /** Returns an error message to keep the editor open (e.g. invalid JSON) */
   onCommit: (value: string) => string | null;
   onCancel: () => void;
@@ -22,6 +24,7 @@ export function CellEditorOverlay({
   initialValue,
   dataType,
   isNullable,
+  enumValues,
   onCommit,
   onCancel,
   onAdvance,
@@ -80,6 +83,9 @@ export function CellEditorOverlay({
   };
 
   const isBoolean = dataType?.toLowerCase() === "boolean";
+  // A nullable column's "" option already means NULL, so an empty enum value can't be offered separately
+  const options = isBoolean ? ["true", "false"] : (enumValues ?? []).filter((v) => !(isNullable && v === ""));
+  const isSelect = isBoolean || options.length > 0;
 
   return (
     <div
@@ -94,12 +100,12 @@ export function CellEditorOverlay({
       }}
       title={error ?? undefined}
     >
-      {isBoolean ? (
+      {isSelect ? (
         <select
           ref={selectRef}
           className="w-full h-full bg-transparent border-none outline-none font-mono text-xs cursor-pointer"
           style={{ color: "var(--foreground)" }}
-          value={localValue === "" ? "" : localValue.toLowerCase()}
+          value={isBoolean ? localValue.toLowerCase() : localValue}
           onChange={(e) => {
             setLocalValue(e.target.value);
             doCommit(e.target.value);
@@ -118,8 +124,11 @@ export function CellEditorOverlay({
           }}
         >
           {isNullable && <option value="">NULL</option>}
-          <option value="true">true</option>
-          <option value="false">false</option>
+          {options.map((v) => (
+            <option key={v} value={v}>
+              {v}
+            </option>
+          ))}
         </select>
       ) : (
         <input

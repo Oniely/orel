@@ -519,6 +519,7 @@ export function DataGrid() {
           initialValue={formatEditValue(editingCell.value)}
           dataType={editingCol?.dataType}
           isNullable={editingCol?.isNullable}
+          enumValues={editingCol?.enumValues}
           onCommit={commitEdit}
           onCancel={() => setEditingCell(null)}
           onAdvance={advanceColumn}

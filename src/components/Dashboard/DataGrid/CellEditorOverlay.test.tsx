@@ -48,4 +48,28 @@ describe("CellEditorOverlay", () => {
     fireEvent.blur(input);
     expect(onExpand).toHaveBeenCalledWith("{oops");
   });
+
+  it("offers ENUM values as a dropdown and commits the picked one", () => {
+    const containerRef = { current: document.createElement("div") };
+    containerRef.current.innerHTML = '<table><tbody><tr><td data-cell="0::status"></td></tr></tbody></table>';
+    const onCommit = vi.fn(() => null);
+    render(
+      <CellEditorOverlay
+        containerRef={containerRef}
+        cellAttr="0::status"
+        initialValue="pending"
+        dataType="enum"
+        isNullable
+        enumValues={["pending", "shipped"]}
+        onCommit={onCommit}
+        onCancel={vi.fn()}
+        onAdvance={vi.fn()}
+        onExpand={vi.fn()}
+      />,
+    );
+    const select = screen.getByRole("combobox");
+    expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual(["NULL", "pending", "shipped"]);
+    fireEvent.change(select, { target: { value: "shipped" } });
+    expect(onCommit).toHaveBeenCalledWith("shipped");
+  });
 });

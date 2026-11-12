@@ -235,6 +235,38 @@ pub struct ColumnInfo {
     pub is_nullable: bool,
     pub is_primary: bool,
     pub has_default: bool,
+    /// Allowed values for ENUM columns; empty for every other type
+    pub enum_values: Vec<String>,
+}
+
+/// Parses MySQL's `COLUMN_TYPE` for an ENUM, e.g. `enum('a','it''s')` -> ["a", "it's"]
+pub(crate) fn parse_mysql_enum_values(column_type: &str) -> Vec<String> {
+    let Some(body) = column_type
+        .strip_prefix("enum(")
+        .and_then(|s| s.strip_suffix(')'))
+    else {
+        return Vec::new();
+    };
+    let mut values = Vec::new();
+    let mut current = String::new();
+    let mut in_quote = false;
+    let mut chars = body.chars().peekable();
+    while let Some(c) = chars.next() {
+        match (c, in_quote) {
+            ('\'', true) if chars.peek() == Some(&'\'') => {
+                chars.next();
+                current.push('\'');
+            }
+            ('\'', true) => {
+                in_quote = false;
+                values.push(std::mem::take(&mut current));
+            }
+            ('\'', false) => in_quote = true,
+            (c, true) => current.push(c),
+            _ => {}
+        }
+    }
+    values
 }
 
 // ── Column metadata fetch ───────────────────────────────────────────────────
@@ -245,7 +277,7 @@ pub(crate) async fn fetch_column_info(
 ) -> Result<Vec<ColumnInfo>, String> {
     match pool {
         DbPool::Postgres(pg) => {
-            let col_rows = sqlx::query_as::<_, (String, String, String, bool, bool)>(
+            let col_rows = sqlx::query_as::<_, (String, String, String, bool, bool, Vec<String>)>(
                 "SELECT \
                     a.attname, \
                     t.typname, \
@@ -256,7 +288,9 @@ pub(crate) async fn fetch_column_info(
                             AND con.contype = 'p' \
                             AND a.attnum = ANY(con.conkey) \
                     ), \
-                    (a.atthasdef OR a.attidentity != '') \
+                    (a.atthasdef OR a.attidentity != ''), \
+                    ARRAY(SELECT e.enumlabel::text FROM pg_catalog.pg_enum e \
+                        WHERE e.enumtypid = t.oid ORDER BY e.enumsortorder) \
                 FROM pg_catalog.pg_attribute a \
                 JOIN pg_catalog.pg_class cl ON cl.oid = a.attrelid \
                 JOIN pg_catalog.pg_namespace n ON n.oid = cl.relnamespace \
@@ -275,25 +309,27 @@ pub(crate) async fn fetch_column_info(
             Ok(col_rows
                 .into_iter()
                 .map(
-                    |(name, data_type, is_nullable, is_primary, has_default)| ColumnInfo {
+                    |(name, data_type, is_nullable, is_primary, has_default, enum_values)| ColumnInfo {
                         name,
                         data_type: normalize_pg_type(&data_type),
                         is_nullable: is_nullable == "YES",
                         is_primary,
                         has_default,
+                        enum_values,
                     },
                 )
                 .collect())
         }
         DbPool::MySql(mysql) => {
-            let col_rows = sqlx::query_as::<_, (String, String, String, i8, i8)>(
+            let col_rows = sqlx::query_as::<_, (String, String, String, i8, i8, String)>(
                 "SELECT CAST(COLUMN_NAME AS CHAR), \
                 CAST(CASE \
                   WHEN COLUMN_TYPE LIKE '% unsigned' THEN CONCAT(DATA_TYPE, ' unsigned') \
                   ELSE DATA_TYPE \
                 END AS CHAR), \
                 CAST(IS_NULLABLE AS CHAR), IF(COLUMN_KEY = 'PRI', 1, 0), \
-                IF(COLUMN_DEFAULT IS NOT NULL OR EXTRA LIKE '%auto_increment%', 1, 0) \
+                IF(COLUMN_DEFAULT IS NOT NULL OR EXTRA LIKE '%auto_increment%', 1, 0), \
+                CAST(COLUMN_TYPE AS CHAR) \
                 FROM information_schema.COLUMNS \
                 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? \
                 ORDER BY ORDINAL_POSITION",
@@ -306,12 +342,13 @@ pub(crate) async fn fetch_column_info(
             Ok(col_rows
                 .into_iter()
                 .map(
-                    |(name, data_type, is_nullable, is_primary, has_default)| ColumnInfo {
+                    |(name, data_type, is_nullable, is_primary, has_default, column_type)| ColumnInfo {
                         name,
                         data_type,
                         is_nullable: is_nullable == "YES",
                         is_primary: is_primary != 0,
                         has_default: has_default != 0,
+                        enum_values: parse_mysql_enum_values(&column_type),
                     },
                 )
                 .collect())
@@ -333,6 +370,7 @@ pub(crate) async fn fetch_column_info(
                     is_nullable: notnull == 0,
                     is_primary: pk > 0,
                     has_default: dflt_value.is_some(),
+                    enum_values: Vec::new(),
                 })
                 .collect())
         }
@@ -575,6 +613,16 @@ mod tests {
             normalize_mysql_type("TINYINT UNSIGNED"),
             "tinyint unsigned"
         );
+    }
+
+    #[test]
+    fn mysql_enum_values_parse_column_type() {
+        assert_eq!(
+            parse_mysql_enum_values("enum('pending','it''s, done','')"),
+            vec!["pending", "it's, done", ""]
+        );
+        assert!(parse_mysql_enum_values("varchar(20)").is_empty());
+        assert!(parse_mysql_enum_values("set('a','b')").is_empty());
     }
 
     #[test]
