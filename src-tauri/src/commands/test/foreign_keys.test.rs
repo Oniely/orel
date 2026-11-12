@@ -36,6 +36,7 @@ fn column(name: &str, nullable: bool) -> ColumnInfo {
         is_nullable: nullable,
         is_primary: false,
         has_default: false,
+        enum_values: Vec::new(),
     }
 }
 
