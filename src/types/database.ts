@@ -10,6 +10,8 @@ export interface ColumnInfo {
   isNullable: boolean;
   isPrimary: boolean;
   hasDefault: boolean;
+  /** Allowed values for ENUM columns (table views only) */
+  enumValues?: string[];
 }
 
 export interface QueryResult {
