@@ -65,7 +65,7 @@ export function ValueEditorModal({ table, column, value, original, onApply, onSe
     <Modal>
       <Modal.Backdrop
         isOpen
-        isDismissable={false}
+        isDismissable
         isKeyboardDismissDisabled
         onOpenChange={(open) => {
           if (!open) onCancel();
