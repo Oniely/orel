@@ -9,4 +9,11 @@ describe("Cell", () => {
     expect(container.querySelector("img")).toBeNull();
     expect(container.textContent).toBe(url);
   });
+
+  it("renders image URLs with a thumbnail and the full value", () => {
+    const url = "https://cdn.example.com/avatars/42.JPG?size=64";
+    const { container } = render(<Cell value={url} type="varchar" />);
+    expect(container.querySelector("img")?.getAttribute("src")).toBe(url);
+    expect(container.textContent).toBe(url);
+  });
 });
