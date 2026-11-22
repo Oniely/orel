@@ -63,6 +63,13 @@ describe("ValueEditorModal", () => {
     expect(docListener).not.toHaveBeenCalled();
   });
 
+  it("cancels when clicking outside the modal", async () => {
+    const { onCancel, onApply } = renderModal(textColumn, "hello");
+    await userEvent.click(document.body);
+    expect(onCancel).toHaveBeenCalled();
+    expect(onApply).not.toHaveBeenCalled();
+  });
+
   it("only offers Set NULL for nullable columns", async () => {
     const { onSetNull } = renderModal(jsonColumn, { a: 1 });
     await userEvent.click(screen.getByRole("button", { name: "Set NULL" }));
