@@ -165,9 +165,15 @@ export function ValueEditorModal({ table, column, value, original, onApply, onSe
                     Set NULL
                   </Button>
                 )}
-                <Button size="sm" variant="primary" className="text-[13px] h-8 gap-1.5" isDisabled={!!error} onPress={apply}>
+                <Button
+                  size="sm"
+                  variant="primary"
+                  className="flex items-center gap-1.5 text-xs"
+                  isDisabled={!!error}
+                  onPress={apply}
+                >
                   Apply
-                  <Kbd className="h-5 px-1 text-[15px] leading-none rounded-full">
+                  <Kbd className="scale-80">
                     <Kbd.Abbr keyValue={os === "macos" ? "command" : "ctrl"} />
                     <Kbd.Abbr keyValue="enter" />
                   </Kbd>
