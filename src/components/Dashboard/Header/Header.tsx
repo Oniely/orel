@@ -47,6 +47,7 @@ export function Header() {
   const [importModalOpen, setImportModalOpen] = useState(false);
   const [createDatabaseModalOpen, setCreateDatabaseModalOpen] = useState(false);
   const [deleteDatabaseTarget, setDeleteDatabaseTarget] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
   // Pointerdown on the per-row delete icon sets this before react-aria's Menu
   // fires onAction (on pointer release), so onAction can skip selecting the
   // database that was actually a delete click.
@@ -70,6 +71,15 @@ export function Header() {
         toast.danger(`Failed to connect: ${conn.name}`);
       },
     });
+  };
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    try {
+      await commands.manualRefresh();
+    } finally {
+      setRefreshing(false);
+    }
   };
 
   return (
@@ -249,8 +259,15 @@ export function Header() {
           Add row
         </Button>
 
-        <Button onClick={commands.refresh} size="sm" variant="outline" className="grid place-items-center">
-          <ArrowClockwiseIcon className="size-4" />
+        <Button
+          onClick={handleRefresh}
+          isDisabled={refreshing}
+          aria-label="Refresh"
+          size="sm"
+          variant="outline"
+          className="grid place-items-center"
+        >
+          <ArrowClockwiseIcon className={`size-4 ${refreshing ? "animate-spin" : ""}`} />
         </Button>
 
         <ToggleButton

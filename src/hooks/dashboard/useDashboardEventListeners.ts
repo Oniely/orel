@@ -11,9 +11,9 @@ export function useDashboardEventListeners() {
   useListDatabases(connectionId, connection?.status === "connected");
 
   useEffect(() => {
-    const unlisten = listen("refresh", commands.refresh);
+    const unlisten = listen("refresh", () => void commands.manualRefresh());
     return () => {
       void unlisten.then((stopListening) => stopListening());
     };
-  }, [commands.refresh]);
+  }, [commands.manualRefresh]);
 }

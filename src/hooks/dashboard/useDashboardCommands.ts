@@ -30,31 +30,28 @@ export function useDashboardCommands() {
   const activeEditorIdsForKeys = useCallback((keys: string[]) => getActiveEditorIds(store.getState(), keys), [store]);
 
   // Refetches tables, rows, DDL, structure, indexes, foreign keys, and databases for the current connection.
-  const refresh = useCallback(() => {
-    if (connectionId && activeDatabase) {
-      void queryClient.refetchQueries({
-        queryKey: databaseQueryKeys.rowsForDatabase(connectionId, activeDatabase),
-      });
-      void queryClient.refetchQueries({
-        queryKey: databaseQueryKeys.tables(connectionId, activeDatabase),
-      });
-      void queryClient.refetchQueries({
-        queryKey: databaseQueryKeys.tableDdlForDatabase(connectionId, activeDatabase),
-      });
-      void queryClient.refetchQueries({
-        queryKey: databaseQueryKeys.tableStructureForDatabase(connectionId, activeDatabase),
-      });
-      void queryClient.refetchQueries({
-        queryKey: databaseQueryKeys.tableIndexesForDatabase(connectionId, activeDatabase),
-      });
-      void queryClient.refetchQueries({
-        queryKey: databaseQueryKeys.tableForeignKeysForDatabase(connectionId, activeDatabase),
-      });
-    }
-    void queryClient.refetchQueries({
-      queryKey: databaseQueryKeys.databases(connectionId),
-    });
+  const refresh = useCallback(async () => {
+    const keys: readonly (readonly unknown[])[] = [
+      databaseQueryKeys.databases(connectionId),
+      ...(connectionId && activeDatabase
+        ? [
+            databaseQueryKeys.rowsForDatabase(connectionId, activeDatabase),
+            databaseQueryKeys.tables(connectionId, activeDatabase),
+            databaseQueryKeys.tableDdlForDatabase(connectionId, activeDatabase),
+            databaseQueryKeys.tableStructureForDatabase(connectionId, activeDatabase),
+            databaseQueryKeys.tableIndexesForDatabase(connectionId, activeDatabase),
+            databaseQueryKeys.tableForeignKeysForDatabase(connectionId, activeDatabase),
+          ]
+        : []),
+    ];
+    await Promise.all(keys.map((queryKey) => queryClient.refetchQueries({ queryKey })));
   }, [queryClient, connectionId, activeDatabase]);
+
+  // User-triggered refresh (button, mod+r, menu): confirms it ran, since rows update in place without a loading state.
+  const manualRefresh = useCallback(async () => {
+    await refresh();
+    toast.success("Refreshed");
+  }, [refresh]);
 
   // Carries out a navigation action (close tab, switch database, disconnect) once all guards have cleared.
   const performIntent = useCallback(
@@ -224,6 +221,7 @@ export function useDashboardCommands() {
     openTable,
     performIntent,
     refresh,
+    manualRefresh,
     disconnect,
     selectDatabase,
   };

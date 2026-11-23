@@ -113,10 +113,10 @@ export function useDashboardHotkeys() {
     "mod+r",
     (event) => {
       event.stopPropagation();
-      commands.refresh();
+      void commands.manualRefresh();
     },
     APP_HOTKEY_OPTIONS,
-    [commands.refresh],
+    [commands.manualRefresh],
   );
   useHotkeys(
     "mod+s",
