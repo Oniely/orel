@@ -19,6 +19,7 @@ use commands::editor::{
     execute_editor_sql, rollback_editor_transaction,
 };
 use commands::query::{drop_tables, fetch_rows, list_tables};
+use commands::fk_options::fetch_fk_options;
 use commands::foreign_keys::{apply_foreign_key_changes, fetch_table_foreign_keys};
 use commands::indexes::{apply_index_changes, fetch_table_indexes};
 use commands::structure::{apply_structure_changes, fetch_table_ddl, fetch_table_structure};
@@ -176,6 +177,7 @@ pub fn run() {
             apply_index_changes,
             fetch_table_foreign_keys,
             apply_foreign_key_changes,
+            fetch_fk_options,
             export_database_dump,
             import_sql_dump,
             apply_write_queue,

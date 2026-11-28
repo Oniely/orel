@@ -7,6 +7,7 @@ import Cell from "./Cell";
 import { useDashboardStore } from "../../../stores/dashboard.store";
 import { useDashboardContext } from "../../../hooks/dashboard/useDashboardContext";
 import { useActiveTable } from "../../../hooks/dashboard/useActiveTable";
+import { useFetchTableForeignKeys } from "../../../hooks/useTables";
 import { CellEditorOverlay } from "./CellEditorOverlay";
 import { ValueEditorModal } from "../shared/ValueEditorModal";
 
@@ -33,8 +34,9 @@ const savedStyle: React.CSSProperties = {
 const insertRowStyle: React.CSSProperties = { background: "color-mix(in oklch, var(--success) 8%, transparent)" };
 
 export function DataGrid() {
-  const { activeTableName: activeTable } = useDashboardContext();
+  const { activeTableName: activeTable, connectionId, activeDatabase } = useDashboardContext();
   const { columns: colInfos, rows, isLoading, error, writeQueue: wq } = useActiveTable();
+  const { data: foreignKeys } = useFetchTableForeignKeys(connectionId, activeDatabase, activeTable);
   const selectedRowIndex = useDashboardStore((state) => state.selectedRowIndex);
   const setSelectedRowIndex = useDashboardStore((state) => state.setSelectedRowIndex);
   const setShowInspector = useDashboardStore((state) => state.setShowInspector);
@@ -298,6 +300,15 @@ export function DataGrid() {
   });
 
   const editingCol = editingCell ? colInfos.find((c) => c.name === editingCell.column) : undefined;
+  // Composite foreign keys keep plain text editing
+  const editingFk =
+    editingCell &&
+    foreignKeys?.some((fk) => fk.columns.length === 1 && fk.columns[0] === editingCell.column) &&
+    connectionId &&
+    activeDatabase &&
+    activeTable
+      ? { connectionId, database: activeDatabase, table: activeTable, column: editingCell.column }
+      : undefined;
 
   if (!activeTable) {
     return (
@@ -520,6 +531,7 @@ export function DataGrid() {
           dataType={editingCol?.dataType}
           isNullable={editingCol?.isNullable}
           enumValues={editingCol?.enumValues}
+          fkCell={editingFk}
           onCommit={commitEdit}
           onCancel={() => setEditingCell(null)}
           onAdvance={advanceColumn}

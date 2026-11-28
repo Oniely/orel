@@ -21,6 +21,22 @@ impl Dialect {
             Self::MySql => mysql_quote(name),
         }
     }
+
+    /// The nth (1-based) bind placeholder
+    pub fn placeholder(&self, n: usize) -> String {
+        match self {
+            Self::Postgres => format!("${n}"),
+            Self::MySql | Self::Sqlite => "?".to_string(),
+        }
+    }
+}
+
+pub(crate) fn cast_to_text(dialect: Dialect, expr: &str) -> String {
+    match dialect {
+        Dialect::Postgres => format!("({expr})::text"),
+        Dialect::MySql => format!("CAST({expr} AS CHAR)"),
+        Dialect::Sqlite => format!("CAST({expr} AS TEXT)"),
+    }
 }
 
 impl DbPool {

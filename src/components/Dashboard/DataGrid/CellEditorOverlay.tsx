@@ -1,4 +1,6 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import type { FkCell, FkOption } from "../../../types/database";
+import { useFetchFkOptions } from "../../../hooks/useTables";
 
 // ── Single floating cell editor (only 1 instance in the DOM) ─────────────────
 
@@ -10,6 +12,8 @@ interface CellEditorOverlayProps {
   isNullable?: boolean;
   /** ENUM columns pick from these values instead of free text */
   enumValues?: string[];
+  /** Single-column foreign keys pick from the referenced keys, or take typed text */
+  fkCell?: FkCell;
   /** Returns an error message to keep the editor open (e.g. invalid JSON) */
   onCommit: (value: string) => string | null;
   onCancel: () => void;
@@ -25,6 +29,7 @@ export function CellEditorOverlay({
   dataType,
   isNullable,
   enumValues,
+  fkCell,
   onCommit,
   onCancel,
   onAdvance,
@@ -130,6 +135,21 @@ export function CellEditorOverlay({
             </option>
           ))}
         </select>
+      ) : fkCell ? (
+        <FkInput
+          fkCell={fkCell}
+          inputRef={inputRef}
+          initialValue={initialValue}
+          value={localValue}
+          isNullable={!!isNullable}
+          onChange={setLocalValue}
+          onCommit={doCommit}
+          onCancel={() => {
+            committedRef.current = true;
+            onCancel();
+          }}
+          onAdvance={onAdvance}
+        />
       ) : (
         <input
           ref={inputRef}
@@ -166,6 +186,99 @@ export function CellEditorOverlay({
         style={{ background: error ? "var(--danger)" : "var(--warning)" }}
       />
     </div>
+  );
+}
+
+interface FkInputProps {
+  fkCell: FkCell;
+  inputRef: React.RefObject<HTMLInputElement | null>;
+  initialValue: string;
+  value: string;
+  isNullable: boolean;
+  onChange: (value: string) => void;
+  onCommit: (value?: string) => boolean;
+  onCancel: () => void;
+  onAdvance: (direction: 1 | -1) => void;
+}
+
+/** Text input with a searchable list of referenced keys; null stands for the NULL option */
+function FkInput({ fkCell, inputRef, initialValue, value, isNullable, onChange, onCommit, onCancel, onAdvance }: FkInputProps) {
+  const listId = useId();
+  const [active, setActive] = useState(-1);
+  const [search, setSearch] = useState("");
+  useEffect(() => {
+    // The untouched cell value lists everything rather than just itself
+    const id = setTimeout(() => setSearch(value === initialValue ? "" : value), 250);
+    return () => clearTimeout(id);
+  }, [value, initialValue]);
+  const { data = [], isFetching, isError } = useFetchFkOptions(fkCell, search);
+  const options: (FkOption | null)[] = isNullable ? [null, ...data] : data;
+  const commitOption = (option: FkOption | null) => onCommit(option?.value ?? "");
+  const commitCurrent = () => (active >= 0 && options[active] !== undefined ? commitOption(options[active]) : onCommit());
+
+  return (
+    <>
+      <input
+        ref={inputRef}
+        className="w-full bg-transparent border-none outline-none font-mono text-xs"
+        style={{ color: "var(--foreground)" }}
+        role="combobox"
+        aria-expanded
+        aria-controls={listId}
+        aria-activedescendant={active >= 0 ? `${listId}-${active}` : undefined}
+        value={value}
+        onChange={(e) => {
+          onChange(e.target.value);
+          setActive(-1);
+        }}
+        onBlur={() => onCommit()}
+        onKeyDown={(e) => {
+          if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+            e.preventDefault();
+            const step = e.key === "ArrowDown" ? 1 : -1;
+            setActive((i) => Math.max(-1, Math.min(options.length - 1, i + step)));
+          } else if (e.key === "Enter") {
+            e.preventDefault();
+            commitCurrent();
+          } else if (e.key === "Escape") {
+            e.preventDefault();
+            onCancel();
+          } else if (e.key === "Tab") {
+            e.preventDefault();
+            if (commitCurrent()) onAdvance(e.shiftKey ? -1 : 1);
+          }
+        }}
+      />
+      <div
+        id={listId}
+        role="listbox"
+        className="absolute left-0 top-full mt-1 min-w-full w-max max-w-80 max-h-60 overflow-auto rounded-lg border border-separator bg-surface shadow-xl py-1"
+        style={{ color: "var(--foreground)" }}
+      >
+        {options.map((option, i) => (
+          <div
+            key={option?.value ?? ""}
+            id={`${listId}-${i}`}
+            role="option"
+            aria-selected={i === active}
+            className={`flex items-baseline gap-2.5 px-3 py-[5px] font-mono text-xs cursor-pointer hover:bg-surface-secondary ${i === active ? "bg-surface-secondary" : ""}`}
+            // Keep focus in the input so its blur doesn't commit the typed text first
+            onMouseDown={(e) => {
+              e.preventDefault();
+              commitOption(option);
+            }}
+          >
+            {option ? option.value : <span className="text-muted">NULL</span>}
+            {option?.label && <span className="truncate font-sans text-muted">{option.label}</span>}
+          </div>
+        ))}
+        {data.length === 0 && (
+          <div className="px-3 py-[5px] text-xs text-muted">
+            {isError ? "Couldn't load values" : isFetching ? "Loading…" : "No matches"}
+          </div>
+        )}
+      </div>
+    </>
   );
 }
 
