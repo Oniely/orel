@@ -3,6 +3,8 @@ import { ArrowsOutSimpleIcon } from "@phosphor-icons/react";
 import type { ColumnInfo } from "../../../types/database";
 import { formatEditValue, isJsonValue, isLongText, jsonEditError, parseEditValue } from "../../../lib/parseValue";
 import { getTypeColor } from "../../../lib/typeColors";
+import { dateColumnType } from "../../../lib/dateValue";
+import { DateValuePicker } from "../shared/DateValuePicker";
 import { ValueEditorModal } from "../shared/ValueEditorModal";
 
 // ── Editable Field ───────────────────────────────────────────────────────────
@@ -48,10 +50,13 @@ export function InspectorEditableField({
   const [expanded, setExpanded] = useState<{ value: unknown } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const committedRef = useRef(false);
+  const editorRef = useRef<HTMLSpanElement>(null);
+  const pickerOpenRef = useRef(false);
 
   const displayValue = isDirty ? dirtyValue : originalValue;
   const color = getTypeColor(column.dataType);
   const isJson = isJsonValue(column.dataType, originalValue);
+  const dateType = dateColumnType(column.dataType);
   const canExpand = editable && (isJson || isLongText(column.dataType, displayValue));
 
   useEffect(() => {
@@ -109,7 +114,7 @@ export function InspectorEditableField({
   );
 
   if (isEditing) {
-    return (
+    const input = (
       <input
         ref={inputRef}
         className="w-full bg-transparent border-none outline-none font-mono text-xs text-foreground"
@@ -128,7 +133,10 @@ export function InspectorEditableField({
           setInputError(null);
         }}
         // Invalid text isn't thrown away on blur — it moves to the expanded editor instead
-        onBlur={() => {
+        onBlur={(e) => {
+          // Focus moving to the date picker buttons or popover isn't leaving the editor
+          const next = e.relatedTarget;
+          if (pickerOpenRef.current || (next instanceof Node && editorRef.current?.contains(next))) return;
           if (!doCommit()) expandInput();
         }}
         onKeyDown={(e) => {
@@ -142,6 +150,24 @@ export function InspectorEditableField({
           }
         }}
       />
+    );
+    if (!dateType) return input;
+    return (
+      <span ref={editorRef} className="flex w-full min-w-0 items-center gap-1">
+        {input}
+        <DateValuePicker
+          column={dateType}
+          value={inputValue}
+          onChange={(value) => {
+            setInputValue(value);
+            if (!pickerOpenRef.current) inputRef.current?.focus();
+          }}
+          onOpenChange={(open) => {
+            pickerOpenRef.current = open;
+            if (!open) requestAnimationFrame(() => inputRef.current?.focus());
+          }}
+        />
+      </span>
     );
   }
 

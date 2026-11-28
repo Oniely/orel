@@ -1,4 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { dateColumnType } from "../../../lib/dateValue";
+import { DateValuePicker } from "../shared/DateValuePicker";
 
 // ── Single floating cell editor (only 1 instance in the DOM) ─────────────────
 
@@ -33,6 +35,8 @@ export function CellEditorOverlay({
   const inputRef = useRef<HTMLInputElement>(null);
   const selectRef = useRef<HTMLSelectElement>(null);
   const committedRef = useRef(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const pickerOpenRef = useRef(false);
   const [localValue, setLocalValue] = useState(initialValue);
   const [error, setError] = useState<string | null>(null);
   const [pos, setPos] = useState<{ top: number; left: number; width: number; height: number } | null>(null);
@@ -86,10 +90,18 @@ export function CellEditorOverlay({
   // A nullable column's "" option already means NULL, so an empty enum value can't be offered separately
   const options = isBoolean ? ["true", "false"] : (enumValues ?? []).filter((v) => !(isNullable && v === ""));
   const isSelect = isBoolean || options.length > 0;
+  const dateType = dateColumnType(dataType);
+
+  const pickValue = (value: string) => {
+    setLocalValue(value);
+    setError(null);
+    if (!pickerOpenRef.current) inputRef.current?.focus();
+  };
 
   return (
     <div
-      className="absolute z-[3] flex items-center px-[14px]"
+      ref={rootRef}
+      className="absolute z-[3] flex items-center gap-0.5 px-[14px]"
       style={{
         top: pos.top,
         left: pos.left,
@@ -142,7 +154,10 @@ export function CellEditorOverlay({
             setError(null);
           }}
           // Invalid text isn't thrown away on blur — it moves to the expanded editor instead
-          onBlur={() => {
+          onBlur={(e) => {
+            // Focus moving to the date picker buttons or popover isn't leaving the editor
+            const next = e.relatedTarget;
+            if (pickerOpenRef.current || (next instanceof Node && rootRef.current?.contains(next))) return;
             if (!doCommit()) expand();
           }}
           onKeyDown={(e) => {
@@ -157,6 +172,17 @@ export function CellEditorOverlay({
               e.preventDefault();
               if (doCommit()) onAdvance(e.shiftKey ? -1 : 1);
             }
+          }}
+        />
+      )}
+      {dateType && !isSelect && (
+        <DateValuePicker
+          column={dateType}
+          value={localValue}
+          onChange={pickValue}
+          onOpenChange={(open) => {
+            pickerOpenRef.current = open;
+            if (!open) requestAnimationFrame(() => inputRef.current?.focus());
           }}
         />
       )}
