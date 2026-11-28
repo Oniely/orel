@@ -14,6 +14,20 @@ export interface ColumnInfo {
   enumValues?: string[];
 }
 
+/** A referenced key offered when editing a foreign key cell */
+export interface FkOption {
+  value: string;
+  label: string | null;
+}
+
+/** A single-column foreign key cell whose referenced keys can be listed */
+export interface FkCell {
+  connectionId: string;
+  database: string;
+  table: string;
+  column: string;
+}
+
 export interface QueryResult {
   columns: ColumnInfo[];
   rows: Record<string, unknown>[];

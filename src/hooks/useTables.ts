@@ -1,7 +1,9 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { invoke } from "@tauri-apps/api/core";
 import type {
   FilterRow,
+  FkCell,
+  FkOption,
   TableInfo,
   QueryResult,
   TableDdl,
@@ -49,6 +51,8 @@ export const databaseQueryKeys = {
     ["table-foreign-keys", connectionId, database] as const,
   tableForeignKeys: (connectionId: string | null, database: string | null, table: string | null) =>
     ["table-foreign-keys", connectionId, database, table] as const,
+  fkOptions: (connectionId: string, database: string, table: string, column: string, search: string) =>
+    ["fk-options", connectionId, database, table, column, search] as const,
 };
 
 export function useListTables(connectionId: string | null, database: string | null) {
@@ -217,6 +221,16 @@ export function useFetchTableForeignKeys(
       }),
     enabled: !!connectionId && !!database && !!table,
     staleTime: 30_000,
+  });
+}
+
+export function useFetchFkOptions({ connectionId, database, table, column }: FkCell, search: string) {
+  return useQuery({
+    queryKey: databaseQueryKeys.fkOptions(connectionId, database, table, column, search),
+    queryFn: () => invoke<FkOption[]>("fetch_fk_options", { connectionId, table, column, search }),
+    staleTime: 30_000,
+    // Keep the last list on screen while the next search loads
+    placeholderData: keepPreviousData,
   });
 }
 
